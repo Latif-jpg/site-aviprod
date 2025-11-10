@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "AviprodApp",
+    "slug": "aviprodapp",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/images/final_quest_240x240.png",
+    "scheme": "aviprodapp",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/final_quest_240x240.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aviprodapp.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Cette application a besoin d'accéder à votre caméra pour prendre des photos des volailles lors de l'analyse de santé IA.",
+        "NSPhotoLibraryUsageDescription": "Cette application a besoin d'accéder à votre galerie pour sélectionner des photos des volailles lors de l'analyse de santé IA.",
+        "NSPhotoLibraryAddUsageDescription": "Cette application a besoin d'accéder à votre galerie pour sauvegarder des photos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/final_quest_240x240.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.aviprodapp.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/final_quest_240x240.png",
+      "build": {
+        "babel": {
+          "include": [
+            "@expo/vector-icons"
+          ]
+        }
+      },
+      "name": "AviprodApp",
+      "shortName": "Aviprod",
+      "lang": "fr",
+      "scope": "/",
+      "themeColor": "#2196F3",
+      "description": "Application de gestion d'élevage avicole"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cette application a besoin d'accéder à votre galerie pour sélectionner des photos des volailles lors de l'analyse de santé IA.",
+          "cameraPermission": "Cette application a besoin d'accéder à votre caméra pour prendre des photos des volailles lors de l'analyse de santé IA."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "efcf67cf-4c6c-4750-94f2-088531075612"
+      }
+    }
+  }
+}

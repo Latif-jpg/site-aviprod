@@ -1,0 +1,229 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    
+    <!-- Prevent caching -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    
+    <!-- Viewport -->
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1.00001,viewport-fit=cover"
+    />
+    
+    <title>AviprodApp - Gestion Avicole</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/assets/images/final_quest_240x240__.png" />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#FF8C00" />
+    <meta name="description" content="Application de gestion avicole complète pour les éleveurs" />
+    
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="/assets/images/final_quest_240x240__.png" />
+    
+    <style>
+      /**
+       * Extend the react-native-web reset:
+       * https://github.com/necolas/react-native-web/blob/master/packages/react-native-web/src/exports/StyleSheet/initialRules.js
+       */
+      html, body, #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      
+      body {
+        overflow: hidden;
+        overscroll-behavior-y: none;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        -ms-overflow-style: scrollbar;
+      }
+      
+      #root {
+        display: flex;
+        flex-direction: column;
+      }
+      
+      /* Loading screen */
+      .loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background-color: #ffffff;
+        z-index: 9999;
+      }
+      
+      .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #FF8C00;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      .loading-text {
+        margin-top: 20px;
+        font-size: 16px;
+        color: #333;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+      
+      /* Update notification */
+      .update-notification {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #FF8C00;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 10000;
+        display: none;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        cursor: pointer;
+        animation: slideDown 0.3s ease-out;
+      }
+      
+      @keyframes slideDown {
+        from {
+          transform: translateX(-50%) translateY(-100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(-50%) translateY(0);
+          opacity: 1;
+        }
+      }
+      
+      .update-notification.show {
+        display: block;
+      }
+    </style>
+    
+    <script>
+      // App version - update this with each deployment
+      window.APP_VERSION = '1.0.1';
+      
+      // Check for updates
+      function checkForUpdates() {
+        const currentVersion = localStorage.getItem('app_version');
+        
+        if (currentVersion && currentVersion !== window.APP_VERSION) {
+          console.log('New version detected:', window.APP_VERSION, 'Current:', currentVersion);
+          showUpdateNotification();
+        }
+        
+        localStorage.setItem('app_version', window.APP_VERSION);
+      }
+      
+      function showUpdateNotification() {
+        const notification = document.createElement('div');
+        notification.className = 'update-notification show';
+        notification.innerHTML = '🎉 Nouvelle version disponible! Cliquez pour actualiser.';
+        notification.onclick = function() {
+          // Clear all caches
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              names.forEach(function(name) {
+                caches.delete(name);
+              });
+            });
+          }
+          
+          // Clear service worker
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              registrations.forEach(function(registration) {
+                registration.unregister();
+              });
+            });
+          }
+          
+          // Force reload
+          window.location.reload(true);
+        };
+        document.body.appendChild(notification);
+      }
+      
+      // Clear old caches on load
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          names.forEach(function(name) {
+            if (name.includes('workbox') || name.includes('precache')) {
+              console.log('Clearing old cache:', name);
+              caches.delete(name);
+            }
+          });
+        });
+      }
+      
+      // Check for updates when page loads
+      window.addEventListener('load', function() {
+        checkForUpdates();
+        
+        // Hide loading screen after a short delay
+        setTimeout(function() {
+          const loadingScreen = document.getElementById('loading-screen');
+          if (loadingScreen) {
+            loadingScreen.style.display = 'none';
+          }
+        }, 1000);
+      });
+      
+      // Prevent caching by adding timestamp to requests
+      if ('fetch' in window) {
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+          if (args[0] && typeof args[0] === 'string') {
+            const url = new URL(args[0], window.location.origin);
+            url.searchParams.set('_t', Date.now().toString());
+            args[0] = url.toString();
+          }
+          return originalFetch.apply(this, args);
+        };
+      }
+    </script>
+  </head>
+  <body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Chargement d'AviprodApp...</div>
+    </div>
+    
+    <!-- Root element for React -->
+    <div id="root"></div>
+    
+    <!-- No JavaScript fallback -->
+    <noscript>
+      <div style="padding: 20px; text-align: center; font-family: sans-serif;">
+        <h2>JavaScript requis</h2>
+        <p>Cette application nécessite JavaScript pour fonctionner. Veuillez l'activer dans votre navigateur.</p>
+      </div>
+    </noscript>
+  </body>
+</html>

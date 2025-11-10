@@ -1,0 +1,1 @@
+CREATE OR REPLACE FUNCTION public.calculate_daily_engagement_metrics(target_timestamp timestamp) RETURNS void LANGUAGE sql SECURITY DEFINER AS $$ SELECT public.calculate_daily_engagement_metrics(target_timestamp::date); $$;

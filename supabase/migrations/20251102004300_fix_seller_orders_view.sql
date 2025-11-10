@@ -1,0 +1,1 @@
+-- This migration is being skipped as its functionality is superseded by a later migration (20251102013100_fix_seller_orders_view.sql).

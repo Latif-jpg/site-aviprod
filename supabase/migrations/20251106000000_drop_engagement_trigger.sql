@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS trigger_engagement_metrics ON public.activity_logs;
