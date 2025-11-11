@@ -154,14 +154,24 @@ const styles = StyleSheet.create({
     color: colors.success,
     lineHeight: 20,
   },
-  helpText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-});
-
+      helpText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginTop: 4,
+      fontStyle: 'italic',
+    },
+    inputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.backgroundAlt,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    eyeIcon: {
+      padding: 16,
+    },
+  });
 export default function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [email, setEmail] = useState('');
@@ -464,9 +474,9 @@ export default function AuthScreen() {
           {mode !== 'reset' && (
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Mot de passe</Text>
-              <View style={styles.inputContainer}>
+            <View style={styles.inputContainer}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { flex: 1, borderWidth: 0 }]}
                   placeholder="••••••••"
                   placeholderTextColor={colors.textSecondary}
                   value={password}
@@ -512,9 +522,9 @@ export default function AuthScreen() {
           {mode === 'signup' && (
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Confirmer le mot de passe</Text>
-              <View style={styles.inputContainer}>
+            <View style={styles.inputContainer}>
                 <TextInput
-                  style={[styles.input, password && confirmPassword && password !== confirmPassword ? styles.inputError : null]}
+                  style={[styles.input, { flex: 1, borderWidth: 0 }, password && confirmPassword && password !== confirmPassword ? styles.inputError : null]}
                   placeholder="••••••••"
                   placeholderTextColor={colors.textSecondary}
                   value={confirmPassword}

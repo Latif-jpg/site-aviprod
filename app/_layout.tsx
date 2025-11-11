@@ -148,8 +148,8 @@ function RootLayoutContent() {
       // User is signed in but is in the auth group or on welcome page.
       // Redirect them to the main app screen.
       router.replace('/dashboard');
-    } else if (!user && !inAuthGroup && !isWelcomePage) {
-      // User is not signed in and is not on auth or welcome page.
+    } else if (!user && !isWelcomePage) {
+      // User is not signed in and is not on welcome page.
       // Redirect them to the welcome screen.
       router.replace('/welcome');
     }
@@ -167,74 +167,7 @@ function RootLayoutContent() {
     );
   }
 
-  // Show error screen if there's a connection error (this part remains, but connectionError is set elsewhere if needed)
-  if (connectionError) {
-    return (
-      <View style={styles.errorContainer}>
-        <View style={styles.errorIcon}>
-          <Icon 
-            name="cloud-offline"
-            size={64} 
-            color={isProjectPaused ? colors.warning : colors.error} 
-          />
-        </View>
-        
-        <Text style={styles.errorTitle}>
-          {isProjectPaused ? 'Projet en Pause' : 'Problème de Connexion'}
-        </Text>
-        
-        <Text style={styles.errorMessage}>
-          {connectionError}
-        </Text>
 
-        {isProjectPaused && (
-          <View style={styles.warningBox}>
-            <Text style={styles.warningTitle}>💡 Comment résoudre?</Text>
-            <Text style={styles.warningText}>
-              1. Ouvrez le tableau de bord Supabase{'\n'}
-              2. Sélectionnez le projet "AviprodApp"{/* Corrected: escaped quote */}
-              3. Cliquez sur "Restore project"{/* Corrected: escaped quote */}
-              4. Revenez à l&apos;application et réessayez
-            </Text>
-          </View>
-        )}
-
-        <TouchableOpacity 
-          style={styles.errorButton}
-          onPress={() => {
-            // Ici, on pourrait re-tenter la connexion Supabase si nécessaire
-            // Pour l'instant, on se contente de réinitialiser l'erreur et laisser useAuth refaire son travail
-            setConnectionError(null);
-            setIsProjectPaused(false);
-          }}
-        >
-          <Text style={styles.errorButtonText}>
-            Réessayer
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.secondaryButton}
-          onPress={() => {
-            // Permettre de continuer en mode démo si la connexion échoue
-            setConnectionError(null);
-            router.replace('/'); // Rediriger vers le tableau de bord en mode non authentifié
-          }}
-        >
-          <Text style={styles.secondaryButtonText}>
-            Continuer en Mode Démo
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.statusText}>
-          {isProjectPaused 
-            ? 'Le projet doit être réactivé pour utiliser toutes les fonctionnalités.'
-            : 'Vous pouvez continuer en mode démo avec des données de test.'
-          }
-        </Text>
-      </View>
-    );
-  }
 
   // Render the main app with Stack navigator
   console.log('📺 Rendering Stack navigator, user authenticated:', !!user);

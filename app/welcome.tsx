@@ -64,7 +64,7 @@ const onboardingSlides = [
   },
 ];
 
-const Slide = ({ item }: { item: typeof onboardingSlides[0] }) => (
+const Slide = ({ item, slideIndex }: { item: typeof onboardingSlides[0], slideIndex: number }) => (
   <LinearGradient colors={item.gradient} style={styles.slide}>
     <View style={styles.logoArea}>
       <View style={styles.logo}>
@@ -146,7 +146,7 @@ export default function WelcomeScreen() {
 
       <FlatList
         data={onboardingSlides}
-        renderItem={({ item }) => <Slide item={item} />}
+        renderItem={({ item, index }) => <Slide item={item} slideIndex={index} />}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -194,14 +194,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  slide: {
-    width: width,
-    flex: 1,
-    paddingHorizontal: 30,
-    paddingTop: 30,
-    paddingBottom: 20,
-  },
-  logoArea: {
+      slide: {
+      width: width,
+      flex: 1,
+      paddingHorizontal: 30,
+      paddingTop: 0, // Réduit le padding en haut pour remonter le contenu
+      paddingBottom: 20,
+    },  logoArea: {
     alignItems: 'center',
     marginBottom: 40,
   },
