@@ -294,32 +294,17 @@ export default function AuthScreen() {
         } else if (data.user) {
           console.log('✅ Signup successful');
           
-          // Create a new farm and update user profile
-          const { data: farmData, error: farmError } = await supabase
-            .from('farms')
-            .insert({ name: farmName, owner_id: data.user.id })
-            .select('id')
-            .single();
-
-          if (farmError) {
-            console.error('❌ Error creating farm:', farmError);
-            setErrorMessage('Erreur lors de la création de la ferme.');
-            // Optionally, delete the user if farm creation fails to prevent orphaned users
-            await supabase.auth.admin.deleteUser(data.user.id);
-            return;
-          }
-
+          // Update user profile with farm name and full name
           const { error: profileUpdateError } = await supabase
             .from('profiles')
-            .update({ farm_id: farmData.id, farm_name: farmName })
+            .update({ farm_name: farmName, full_name: name })
             .eq('id', data.user.id);
 
           if (profileUpdateError) {
-            console.error('❌ Error updating profile with farm_id:', profileUpdateError);
-            setErrorMessage('Erreur lors de la mise à jour du profil avec l\'ID de la ferme.');
-            // Optionally, delete the user and farm if profile update fails
+            console.error('❌ Error updating profile with farm_name and full_name:', profileUpdateError);
+            setErrorMessage('Erreur lors de la mise à jour du profil avec le nom de la ferme et le nom complet.');
+            // Optionally, delete the user if profile update fails
             await supabase.auth.admin.deleteUser(data.user.id);
-            await supabase.from('farms').delete().eq('id', farmData.id);
             return;
           }
 
