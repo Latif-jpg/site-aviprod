@@ -141,17 +141,17 @@ function RootLayoutContent() {
       return;
     }
 
-    const inAuthGroup = segments[0] === 'auth' || pathname === '/welcome';
-    const isIndexPage = pathname === '/index' || pathname === '/';
+    const inAuthGroup = segments[0] === 'auth'; // Only consider 'auth' as auth group
+    const isWelcomePage = pathname === '/welcome';
 
-    if (user && inAuthGroup) {
-      // User is signed in but is in the auth group (e.g., on /welcome or /auth).
+    if (user && (inAuthGroup || isWelcomePage)) {
+      // User is signed in but is in the auth group or on welcome page.
       // Redirect them to the main app screen.
       router.replace('/dashboard');
-    } else if (!user && !inAuthGroup && !isIndexPage) {
-      // User is not signed in and is not in the auth group.
-      // Redirect them to the auth screen.
-      router.replace('/auth');
+    } else if (!user && !inAuthGroup && !isWelcomePage) {
+      // User is not signed in and is not on auth or welcome page.
+      // Redirect them to the welcome screen.
+      router.replace('/welcome');
     }
   }, [user, authLoading, segments, pathname]);
 
