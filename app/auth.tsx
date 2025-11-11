@@ -462,19 +462,32 @@ export default function AuthScreen() {
           {mode !== 'reset' && (
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Mot de passe</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                placeholderTextColor={colors.textSecondary}
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  setErrorMessage(null);
-                }}
-                secureTextEntry
-                autoCapitalize="none"
-                editable={!loading}
-              />
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.textSecondary}
+                  value={password}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    setErrorMessage(null);
+                  }}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                >
+                  <Icon
+                    name={showPassword ? 'eye-off' : 'eye'}
+                    size={20}
+                    color={colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
               {mode === 'login' && (
                 <TouchableOpacity 
                   style={styles.forgotPassword}
@@ -497,19 +510,32 @@ export default function AuthScreen() {
           {mode === 'signup' && (
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Confirmer le mot de passe</Text>
-              <TextInput
-                style={[styles.input, password && confirmPassword && password !== confirmPassword ? styles.inputError : null]}
-                placeholder="••••••••"
-                placeholderTextColor={colors.textSecondary}
-                value={confirmPassword}
-                onChangeText={(text) => {
-                  setConfirmPassword(text);
-                  setErrorMessage(null);
-                }}
-                secureTextEntry
-                autoCapitalize="none"
-                editable={!loading}
-              />
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={[styles.input, password && confirmPassword && password !== confirmPassword ? styles.inputError : null]}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.textSecondary}
+                  value={confirmPassword}
+                  onChangeText={(text) => {
+                    setConfirmPassword(text);
+                    setErrorMessage(null);
+                  }}
+                  secureTextEntry={!showConfirmPassword}
+                  autoCapitalize="none"
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  disabled={loading}
+                >
+                  <Icon
+                    name={showConfirmPassword ? 'eye-off' : 'eye'}
+                    size={20}
+                    color={colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         </View>
