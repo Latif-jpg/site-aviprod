@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     width: width,
     flex: 1,
     paddingHorizontal: 30,
-    paddingTop: 60,
+    paddingTop: 30,
     paddingBottom: 20,
   },
   logoArea: {
