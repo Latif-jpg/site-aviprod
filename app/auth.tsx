@@ -349,20 +349,7 @@ export default function AuthScreen() {
     }
   };
 
-  const handleDemoMode = () => {
-    console.log('🎭 Entering demo mode...');
-    Alert.alert(
-      'Mode Démo',
-      'Vous allez utiliser l\'application avec des données de démonstration. Aucune donnée ne sera sauvegardée.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { 
-          text: 'Continuer', 
-          onPress: () => router.replace('/') 
-        }
-      ]
-    );
-  };
+
 
   const switchMode = (newMode: 'login' | 'signup' | 'reset') => {
     setMode(newMode);
@@ -399,7 +386,7 @@ export default function AuthScreen() {
           <Text style={styles.connectionStatusText}>
             {connectionStatus === 'connected' && 'Connecté au serveur'}
             {connectionStatus === 'checking' && 'Vérification de la connexion...'}
-            {connectionStatus === 'disconnected' && 'Mode hors ligne - Utilisez le mode démo'}
+            {connectionStatus === 'disconnected' && 'Mode hors ligne - Connexion impossible'}
           </Text>
         </View>
 
@@ -559,18 +546,7 @@ export default function AuthScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>OU</Text>
-          <View style={styles.dividerLine} />
-        </View>
 
-        <Button
-          title="Continuer en Mode Démo"
-          onPress={handleDemoMode}
-          variant="secondary"
-          disabled={loading}
-        />
       </ScrollView>
     </SafeAreaView>
   );
