@@ -4,11 +4,11 @@
     "slug": "aviprodapp",
     "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/images/final_quest_240x240.png",
+    "icon": "./assets/images/icon-prod.png",
     "scheme": "aviprodapp",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/images/final_quest_240x240.png",
+      "image": "./assets/images/icon-prod.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -26,7 +26,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/final_quest_240x240.png",
+        "foregroundImage": "./assets/images/icon-prod.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.aviprodapp.app",
@@ -41,7 +41,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/final_quest_240x240.png",
+      "favicon": "./assets/images/icon-prod.png",
       "build": {
         "babel": {
           "include": [
