@@ -12417,3 +12417,20 @@ diff --git a/node_modules/expo-modules-core/android/build/tmp/kotlin-classes/deb
 new file mode 100644
 index 0000000..29b1a1c
 Binary files /dev/null and b/node_modules/expo-modules-core/android/build/tmp/kotlin-classes/debug/expo/modules/kotlin/views/ViewWrapperDelegateHolder.class differ
+diff --git a/node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/permissions/PermissionsService.kt b/node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/permissions/PermissionsService.kt
+index ae0a811..61b09ee 100644
+--- a/node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/permissions/PermissionsService.kt
++++ b/node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/permissions/PermissionsService.kt
+@@ -162,10 +162,8 @@ open class PermissionsService(val context: Context) : InternalModule, Permission
+    */
+   override fun isPermissionPresentInManifest(permission: String): Boolean {
+     try {
+-      context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)?.run {
+-        return requestedPermissions.contains(permission)
+-      }
+-      return false
++      val packageInfo = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
++      return packageInfo?.requestedPermissions?.contains(permission) == true
+     } catch (e: PackageManager.NameNotFoundException) {
+       return false
+     }
