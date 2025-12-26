@@ -8,7 +8,7 @@ import Button from '../components/Button';
 import { router } from 'expo-router';
 import { ensureSupabaseInitialized } from '../config';
 import SimpleBottomSheet from '../components/BottomSheet';
-import ImageViewing from 'react-native-image-viewing';
+// import ImageViewing from 'react-native-image-viewing';
 
 interface KYCVerification {
   id: string;
@@ -61,8 +61,13 @@ export default function AdminKYCScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [accessDeniedReason, setAccessDeniedReason] = useState('');
-  const [isImageViewerVisible, setImageViewerVisible] = useState(false);
-  const [viewerImages, setViewerImages] = useState<{ uri: string }[]>([]);
+  // const [isImageViewerVisible, setImageViewerVisible] = useState(false);
+  // const [viewerImages, setViewerImages] = useState<{ uri: string }[]>([]);
+
+  // const openImageViewer = (urls: string[]) => {
+  //  setViewerImages(urls.map(uri => ({ uri })));
+  //  setImageViewerVisible(true);
+  //  };
 
   useEffect(() => {
     checkAdminAccess();
@@ -623,7 +628,7 @@ export default function AdminKYCScreen() {
                   { label: 'Preuve Paiement', url: selectedVerification.payment_proof_url },
                 ].map((doc, index) => (
                   <View key={index} style={styles.documentItem}>
-                    <TouchableOpacity onPress={() => openImageViewer([doc.url])} disabled={!doc.url}>
+                    <TouchableOpacity onPress={() => {}} disabled={!doc.url}>
                       {doc.url ? (
                         <Image source={{ uri: doc.url }} style={styles.documentImage} />
                       ) : (
@@ -640,7 +645,7 @@ export default function AdminKYCScreen() {
               <>
                 <View style={styles.photoDetailContainer}>
                   <Text style={styles.photoDetailLabel}>Photo réelle (Selfie)</Text>
-                  <TouchableOpacity onPress={() => openImageViewer([selectedVerification.real_photo_url])} disabled={!selectedVerification.real_photo_url}>
+                  <TouchableOpacity onPress={() => {}} disabled={!selectedVerification.real_photo_url}>
                     {selectedVerification.real_photo_url ? (
                       <Image source={{ uri: selectedVerification.real_photo_url }} style={styles.photoDetail} />
                     ) : (
@@ -651,7 +656,7 @@ export default function AdminKYCScreen() {
 
                 <View style={styles.photoDetailContainer}>
                   <Text style={styles.photoDetailLabel}>Pièce d&apos;identité (CNI)</Text>
-                  <TouchableOpacity onPress={() => openImageViewer([selectedVerification.id_photo_url])} disabled={!selectedVerification.id_photo_url}>
+                  <TouchableOpacity onPress={() => {}} disabled={!selectedVerification.id_photo_url}>
                     {selectedVerification.id_photo_url ? (
                       <Image source={{ uri: selectedVerification.id_photo_url }} style={styles.photoDetail} />
                     ) : (
@@ -846,6 +851,11 @@ export default function AdminKYCScreen() {
               ]}
               onPress={() => setFilterStatus(filter.key)}
             >
+              <Icon 
+                name={filter.key === 'all' ? 'list' : filter.key === 'pending' ? 'time' : filter.key === 'approved' ? 'checkmark-circle' : 'close-circle'} 
+                size={16} 
+                color={filterStatus === filter.key ? colors.white : colors.textSecondary} 
+              />
               <Text style={[
                 styles.filterButtonText,
                 filterStatus === filter.key && styles.filterButtonTextActive,
@@ -887,7 +897,7 @@ export default function AdminKYCScreen() {
       {renderDetailSheet()}
       {renderRejectSheet()}
 
-      {viewerImages.length > 0 && (
+      {/* {{viewerImages.length > 0 && (
         <ImageViewing
           images={viewerImages}
           imageIndex={0}
@@ -901,7 +911,7 @@ export default function AdminKYCScreen() {
             </View>
           )}
         />
-      )}
+      )} } */}
     </SafeAreaView>
   );
 }
@@ -1066,8 +1076,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: colors.backgroundAlt,
     borderWidth: 1,

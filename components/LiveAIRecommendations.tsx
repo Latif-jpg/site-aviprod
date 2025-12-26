@@ -64,19 +64,6 @@ export default function LiveAIRecommendations({
           <Text style={styles.metricLabel}>Mortalité</Text>
           <Text style={styles.metricValue}>{mortalityPct?.toFixed(1) || '0.0'}%</Text>
         </View>
-        <View style={styles.metric}>
-          <Text style={styles.metricLabel}>Consommation</Text>
-          <Text style={[styles.metricValue, { color: consumptionChangePct && consumptionChangePct < 0 ? colors.danger : colors.success }]}>
-            {consumptionChangePct && consumptionChangePct > 0 ? '+' : ''}{consumptionChangePct || 0}%
-          </Text>
-          <Text style={styles.metricContext}>
-            {getConsumptionReasonText(consumptionChangeReason)}
-          </Text>
-        </View>
-        <View style={styles.metric}>
-          <Text style={styles.metricLabel}>Stock</Text>
-          <Text style={styles.metricValue}>{stockPercent?.toFixed(0) || '0'}%</Text>
-        </View>
       </View>
 
       <Text style={styles.causesTitle}>🔍 Causes identifiées:</Text>
@@ -93,7 +80,7 @@ export default function LiveAIRecommendations({
       <Text style={styles.recTitle}>💡 Recommandations:</Text>
       <View style={{marginTop:8}}>
         {recommendations.length === 0 && <Text style={styles.noRec}>✅ Aucune action requise</Text>}
-        {recommendations.map((r, i) => (
+        {recommendations.slice(1).map((r, i) => (
           <View key={i} style={styles.recRow}>
             <Text style={styles.recText}>• {r.text}</Text>
             {r.productId ? (

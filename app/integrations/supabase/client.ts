@@ -10,53 +10,33 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase URL or Anon Key is not set. Please check your .env file.');
 }
 
-// Web-specific storage adapter with cache busting
-const webStorage = Platform.OS === 'web' ? {
-  getItem: async (key: string) => {
-    try {
-      // Add version check for web
-      if (key === 'supabase.auth.token') {
-        const version = localStorage.getItem('app_version');
-        const currentVersion = '1.0.1'; // Match app.json version
-
-        if (version && version !== currentVersion) {
-          console.log('🔄 Version mismatch detected, clearing auth cache');
-          localStorage.removeItem(key);
-          localStorage.setItem('app_version', currentVersion);
-          return null;
-        }
-      }
-
-      return localStorage.getItem(key);
-    } catch (error) {
-      console.log('⚠️ Error reading from localStorage:', error);
-      return null;
-    }
+// --- CORRECTION : Créer un adaptateur de stockage sécurisé pour le rendu côté serveur ---
+// Cet adaptateur vérifie si `localStorage` existe avant de l'utiliser.
+const safeLocalStorage = {
+  getItem: (key: string) => {
+    // Si `localStorage` n'est pas défini (ex: côté serveur), retourner null.
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
   },
-  setItem: async (key: string, value: string) => {
-    try {
+  setItem: (key: string, value: string) => {
+    // N'écrire que si `localStorage` est disponible.
+    if (typeof localStorage !== 'undefined') {
       localStorage.setItem(key, value);
-
-      // Set version when storing auth token
-      if (key === 'supabase.auth.token') {
-        localStorage.setItem('app_version', '1.0.1');
-      }
-    } catch (error) {
-      console.log('⚠️ Error writing to localStorage:', error);
     }
   },
-  removeItem: async (key: string) => {
-    try {
+  removeItem: (key: string) => {
+    // Ne supprimer que si `localStorage` est disponible.
+    if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(key);
-    } catch (error) {
-      console.log('⚠️ Error removing from localStorage:', error);
     }
   },
-} : AsyncStorage;
+};
+
+// Déterminer le stockage à utiliser en fonction de la plateforme
+const storage = Platform.OS === 'web' ? safeLocalStorage : AsyncStorage;
 
 export const supabase = createClient(supabaseUrl!, supabaseAnonKey!, {
   auth: {
-    storage: webStorage, // Use webStorage for web, AsyncStorage for others
+    storage: storage, // Utilise l'adaptateur sécurisé pour le web
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

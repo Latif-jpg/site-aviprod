@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIn
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from './Icon';
 import Button from './Button'; // Importation correcte
-import { supabase } from '../config'; // Import supabase directly
+import { supabase, getMarketplaceImageUrl } from '../config'; // Import supabase and image URL function
 import { useAuth } from '../hooks/useAuth';
 import { useDataCollector } from '../src/hooks/useDataCollector';
 
@@ -16,6 +16,9 @@ interface CartItem {
     price: number;
     image: string;
     seller_id: string;
+    country?: string;
+    currency?: string;
+    buyer_name?: string;
   };
 }
 
@@ -54,7 +57,7 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
     try {
       const { data, error } = await supabase
         .from('shopping_cart')
-        .select(`id, product_id, quantity, product:marketplace_products(name, price, image, seller_id)`)
+        .select(`id, product_id, quantity, product:marketplace_products(name, price, image, seller_id, country, currency)`)
         .eq('user_id', user.id);
 
       if (error) throw error;
@@ -112,7 +115,16 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
     }
   };
 
-  const handleCheckout = async (deliveryDetails: { address: string, phone: string, city: string } | null) => {
+  // Helper to determine if cart has international items
+  const hasInternationalItems = cartItems.some(item =>
+    item.product.country && item.product.country !== 'Burkina Faso'
+  );
+
+  // Helper to get dominant currency (simple approach: take first found or default to CFA)
+  const cartCurrency = cartItems.length > 0 ? (cartItems[0].product.currency || 'CFA') : 'CFA';
+
+
+  const handleCheckout = async (deliveryDetails: { address: string, phone: string, city: string, country: string } | null) => {
     if (cartItems.length === 0) {
       Alert.alert('Panier Vide', 'Ajoutez des articles avant de passer commande');
       return;
@@ -125,46 +137,88 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
     setIsProcessing(true);
 
     try {
-      // Utiliser une fonction RPC pour créer les commandes et les notifications de manière atomique
-      for (const item of cartItems) {
-        const { error: rpcError } = await supabase.rpc('create_order_with_notification', {
-          p_buyer_id: user.id,
-          p_seller_id: item.product.seller_id,
-          p_product_id: item.product_id,
-          p_quantity: item.quantity,
-          p_total_price: item.product.price * item.quantity,
-          p_delivery_fee: deliveryFee,
-          p_delivery_requested: deliveryOption !== 'pickup',
-          p_delivery_address: deliveryDetails ? {
-            address: deliveryDetails.address,
-            city: deliveryDetails.city,
-            phone: deliveryDetails.phone,
-            coordinates: [-1.5197, 12.3714] // Coordonnées par défaut
-          } : null,
-          // Notification details
-          p_notification_type: 'new_order',
-          p_notification_title: 'Nouvelle commande reçue',
-          p_notification_message: `Vous avez une nouvelle commande pour ${item.quantity} x ${item.product.name}.`,
-          p_notification_data: {
-            action: 'view_seller_orders'
-          }
-        });
-
-        if (rpcError) {
-          console.error(`❌ Erreur RPC pour le produit ${item.product_id}:`, rpcError);
-          // On peut choisir de continuer ou d'arrêter tout le processus
-          throw new Error(`Impossible de créer la commande pour ${item.product.name}.`);
+      // Group cart items by seller
+      const itemsBySeller = cartItems.reduce((acc, item) => {
+        const sellerId = item.product.seller_id;
+        if (!acc[sellerId]) {
+          acc[sellerId] = [];
         }
-        console.log(`✅ Commande et notification créées pour le produit ${item.product_id}`);
+        acc[sellerId].push(item);
+        return acc;
+      }, {} as Record<string, CartItem[]>);
+
+      // Process orders for each seller
+      // --- CORRECTION : Déclarer la variable pour stocker les ID des commandes créées ---
+      const createdOrderIds: string[] = [];
+
+      for (const sellerId in itemsBySeller) {
+        const sellerItems = itemsBySeller[sellerId];
+        const totalPrice = sellerItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+
+        // 1. Create the order
+        const { data: orderData, error: orderError } = await supabase
+          .from('orders')
+          .insert({
+            buyer_id: user.id,
+            seller_id: sellerId,
+            total_price: totalPrice,
+            delivery_fee: deliveryFee, // Assuming deliveryFee is for the whole cart for now
+            delivery_requested: deliveryOption !== 'pickup',
+            delivery_address: deliveryDetails,
+            status: 'pending',
+          })
+          .select()
+          .single();
+
+        if (orderError) throw orderError;
+
+        const newOrderId = orderData.id;
+
+        // 2. Insert order items
+        const orderItemsData = sellerItems.map(item => ({
+          order_id: newOrderId,
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.product.price, // CONSERVE: Ajout du prix unitaire
+        }));
+
+        const { error: orderItemsError } = await supabase
+          .from('order_items')
+          .insert(orderItemsData);
+
+        if (orderItemsError) throw orderItemsError;
+
+        // 3. Create notification for the seller
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: sellerId,
+            type: 'new_order',
+            title: 'Nouvelle commande reçue!',
+            message: `Vous avez une nouvelle commande de ${totalPrice.toLocaleString()} ${cartCurrency}.`,
+            data: { order_id: newOrderId },
+          });
+
+        if (notificationError) {
+          console.warn('Could not create notification', notificationError);
+        }
+
+        // --- CORRECTION : Ajouter l'ID de la nouvelle commande à la liste ---
+        createdOrderIds.push(newOrderId);
       }
 
-      const { error: clearError } = await supabase.from('shopping_cart').delete().eq('user_id', user.id);
-      if (clearError) throw clearError;
+      // 4. Clear the shopping cart
+      const { error: deleteError } = await supabase
+        .from('shopping_cart')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (deleteError) throw deleteError;
 
       // TRACKER LE PASSAGE DE COMMANDE
       const totalAmount = cartItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0) + deliveryFee;
       trackAction('order_placed', {
-        order_id: 'new_order', // Sera mis à jour avec l'ID réel
+        order_ids: createdOrderIds,
         total_amount: totalAmount,
         items_count: cartItems.length,
         delivery_option: deliveryOption,
@@ -175,9 +229,9 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
       Alert.alert('✅ Commande Passée', 'Votre commande a été enregistrée avec succès.', [
         { text: 'OK', onPress: onCheckout }
       ]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error processing checkout:', error);
-      Alert.alert('Erreur', 'Impossible de passer la commande');
+      Alert.alert('Erreur', error.message || 'Impossible de passer la commande');
     } finally {
       setIsProcessing(false);
     }
@@ -206,19 +260,19 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitle}>Adresse de Livraison</Text>
           <TextInput style={styles.input} placeholder="Ville (ex: Ouagadougou)" value={city} onChangeText={setCity} />
-          <TextInput 
-            style={styles.input} 
-            placeholder="Quartier/Secteur (ex: Karpala, Saaba)" 
-            value={address} 
+          <TextInput
+            style={styles.input}
+            placeholder="Quartier/Secteur (ex: Karpala, Saaba)"
+            value={address}
             onChangeText={(text) => {
               setAddress(text);
               // Recalculer les frais de livraison à chaque changement de quartier
               calculateDeliveryFee(text);
-            }} 
+            }}
           />
           <TextInput style={styles.input} placeholder="Téléphone joignable" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
           <View style={styles.modalActions}>
-            <Button title="Annuler" onPress={() => setIsAddressModalVisible(false)} style={{backgroundColor: colors.error}} />
+            <Button title="Annuler" onPress={() => setIsAddressModalVisible(false)} style={{ backgroundColor: colors.error }} />
             <Button title="Valider" onPress={() => {
               if (!city || !address || !phone) {
                 Alert.alert("Champs requis", "Veuillez remplir tous les champs pour la livraison.");
@@ -226,10 +280,15 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
               }
               setIsAddressModalVisible(false);
               // Passer directement la commande avec les détails saisis
+              // --- MODIFICATION : Ajouter le pays aux détails de la commande ---
+              const deliveryCountry = hasInternationalItems
+                ? cartItems.find(item => item.product.country !== 'Burkina Faso')?.product.country
+                : 'Burkina Faso';
               handleCheckout({
                 address: address,
                 phone: phone,
-                city: city
+                city: city,
+                country: deliveryCountry || 'Burkina Faso'
               });
             }} />
           </View>
@@ -240,7 +299,7 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
 
   const renderDeliveryOption = (option: DeliveryOption, title: string, subtitle: string) => (
     <TouchableOpacity style={styles.deliveryOptionRow} onPress={() => setDeliveryOption(option)}>
-      <View style={[styles.radio, {justifyContent: 'center', alignItems: 'center'}]}>
+      <View style={[styles.radio, { justifyContent: 'center', alignItems: 'center' }]}>
         {deliveryOption === option && <View style={styles.radioSelected} />}
       </View>
       <View>
@@ -258,17 +317,17 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
       <View style={styles.priceBreakdown}>
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Sous-total</Text>
-          <Text style={styles.priceValue}>{subtotal.toLocaleString()} CFA</Text>
+          <Text style={styles.priceValue}>{subtotal.toLocaleString()} {cartCurrency}</Text>
         </View>
         {deliveryOption !== 'pickup' && (
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Livraison</Text>
-            <Text style={styles.priceValue}>{deliveryFee.toLocaleString()} CFA</Text>
+            <Text style={styles.priceValue}>{deliveryFee.toLocaleString()} {cartCurrency}</Text>
           </View>
         )}
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalValue}>{total.toLocaleString()} CFA</Text>
+          <Text style={styles.totalValue}>{total.toLocaleString()} {cartCurrency}</Text>
         </View>
       </View>
     );
@@ -300,10 +359,16 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
           <ScrollView style={styles.itemsList}>
             {cartItems.map((item) => (
               <View key={item.id} style={styles.cartItem}>
-                <Image source={{ uri: item.product.image }} style={styles.itemImage} />
+                {/* CONSERVE: Utiliser getMarketplaceImageUrl pour obtenir l'URL complète */}
+                <Image
+                  source={{ uri: getMarketplaceImageUrl(item.product.image) }}
+                  style={styles.itemImage} />
                 <View style={styles.itemInfo}>
                   <Text style={styles.itemName} numberOfLines={2}>{item.product.name}</Text>
-                  <Text style={styles.itemPrice}>{item.product.price.toLocaleString()} CFA</Text>
+                  <Text style={styles.itemPrice}>
+                    {item.product.price.toLocaleString()} {item.product.currency || 'CFA'}
+                    {item.product.country && item.product.country !== 'Burkina Faso' && ` (${item.product.country})`}
+                  </Text>
                   <View style={styles.quantityControls}>
                     <TouchableOpacity style={styles.quantityButton} onPress={() => updateQuantity(item.id, item.quantity - 1)}><Icon name="close" size={20} color={colors.text} /></TouchableOpacity>
                     <Text style={styles.quantity}>{item.quantity}</Text>
@@ -318,8 +383,15 @@ export default function ShoppingCart({ onClose, onCheckout }: ShoppingCartProps)
           <View style={styles.footer}>
             <View style={styles.deliveryOptionsContainer}>
               {renderDeliveryOption('pickup', 'Retrait sur place', 'Pas de frais supplémentaires')}
-              {renderDeliveryOption('delivery', 'Livraison (même ville)', `À partir de 1000 CFA`)}
-              {renderDeliveryOption('expedition', 'Expédition (autre ville)', `2000 CFA`)}
+
+              {!hasInternationalItems ? (
+                <>
+                  {renderDeliveryOption('delivery', 'Livraison (même ville)', `À partir de 1000 CFA`)}
+                  {renderDeliveryOption('expedition', 'Expédition (autre ville)', `2000 CFA`)}
+                </>
+              ) : (
+                <View style={styles.internationalWarning}><Text style={styles.warningText}>📦 Pour les commandes hors Burkina Faso, seul le retrait sur place est disponible. Le paiement se fait à la récupération du produit.</Text></View>
+              )}
             </View>
 
             {renderPriceBreakdown()}
@@ -377,5 +449,6 @@ const styles = StyleSheet.create({
   priceValue: { fontSize: 16, fontWeight: '600', color: colors.text },
   totalRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8, marginTop: 4 },
   totalLabel: { fontSize: 20, fontWeight: 'bold', color: colors.text },
-  totalValue: { fontSize: 20, fontWeight: 'bold', color: colors.primary },
+  totalValue: { fontSize: 20, fontWeight: 'bold', color: colors.primary }, internationalWarning: { padding: 10, backgroundColor: '#FFF3CD', borderRadius: 8, marginBottom: 8 },
+  warningText: { color: '#856404', fontSize: 13, textAlign: 'center' },
 });

@@ -1,3 +1,4 @@
+// Cache-busting comment
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Dimensions, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,7 +10,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '../components/Icon';
 import BottomNavigation from '../components/BottomNavigation';
 import ManualRationForm from '../components/ManualRationForm';
-import AutoRationForm from '../components/AutoRationForm';
 import RationAdvisorDashboard from '../src/intelligence/ui/RationAdvisorDashboard';
 
 const { width } = Dimensions.get('window');
@@ -80,7 +80,6 @@ export default function FeedingScreen() {
   const [showRationModal, setShowRationModal] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [showManualForm, setShowManualForm] = useState(false);
-  const [showAutoForm, setShowAutoForm] = useState(false);
   const [showRationAdvisor, setShowRationAdvisor] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [userSubscription, setUserSubscription] = useState<UserSubscription | null>(null);
@@ -161,7 +160,7 @@ export default function FeedingScreen() {
 
       if (error) throw error;
 
-      // --- CORRECTION : Calcul de l'âge dynamique ---
+      // --- CORRECTION : Calcul de l\'âge dynamique ---
       const lotsWithDynamicAge = (data || []).map(lot => {
         const entryDate = new Date(lot.entry_date);
         const today = new Date();
@@ -311,9 +310,9 @@ export default function FeedingScreen() {
     if (analytics.rationedLots < lots.length) {
       insights.push({
         type: 'critical',
-        title: 'Rations Manquantes',
-        description: `${lots.length - analytics.rationedLots} lot(s) sans ration`,
-        action: 'Configurer les rations manquantes',
+        title: 'Alimentation Manquante',
+        description: `${lots.length - analytics.rationedLots} lot(s) sans alimentation`,
+        action: "Configurer l'alimentation manquante",
         icon: 'alert-circle',
         confidence: 95
       });
@@ -324,7 +323,7 @@ export default function FeedingScreen() {
       insights.push({
         type: 'success',
         title: 'Gestion Optimale',
-        description: 'Tous vos lots ont des rations configurées',
+        description: 'Tous vos lots ont une alimentation configurée',
         action: 'Continuez cette bonne pratique',
         icon: 'checkmark-circle',
         confidence: 98
@@ -368,7 +367,7 @@ export default function FeedingScreen() {
             <Icon name="checkmark-circle" size={24} color="#fff" />
           </View>
           <Text style={styles.analyticsValue}>{analytics.rationedLots}/{lots.length}</Text>
-          <Text style={styles.analyticsLabel}>Rations Config.</Text>
+          <Text style={styles.analyticsLabel}>Alim. Config.</Text>
         </View>
       </View>
     </View>
@@ -480,9 +479,9 @@ export default function FeedingScreen() {
           <View style={[styles.currentRation, { backgroundColor: '#10b98110', borderColor: '#10b98130' }]}>
             <View style={styles.rationBadge}>
               <Icon name="checkmark-circle" size={16} color="#10b981" />
-              <Text style={styles.rationBadgeText}>Ration Active</Text>
+              <Text style={styles.rationBadgeText}>Alimentation Active</Text>
             </View>
-            <Text style={styles.currentRationName}>{currentRation?.name || 'Ration assignée via le stock'}</Text>
+            <Text style={styles.currentRationName}>{currentRation?.name || 'Alimentation assignée via le stock'}</Text>
             <View style={styles.rationDetails}>
               <View style={styles.rationDetailItem}>
                 <Text style={styles.rationDetailLabel}>Protéines</Text> 
@@ -516,7 +515,7 @@ export default function FeedingScreen() {
             onPress={() => {
               setSelectedLot(lot);
               if (hasAutomaticRationAccess()) {
-                setShowAutoForm(true);
+                setShowRationAdvisor(true);
               } else {
                 setShowPremiumModal(true);
               }
@@ -554,7 +553,7 @@ export default function FeedingScreen() {
 
       <View style={styles.premiumBody}>
         <Text style={styles.premiumDescription}>
-          Débloquez le calcul automatique des rations avec l'IA et accédez à :
+          Débloquez le calcul automatique de l\'alimentation avec l\'IA et accédez à :
         </Text>
 
         <View style={styles.premiumFeatures}>
@@ -609,7 +608,7 @@ export default function FeedingScreen() {
             </TouchableOpacity>
             <View>
               <Text style={styles.headerTitle}>Alimentation</Text>
-              <Text style={styles.headerSubtitle}>Gestion intelligente des rations</Text>
+              <Text style={styles.headerSubtitle}>Gestion intelligente de l\'alimentation</Text>
             </View>
           </View>
         </LinearGradient>
@@ -659,7 +658,7 @@ export default function FeedingScreen() {
           </TouchableOpacity>
           <View>
             <Text style={styles.headerTitle}>Alimentation</Text>
-            <Text style={styles.headerSubtitle}>Gestion intelligente des rations</Text>
+            <Text style={styles.headerSubtitle}>Gestion intelligente de l\'alimentation</Text>
           </View>
         </View>
       </LinearGradient>
@@ -679,26 +678,6 @@ export default function FeedingScreen() {
           {renderAnalyticsCards()}
           {renderAIInsights()}
 
-          {/* Bouton Rations IA */}
-          <TouchableOpacity
-            style={styles.aiAdvisorButton}
-            onPress={() => setShowRationAdvisor(true)}
-          >
-            <LinearGradient
-              colors={['#3b82f6', '#1d4ed8']}
-              style={styles.aiAdvisorGradient}
-            >
-              <View style={styles.aiAdvisorContent}>
-                <Icon name="hardware-chip" size={24} color="#fff" />
-                <View style={styles.aiAdvisorText}>
-                  <Text style={styles.aiAdvisorTitle}>Rations IA</Text>
-                  <Text style={styles.aiAdvisorSubtitle}>Optimisation intelligente des rations</Text>
-                </View>
-                <Icon name="chevron-forward" size={20} color="#fff" />
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
-
           <Text style={styles.sectionTitle}>Lots Actifs</Text>
           {lots.length === 0 ? (
             <View style={styles.emptyState}>
@@ -710,7 +689,7 @@ export default function FeedingScreen() {
               </LinearGradient>
               <Text style={styles.emptyStateTitle}>Aucun lot actif</Text>
               <Text style={styles.emptyStateText}>
-                Ajoutez des lots pour configurer les rations alimentaires
+                Ajoutez des lots pour configurer l\'alimentation
               </Text>
             </View>
           ) : (
@@ -721,10 +700,7 @@ export default function FeedingScreen() {
 
       <BottomNavigation />
 
-      <SimpleBottomSheet
-        isVisible={showPremiumModal}
-        onClose={() => setShowPremiumModal(false)}
-      >
+      <SimpleBottomSheet isVisible={showPremiumModal} onClose={() => setShowPremiumModal(false)}>
         {renderPremiumModal()}
       </SimpleBottomSheet>
 
@@ -735,22 +711,18 @@ export default function FeedingScreen() {
         <ManualRationForm />
       </SimpleBottomSheet>
 
-      <SimpleBottomSheet
-        isVisible={showAutoForm}
-        onClose={() => setShowAutoForm(false)}
-      >
-        <AutoRationForm selectedLot={selectedLot} onSave={refreshLotRations} />
-      </SimpleBottomSheet>
-
+      {/* Ce BottomSheet est maintenant utilisé par le bouton "Auto" de chaque lot */}
       <SimpleBottomSheet
         isVisible={showRationAdvisor}
         onClose={() => setShowRationAdvisor(false)}
       >
-        <RationAdvisorDashboard
-          lotId={selectedLot?.id || (lots.length > 0 ? lots[0].id : undefined)}
-          userId={currentUserId}
-          onClose={() => setShowRationAdvisor(false)}
-        />
+        {selectedLot && currentUserId && (
+            <RationAdvisorDashboard
+                lot={selectedLot}
+                userId={currentUserId}
+                onClose={() => setShowRationAdvisor(false)}
+            />
+        )}
       </SimpleBottomSheet>
     </SafeAreaView>
   );

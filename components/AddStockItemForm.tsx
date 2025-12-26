@@ -71,6 +71,7 @@ export default function AddStockItemForm({ onSubmit, onCancel }: AddStockFormPro
         name: name.trim(),
         category,
         quantity: parseFloat(quantity),
+        initial_quantity: parseFloat(quantity), // Sauvegarder la quantité de départ
         unit,
         min_threshold: 5, // Valeur par défaut pour le seuil minimum
         cost: parseFloat(cost),

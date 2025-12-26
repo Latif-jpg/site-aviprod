@@ -74,6 +74,17 @@ USING (
   )
 );
 
+-- Users can insert items for their own orders
+DROP POLICY IF EXISTS "Users can insert items for their own orders" ON public.order_items;
+CREATE POLICY "Users can insert items for their own orders"
+ON public.order_items FOR INSERT
+TO authenticated
+WITH CHECK (
+  order_id IN (
+    SELECT id FROM orders WHERE buyer_id = auth.uid()
+  )
+);
+
 -- delivery_zones: Drop block policy and add proper policies
 DROP POLICY IF EXISTS "block_all_for_now" ON public.delivery_zones;
 

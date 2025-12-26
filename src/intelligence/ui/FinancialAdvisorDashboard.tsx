@@ -309,7 +309,7 @@ const ProfitabilitySection = ({ data, formatCurrency, getTrendColor }: { data: A
       <MetricCard label="Revenus totaux" value={formatCurrency(data.total_revenue)} description="Total des entrées d'argent sur la période." />
       <MetricCard label="Dépenses totales" value={formatCurrency(data.total_expenses)} description="Total des sorties d'argent sur la période." />
       <MetricCard label="Profit net" value={formatCurrency(data.net_profit)} valueColor={data.net_profit >= 0 ? '#10996E' : '#E53935'} description="Différence entre les revenus et les dépenses." />
-      <MetricCard label="Marge bénéficiaire" value={`${data.profit_margin_percent.toFixed(1)}%`} valueColor={data.profit_margin_percent >= 15 ? '#10996E' : '#E53935'} description="Pourcentage du revenu qui est un profit." />
+      <MetricCard label="Marge bénéficiaire" value={`${(data.profit_margin || 0).toFixed(1)}%`} valueColor={(data.profit_margin || 0) >= 15 ? '#10996E' : '#E53935'} description="Pourcentage du revenu qui est un profit." />
       <MetricCard label="ROI" value={`${data.roi.toFixed(1)}%`} valueColor={data.roi >= 20 ? '#10996E' : '#FF9800'} description="Retour sur investissement." />
       <MetricCard label="Tendance" value={data.trend.toUpperCase()} valueColor={getTrendColor(data.trend)} description="Évolution par rapport à la période précédente." />
     </View>

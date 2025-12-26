@@ -1,63 +1,78 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, TextInput } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from '../components/Icon';
 import { router } from 'expo-router';
-import { ensureSupabaseInitialized } from './integrations/supabase/client';
+import { ensureSupabaseInitialized, getMarketplaceImageUrl } from '../config';
 import { useAuth } from '../hooks/useAuth';
-import { useSubscription } from '../contexts/SubscriptionContext';
-import Button from '../components/Button';
+import { useProfile } from '../contexts/ProfileContext'; // <-- CORRECTION DU CHEMIN D'IMPORTATION
+import Button from '../components/Button'; // Assurez-vous que ce chemin est correct
 import { smartAlertSystem } from '../src/intelligence/core/SmartAlertSystem'; // Importer le singleton
 import { useDataCollector } from '../src/hooks/useDataCollector';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
+import { COUNTRIES } from '../data/locations';
+import SimpleBottomSheet from '../components/BottomSheet';
 
 export default function ProfileScreen() {
   const { user } = useAuth();
-  const { subscription, loading: subscriptionLoading } = useSubscription();
-  const [profile, setProfile] = useState<{
-    full_name: string | null;
-    farm_name: string | null;
-    phone: string | null;
-    location: string | null;
-    role: string | null;
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [avicoins, setAvicoins] = useState(0);
+  // Utiliser le contexte pour obtenir le profil et l'état de chargement.
+  // Ces données se mettront à jour automatiquement.
+  const { profile, loading: profileLoading } = useProfile();
   const [isEditing, setIsEditing] = useState(false);
+  const [editingFullName, setEditingFullName] = useState(''); // Garder les états locaux pour l'édition
+  const [editingPhone, setEditingPhone] = useState('');
+  const [editingLocation, setEditingLocation] = useState('');
   const [editingFarmName, setEditingFarmName] = useState('');
+  const [editingLogo, setEditingLogo] = useState<string | null>(null);
+  const [editingCountry, setEditingCountry] = useState('');
+  const [editingRegion, setEditingRegion] = useState('');
+  const [editingCity, setEditingCity] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const { trackAction } = useDataCollector();
+  const [pendingPaymentsCount, setPendingPaymentsCount] = useState(0);
+  const [pendingKYCCount, setPendingKYCCount] = useState(0);
+  const [avicoins, setAvicoins] = useState(0); // État local pour les avicoins
+  const [isCountryPickerVisible, setIsCountryPickerVisible] = useState(false);
+  const [isRegionPickerVisible, setIsRegionPickerVisible] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // --- NOUVEAU : Centraliser la logique d'initialisation de l'état d'édition ---
+  const initializeEditingState = useCallback(() => {
+    if (profile) {
+      setEditingFullName(profile.full_name || '');
+      setEditingPhone(profile.phone || '');
+      setEditingLocation(profile.location || '');
+      setEditingFarmName(profile.farm_name || '');
+      setEditingLogo(profile.avatar_url || null);
+      setEditingCountry(profile.country || 'Burkina Faso');
+
+      // Tenter d'extraire la ville et la région depuis la location existante
+      const locParts = (profile.location || '').split(',').map(s => s.trim());
+      if (locParts.length >= 1) setEditingCity(locParts[0]);
+      if (locParts.length >= 2 && locParts[1] !== profile.country) setEditingRegion(locParts[1]);
+      else setEditingRegion('');
+    }
+  }, [profile]); // Cette fonction dépend du profil pour se recréer si le profil change
 
   useEffect(() => {
-    if (user) {
-      loadProfile();
-      loadAvicoins();
+    if (profile?.role === 'admin') {
+      fetchPendingPaymentsCount();
+      fetchPendingKYCCount();
     }
-  }, [user]);
+  }, [profile]);
 
-  const loadProfile = async () => {
-    if (!user) return;
-    try {
-      setLoading(true);
-      const supabase = await ensureSupabaseInitialized();
-      const { data, error } = await supabase
-        .from('profiles') // Correction: 'profiles' au lieu de 'profile'
-        .select('full_name, farm_name, phone, location, role')
-        .eq('user_id', user.id)
-        .maybeSingle();
+  useEffect(() => {
+    // Initialiser l'état d'édition lorsque le profil est chargé
+    initializeEditingState();
+  }, [initializeEditingState]);
 
-      if (error) {
-        console.error('Error loading profile:', error);
-      } else {
-        setProfile(data);
-      }
-    } catch (error) {
-      console.error('Error loading profile:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    loadAvicoins();
+  }, [user]); // Garder ce useEffect pour charger les avicoins
 
   const loadAvicoins = async () => {
     if (!user) return;
@@ -65,17 +80,47 @@ export default function ProfileScreen() {
       const supabase = await ensureSupabaseInitialized();
       const { data, error } = await supabase
         .from('user_avicoins')
-        .select('balance')
+        .select('balance') // La colonne s'appelle 'balance'
         .eq('user_id', user.id)
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error loading avicoins:', error);
       } else {
-        setAvicoins(data?.balance || 0);
+        setAvicoins(data?.balance ?? 0); // Utiliser ?? pour gérer le cas où la balance est 0
       }
     } catch (error) {
       console.error('Error loading avicoins:', error);
+    }
+  };
+
+  const fetchPendingPaymentsCount = async () => {
+    try {
+      const supabase = await ensureSupabaseInitialized();
+      const { data, error } = await supabase.rpc('get_pending_payment_proofs_count');
+
+      if (error) {
+        console.warn('Could not fetch pending payments count:', error.message);
+        return;
+      }
+      setPendingPaymentsCount(data || 0);
+    } catch (error) {
+      console.warn('Error in fetchPendingPaymentsCount:', error);
+    }
+  };
+
+  const fetchPendingKYCCount = async () => {
+    try {
+      const supabase = await ensureSupabaseInitialized();
+      const { data, error } = await supabase.rpc('get_pending_kyc_count');
+
+      if (error) {
+        console.warn('Could not fetch pending KYC count:', error.message);
+        return;
+      }
+      setPendingKYCCount(data || 0);
+    } catch (error) {
+      console.warn('Error in fetchPendingKYCCount:', error);
     }
   };
 
@@ -95,6 +140,11 @@ export default function ProfileScreen() {
               // dataCollector.clearCache(); // Si le dataCollector a aussi un cache
 
               const supabase = await ensureSupabaseInitialized();
+              // Forcer la suppression de la session locale pour éviter les erreurs de "refresh token"
+              const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+              if (signOutError) {
+                console.error('Error clearing local session:', signOutError);
+              }
               await supabase.auth.signOut();
 
               // Réinitialiser l'onboarding pour permettre de le revoir
@@ -135,43 +185,160 @@ export default function ProfileScreen() {
     );
   };
 
-  const handleSaveFarmName = async (newFarmName: string) => {
+  const pickLogo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setEditingLogo(result.assets[0].uri);
+    }
+  };
+
+  const uploadLogo = async (uri: string): Promise<string | null> => {
+    if (!user || !uri.startsWith('file://')) return uri; // Return as is if it's already a remote URL or invalid
+
+    try {
+      setUploadingLogo(true);
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: 'base64',
+      });
+      const arrayBuffer = decode(base64);
+      const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
+      const fileName = `logos/${user.id}/${Date.now()}.${fileExt}`;
+
+      const supabase = await ensureSupabaseInitialized();
+      const { error: uploadError } = await supabase.storage
+        .from('marketplace-products') // Using existing bucket
+        .upload(fileName, arrayBuffer, {
+          contentType: `image/${fileExt}`,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('marketplace-products')
+        .getPublicUrl(fileName);
+
+      // We store the relative path or full URL depending on how getMarketplaceImageUrl works. 
+      // Assuming we store the path relative to bucket root for consistency with products.
+      return fileName;
+    } catch (error) {
+      console.error('Error uploading logo:', error);
+      Alert.alert('Erreur', 'Impossible de télécharger le logo.');
+      return null;
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  // --- MODIFICATION : Fonction de sauvegarde généralisée pour tous les champs éditables ---
+  const handleSaveProfile = async () => {
     if (!user) return;
-    if (!newFarmName.trim()) {
+    if (!editingFarmName.trim()) {
       Alert.alert('Erreur', 'Le nom de la ferme ne peut pas être vide.');
       return;
     }
+    if (!editingFullName.trim()) { // Ajout de la validation pour le nom complet
+      Alert.alert('Erreur', 'Le nom complet ne peut pas être vide.');
+      return;
+    }
+    if (!editingPhone.trim()) { // Ajout de la validation pour le téléphone
+      Alert.alert('Erreur', 'Le numéro de téléphone ne peut pas être vide.');
+      return;
+    }
+
+    let logoPath = editingLogo;
+    if (editingLogo && editingLogo !== profile?.avatar_url) {
+      logoPath = await uploadLogo(editingLogo);
+    }
+
+    // Créer l'objet de mise à jour avec toutes les nouvelles valeurs
+    const updateData = {
+      full_name: editingFullName.trim(),
+      phone: editingPhone.trim(),
+      location: [editingCity.trim(), editingRegion, editingCountry].filter(Boolean).join(', '),
+      farm_name: editingFarmName.trim(),
+      updated_at: new Date().toISOString(),
+      avatar_url: logoPath,
+      country: editingCountry,
+    };
 
     setIsSaving(true);
     try {
       const supabase = await ensureSupabaseInitialized();
-      const { error } = await supabase
-        .from('profiles')
-        .update({ farm_name: newFarmName.trim(), updated_at: new Date().toISOString() })
-        .eq('user_id', user.id);
 
-      if (error) {
-        throw error;
+      // Vérifier si le profil existe déjà pour cet utilisateur
+      const { data: existingProfile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (fetchError) {
+        throw fetchError; // Gérer l'erreur de récupération du profil
       }
 
-      // Mettre à jour l'état local
-      setProfile(prev => prev ? { ...prev, farm_name: newFarmName.trim() } : null);
-      setIsEditing(false);
-      Alert.alert('Succès', 'Le nom de votre ferme a été mis à jour.');
+      let operationError;
+      if (!existingProfile) {
+        // Si le profil n'existe pas, le créer
+        console.log('📝 Aucun profil trouvé pour l\'utilisateur, création d\'un nouveau profil...');
+        const { error } = await supabase
+          .from('profiles')
+          .insert({ user_id: user.id, ...updateData, created_at: new Date().toISOString(), role: 'user' }); // Assurer le rôle par défaut
+        operationError = error;
+      } else {
+        // Si le profil existe, le mettre à jour
+        console.log('📝 Profil trouvé, mise à jour du profil complet...');
+        const { error } = await supabase
+          .from('profiles')
+          .update(updateData) // Utiliser l'objet updateData complet
+          .eq('user_id', user.id);
+        operationError = error;
+      }
 
-      // Recharger le profil pour être sûr
-      await loadProfile();
+      if (operationError) {
+        throw operationError;
+      }
+
+      // --- AJOUT : Propager la nouvelle localité et le logo sur tous les produits existants ---
+      if (editingCity.trim() || editingCountry) {
+        const productUpdates: any = {};
+        // Construire la localisation complète
+        const newLocation = [editingCity.trim(), editingRegion, editingCountry].filter(Boolean).join(', ');
+        if (newLocation) productUpdates.location = newLocation;
+        if (editingCountry) productUpdates.country = editingCountry;
+
+        const { error: productsUpdateError } = await supabase
+          .from('marketplace_products')
+          .update(productUpdates)
+          .eq('seller_id', user.id);
+
+        if (productsUpdateError) {
+          console.warn('⚠️ Erreur lors de la mise à jour de la localisation des produits:', productsUpdateError);
+        }
+      }
+
+      // Le ProfileContext gère la mise à jour du profil après la modification en base de données.
+      setIsEditing(false); // Quitter le mode édition
+      Alert.alert('Succès', 'Votre profil a été mis à jour.');
+      // Plus besoin de recharger manuellement, le contexte s'en charge !
 
     } catch (error: any) {
-      console.error('Error saving farm name:', error);
-      Alert.alert('Échec', `Impossible de sauvegarder le nom de la ferme: ${error.message}`);
+      console.error('Error saving profile:', error);
+      Alert.alert('Échec', `Impossible de sauvegarder le profil: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
   };
 
 
-  if (loading || subscriptionLoading) {
+  if (profileLoading) {
     return (
       <SafeAreaView style={commonStyles.container}>
         <View style={styles.loadingContainer}>
@@ -189,10 +356,46 @@ export default function ProfileScreen() {
           <Icon name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Profil</Text>
-        <View style={{ width: 40 }} />
+        {/* --- MODIFICATION : Le bouton de l'en-tête gère "Modifier" et "Annuler" --- */}
+        {isEditing ? (
+          <TouchableOpacity onPress={() => {
+            setIsEditing(false);
+            initializeEditingState(); // Réinitialiser les changements en cas d'annulation
+          }}>
+            <Text style={[styles.editButtonText, { color: colors.error }]}>Annuler</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={() => setIsEditing(true)}>
+            <Text style={styles.editButtonText}>Modifier</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Section Logo */}
+        <View style={styles.logoSection}>
+          <View style={styles.logoContainer}>
+            {editingLogo ? (
+              <Image
+                source={{ uri: editingLogo.startsWith('file://') ? editingLogo : getMarketplaceImageUrl(editingLogo) }}
+                style={styles.logoImage}
+              />
+            ) : (
+              <View style={styles.logoPlaceholder}>
+                <Icon name="image" size={40} color={colors.textSecondary} />
+              </View>
+            )}
+            {isEditing && (
+              <TouchableOpacity style={styles.editLogoButton} onPress={pickLogo}>
+                <Icon name="camera" size={20} color={colors.white} />
+              </TouchableOpacity>
+            )}
+          </View>
+          {isEditing && (
+            <Text style={styles.logoHelpText}>Ce logo sera affiché sur vos produits</Text>
+          )}
+        </View>
+
         {/* Section Informations Personnelles */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Informations Personnelles</Text>
@@ -202,7 +405,16 @@ export default function ProfileScreen() {
               <Icon name="person" size={20} color={colors.primary} />
               <View style={styles.infoContent}>
                 <Text style={styles.infoLabel}>Nom complet</Text>
-                <Text style={styles.infoValue}>{profile?.full_name || 'Non défini'}</Text>
+                {isEditing ? (
+                  <TextInput
+                    style={styles.editableInfoValue}
+                    value={editingFullName}
+                    onChangeText={setEditingFullName}
+                    placeholder="Votre nom complet"
+                  />
+                ) : (
+                  <Text style={styles.infoValue}>{profile?.full_name || 'Non défini'}</Text>
+                )}
               </View>
             </View>
 
@@ -210,15 +422,48 @@ export default function ProfileScreen() {
               <Icon name="call" size={20} color={colors.primary} />
               <View style={styles.infoContent}>
                 <Text style={styles.infoLabel}>Téléphone</Text>
-                <Text style={styles.infoValue}>{profile?.phone || 'Non défini'}</Text>
+                {isEditing ? (
+                  <TextInput
+                    style={styles.editableInfoValue}
+                    value={editingPhone}
+                    onChangeText={setEditingPhone}
+                    placeholder="Votre numéro de téléphone"
+                    keyboardType="phone-pad"
+                  />
+                ) : (
+                  <Text style={styles.infoValue}>{profile?.phone || 'Non défini'}</Text>
+                )}
               </View>
             </View>
 
             <View style={styles.infoRow}>
               <Icon name="location" size={20} color={colors.primary} />
               <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Localisation</Text>
-                <Text style={styles.infoValue}>{profile?.location || 'Non définie'}</Text>
+                <Text style={styles.infoLabel}>Adresse (Pays, Région, Ville)</Text>
+                {isEditing ? (
+                  <View style={{ gap: 8 }}>
+                    <TouchableOpacity style={styles.pickerButton} onPress={() => setIsCountryPickerVisible(true)}>
+                      <Text style={styles.pickerButtonText}>{editingCountry || 'Sélectionner Pays'}</Text>
+                      <Icon name="chevron-down" size={16} color={colors.textSecondary} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.pickerButton} onPress={() => setIsRegionPickerVisible(true)}>
+                      <Text style={styles.pickerButtonText}>{editingRegion || 'Sélectionner Région'}</Text>
+                      <Icon name="chevron-down" size={16} color={colors.textSecondary} />
+                    </TouchableOpacity>
+
+                    <TextInput
+                      style={styles.editableInfoValue}
+                      value={editingCity}
+                      onChangeText={setEditingCity}
+                      placeholder="Ville / Quartier"
+                    />
+                  </View>
+                ) : (
+                  <Text style={styles.infoValue}>
+                    {[profile?.city, profile?.region, profile?.country].filter(Boolean).join(', ') || profile?.location || 'Non définie'}
+                  </Text>
+                )}
               </View>
             </View>
           </View>
@@ -239,20 +484,9 @@ export default function ProfileScreen() {
                     value={editingFarmName}
                     onChangeText={setEditingFarmName}
                     placeholder="Nom de votre ferme"
-                    autoFocus
-                    onSubmitEditing={() => handleSaveFarmName(editingFarmName)}
                   />
                 ) : (
                   <Text style={styles.infoValue}>{profile?.farm_name || 'Non défini'}</Text>
-                )}
-              </View>
-              <View>
-                {isEditing ? (
-                  <Button text={isSaving ? "..." : "OK"} onPress={() => handleSaveFarmName(editingFarmName)} style={styles.saveButton} textStyle={styles.saveButtonText} />
-                ) : (
-                  <TouchableOpacity onPress={() => { setIsEditing(true); setEditingFarmName(profile?.farm_name || ''); }}>
-                    <Text style={styles.editButtonText}>Modifier</Text>
-                  </TouchableOpacity>
                 )}
               </View>
             </View>
@@ -265,6 +499,17 @@ export default function ProfileScreen() {
               </View>
             </View>
           </View>
+
+          {/* --- NOUVEAU : Bouton de sauvegarde visible uniquement en mode édition --- */}
+          {isEditing && (
+            <View style={styles.saveButtonContainer}>
+              <Button
+                title={isSaving ? "Enregistrement..." : "Enregistrer les modifications"}
+                onPress={handleSaveProfile}
+                disabled={isSaving}
+              />
+            </View>
+          )}
         </View>
 
         {/* Section Abonnement */}
@@ -275,15 +520,15 @@ export default function ProfileScreen() {
             <View style={styles.infoRow}>
               <Icon name="star" size={20} color={colors.primary} />
               <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Plan actuel</Text>
-                <Text style={styles.infoValue}>{subscription?.plan?.name || 'Freemium'}</Text>
+                <Text style={styles.infoLabel}>Statut de l'abonnement</Text>
+                <Text style={styles.infoValue}>{profile?.subscription_status === 'active' ? 'Pro' : 'Freemium'}</Text>
               </View>
             </View>
 
             <View style={styles.infoRow}>
               <Icon name="cash" size={20} color={colors.warning} />
               <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Avicoins</Text>
+                <Text style={styles.infoLabel}>Solde Avicoins</Text>
                 <Text style={[styles.infoValue, { color: colors.warning }]}>{avicoins} Avicoins</Text>
               </View>
             </View>
@@ -306,9 +551,26 @@ export default function ProfileScreen() {
                 <Text style={styles.adminButtonText}>Valider les Livreurs</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.adminButton} onPress={() => router.push('/admin-kyc')}>
-                <Icon name="document" size={24} color={colors.white} />
-                <Text style={styles.adminButtonText}>Gestion KYC</Text>
+              <TouchableOpacity style={styles.adminButtonWrapper} onPress={() => router.push('/admin-kyc')}>
+                <View style={styles.adminButton}>
+                  <Icon name="document" size={24} color={colors.white} />
+                  <Text style={styles.adminButtonText}>Gestion KYC</Text>
+                </View>
+                {pendingKYCCount > 0 && (
+                  <View style={styles.badge}><Text style={styles.badgeText}>{pendingKYCCount}</Text></View>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.adminButtonWrapper} onPress={() => router.push('/admin-payment-validation')}>
+                <View style={styles.adminButton}>
+                  <Icon name="cash" size={24} color={colors.white} />
+                  <Text style={styles.adminButtonText}>Valider les Paiements</Text>
+                </View>
+                {pendingPaymentsCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{pendingPaymentsCount}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -325,20 +587,20 @@ export default function ProfileScreen() {
           }}>
             <Icon name="settings" size={20} color={colors.primary} />
             <Text style={styles.actionButtonText}>Paramètres</Text>
-            <Icon name="chevron-right" size={20} color={colors.textSecondary} />
+            <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionButton} onPress={() => {
             // TRACKER L'ACCÈS À LA GESTION D'ABONNEMENT
             trackAction('subscription_management_accessed', {
-              current_plan: subscription?.plan?.name || 'Freemium',
+              current_plan: profile?.subscription_status || 'freemium',
               from_screen: 'profile'
             });
             router.push('/subscription-plans');
           }}>
             <Icon name="card" size={20} color={colors.primary} />
             <Text style={styles.actionButtonText}>Gérer l'abonnement</Text>
-            <Icon name="chevron-right" size={20} color={colors.textSecondary} />
+            <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionButton} onPress={() => {
@@ -350,14 +612,14 @@ export default function ProfileScreen() {
           }}>
             <Icon name="help-circle" size={20} color={colors.primary} />
             <Text style={styles.actionButtonText}>Aide & Support</Text>
-            <Icon name="chevron-right" size={20} color={colors.textSecondary} />
+            <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
           {/* --- NOUVEAU BOUTON --- */}
           <TouchableOpacity style={[styles.actionButton, { marginTop: 16 }]} onPress={handleResetOnboarding}>
             <Icon name="refresh-circle" size={20} color={colors.warning} />
             <Text style={styles.actionButtonText}>Réinitialiser l'accueil</Text>
-            <Icon name="chevron-right" size={20} color={colors.textSecondary} />
+            <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
 
@@ -380,6 +642,48 @@ export default function ProfileScreen() {
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {/* Country Picker */}
+      <SimpleBottomSheet isVisible={isCountryPickerVisible} onClose={() => setIsCountryPickerVisible(false)}>
+        <View style={styles.bottomSheetContent}>
+          <Text style={styles.bottomSheetTitle}>Sélectionner un pays</Text>
+          <ScrollView>
+            {COUNTRIES.map((c) => (
+              <TouchableOpacity
+                key={c.id}
+                style={styles.pickerItem}
+                onPress={() => {
+                  setEditingCountry(c.name);
+                  setEditingRegion(''); // Reset region when country changes
+                  setIsCountryPickerVisible(false);
+                }}
+              >
+                <Text style={styles.pickerItemText}>{c.flag} {c.name}</Text>
+                {editingCountry === c.name && <Icon name="checkmark" size={20} color={colors.primary} />}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </SimpleBottomSheet>
+
+      {/* Region Picker */}
+      <SimpleBottomSheet isVisible={isRegionPickerVisible} onClose={() => setIsRegionPickerVisible(false)}>
+        <View style={styles.bottomSheetContent}>
+          <Text style={styles.bottomSheetTitle}>Sélectionner une région ({editingCountry})</Text>
+          <ScrollView>
+            {(COUNTRIES.find(c => c.name === editingCountry)?.regions || []).map((r) => (
+              <TouchableOpacity
+                key={r.id}
+                style={styles.pickerItem}
+                onPress={() => { setEditingRegion(r.name); setIsRegionPickerVisible(false); }}
+              >
+                <Text style={styles.pickerItemText}>{r.name}</Text>
+                {editingRegion === r.name && <Icon name="checkmark" size={20} color={colors.primary} />}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </SimpleBottomSheet>
     </SafeAreaView>
   );
 }
@@ -422,6 +726,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  logoSection: {
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  logoContainer: {
+    position: 'relative',
+    width: 100,
+    height: 100,
+  },
+  logoImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  logoPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.backgroundAlt,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editLogoButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: colors.primary,
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
+  logoHelpText: { fontSize: 12, color: colors.textSecondary, marginTop: 8 },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -455,6 +796,16 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     paddingBottom: 2,
   },
+  pickerButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+  pickerButtonText: { fontSize: 16, color: colors.text },
+
   saveButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -465,6 +816,9 @@ const styles = StyleSheet.create({
   },
   adminCard: {
     gap: 12,
+  },
+  adminButtonWrapper: {
+    position: 'relative',
   },
   adminButton: {
     backgroundColor: colors.primary,
@@ -479,6 +833,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  badge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: colors.error,
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.backgroundAlt,
+  },
+  badgeText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   actionButton: {
     flexDirection: 'row',
@@ -530,4 +902,12 @@ const styles = StyleSheet.create({
   bottomPadding: {
     height: 100,
   },
+  saveButtonContainer: {
+    marginTop: 20,
+    paddingHorizontal: 0, // Le padding est déjà géré par la section
+  },
+  bottomSheetContent: { padding: 20, height: '100%' },
+  bottomSheetTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
+  pickerItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  pickerItemText: { fontSize: 16, color: colors.text },
 });

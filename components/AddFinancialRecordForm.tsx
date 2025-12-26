@@ -9,7 +9,7 @@ import { useDataCollector } from '../src/hooks/useDataCollector';
 import { supabase } from '../config'; // Importer supabase
 
 interface AddFinancialRecordFormProps {
-  type: 'income' | 'expense';
+  type?: 'income' | 'expense'; // Rendre la prop optionnelle pour le fallback
   onSubmitSuccess: () => void; // Changé pour signaler le succès
   onCancel: () => void;
 }
@@ -23,10 +23,14 @@ export default function AddFinancialRecordForm({ type, onSubmitSuccess, onCancel
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const { trackAction } = useDataCollector();
 
+  // CORRECTION : Assurer une valeur par défaut pour 'type' si la prop n'est pas passée.
+  // Cela évite que la valeur soit 'undefined' lors de la soumission.
+  const recordType = type || 'expense';
+
   const incomeCategories = ['Vente de volailles', 'Vente d\'œufs', 'Services', 'Autres revenus'];
   const expenseCategories = ['Alimentation', 'Médicaments', 'Équipement', 'Main d\'œuvre', 'Transport', 'Autres dépenses'];
 
-  const categories = type === 'income' ? incomeCategories : expenseCategories;
+  const categories = recordType === 'income' ? incomeCategories : expenseCategories;
 
   const validateForm = (): boolean => {
     const newErrors: {[key: string]: string} = {};
@@ -77,7 +81,7 @@ export default function AddFinancialRecordForm({ type, onSubmitSuccess, onCancel
   };
 
   const handleSubmit = async () => {
-    console.log('Attempting to create financial record:', { type, amount, description, category, date });
+    console.log('Attempting to create financial record:', { type: recordType, amount, description, category, date });
 
     if (!validateForm()) {
       // L'alerte est déjà gérée par la validation, on peut la retirer pour éviter les doublons
@@ -91,7 +95,7 @@ export default function AddFinancialRecordForm({ type, onSubmitSuccess, onCancel
       const numericAmount = parseFloat(amount);
 
       const record: Omit<FinancialRecord, 'id'> = {
-        type,
+        type: recordType,
         amount: numericAmount,
         description: description.trim(),
         category,
@@ -131,7 +135,7 @@ export default function AddFinancialRecordForm({ type, onSubmitSuccess, onCancel
       
       Alert.alert(
         'Succès! 🎉',
-        `${type === 'income' ? 'Le revenu' : 'La dépense'} de ${numericAmount.toLocaleString()} CFA a été enregistré${type === 'income' ? '' : 'e'} avec succès.`,
+        `${recordType === 'income' ? 'Le revenu' : 'La dépense'} de ${numericAmount.toLocaleString()} CFA a été enregistré${recordType === 'income' ? '' : 'e'} avec succès.`,
         [{ text: 'OK' }]
       );
     } catch (error: any) {
@@ -150,7 +154,7 @@ export default function AddFinancialRecordForm({ type, onSubmitSuccess, onCancel
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <Text style={styles.title}>
-          Ajouter {type === 'income' ? 'un Revenu' : 'une Dépense'}
+          Ajouter {recordType === 'income' ? 'un Revenu' : 'une Dépense'}
         </Text>
         <TouchableOpacity onPress={onCancel} style={styles.closeButton} disabled={loading}>
           <Icon name="close" size={24} color={colors.text} />

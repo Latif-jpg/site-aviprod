@@ -5,7 +5,7 @@ import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from './Icon';
 import Button from './Button';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { supabase, ensureSupabaseInitialized } from '../config'; // Import supabase directly
 
 interface AddProductFormProps {
@@ -115,7 +115,7 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+
       allowsEditing: true,
       quality: 0.8,
       allowsMultipleSelection: false,
@@ -266,9 +266,9 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
       }
 
       console.log('✅ Verification status:', data.verification_status);
-      return { 
-        verified: data.verification_status === 'approved', 
-        status: data.verification_status 
+      return {
+        verified: data.verification_status === 'approved',
+        status: data.verification_status
       };
     } catch (error: any) {
       console.error('❌ Exception in checkSellerVerification:', error);
@@ -363,7 +363,7 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
         region: region,
         in_stock: true,
         rating: 0,
-        
+
         // Sponsorship fields
         is_sponsored: isSponsored,
         boost_level: isSponsored && sponsorPeriod ? (sponsorPeriod === 3 ? 1 : sponsorPeriod === 7 ? 2 : 3) : 0,
@@ -404,7 +404,7 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
       } else {
         Alert.alert('Succès! ✅', 'Produit ajouté avec succès au marketplace');
       }
-      
+
       // Call onSubmit to refresh the products list
       onSubmit();
     } catch (error: any) {
@@ -417,7 +417,12 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Ajouter un Produit</Text>
         <Text style={styles.subtitle}>Vendez vos produits sur le marketplace</Text>
@@ -480,10 +485,10 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
             ]}
             onPress={() => setCategory(cat.id)}
           >
-            <Icon 
-              name={cat.icon as any} 
-              size={20} 
-              color={category === cat.id ? colors.white : colors.text} 
+            <Icon
+              name={cat.icon as any}
+              size={20}
+              color={category === cat.id ? colors.white : colors.text}
             />
             <Text style={[
               styles.categoryButtonText,
@@ -523,8 +528,8 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
         />
 
         <Text style={styles.label}>Région *</Text>
-        <ScrollView 
-          horizontal 
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.regionScroll}
         >
@@ -652,17 +657,29 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
       )}
 
       <View style={styles.buttonContainer}>
-        <Button
-          title={isSubmitting ? 'Ajout en cours...' : 'Ajouter le produit'}
+        <TouchableOpacity
+          style={[styles.actionButton, styles.submitButton, isSubmitting && styles.disabledButton]}
           onPress={handleSubmit}
           disabled={isSubmitting}
-        />
-        <Button
-          title="Annuler"
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color={colors.white} size="small" />
+          ) : (
+            <>
+              <Icon name="add-circle" size={20} color={colors.white} />
+              <Text style={styles.buttonText}>Ajouter</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.cancelButton, isSubmitting && styles.disabledButton]}
           onPress={onCancel}
-          variant="secondary"
           disabled={isSubmitting}
-        />
+        >
+          <Icon name="close-circle" size={20} color={colors.text} />
+          <Text style={[styles.buttonText, { color: colors.text }]}>Annuler</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -671,7 +688,11 @@ export default function AddProductForm({ onSubmit, onCancel }: AddProductFormPro
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollContent: {
     padding: 20,
+    paddingBottom: 100, // Important pour le défilement maximum
   },
   header: {
     marginBottom: 24,
@@ -824,9 +845,40 @@ const styles = StyleSheet.create({
     color: colors.orange,
   },
   buttonContainer: {
-    marginTop: 24,
+    flexDirection: 'row',
+    marginTop: 32,
     gap: 12,
     marginBottom: 40,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  submitButton: {
+    backgroundColor: colors.primary,
+  },
+  cancelButton: {
+    backgroundColor: colors.backgroundAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  buttonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   loadingFarmName: {
     flexDirection: 'row',

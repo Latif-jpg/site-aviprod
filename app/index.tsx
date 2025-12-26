@@ -1,47 +1,25 @@
-
-import { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
-import { colors } from '../styles/commonStyles';
+import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import { Redirect } from 'expo-router';
+import { supabase } from '../config';
 
 export default function Index() {
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
+
   useEffect(() => {
-    checkOnboardingStatus();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setHasSession(true);
+      }
+      // Il faut absolument mettre à jour l'état pour que le composant se rafraîchisse
+      setSessionChecked(true);
+    });
   }, []);
 
-  const checkOnboardingStatus = async () => {
-    try {
-      const onboardingCompleted = await AsyncStorage.getItem('@onboarding_completed');
-      
-      if (onboardingCompleted) {
-        // Onboarding complete, go to auth screen.
-        // _layout will then redirect to /dashboard if user is already logged in.
-        router.replace('/auth');
-      } else {
-        // First time user, show onboarding.
-        router.replace('/welcome');
-      }
-    } catch (error) {
-      console.error('Error checking onboarding status:', error);
-      // Fallback to welcome screen on error.
-      router.replace('/welcome');
-    }
-  };
+  if (!sessionChecked) {
+    return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" /></View>;
+  }
 
-  // This component should only show a loading indicator while it determines the route.
-  return (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color={colors.primary} />
-    </View>
-  );
+  return <Redirect href={hasSession ? "/dashboard" : "/auth"} />;
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#10996E',
-  },
-});

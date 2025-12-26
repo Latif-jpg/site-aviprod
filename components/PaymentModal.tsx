@@ -31,13 +31,21 @@ export default function PaymentModal({
   onError
 }: PaymentModalProps) {
   const { paymentMethods, createPayment, isProcessing } = usePayments();
+  // --- AJOUT : Ajout manuel de Wave à la liste des méthodes de paiement ---
+  const allPaymentMethods = [
+    ...paymentMethods,
+    { code: 'wave', name: 'Wave', provider: '56508709' }
+  ];
   const [selectedMethod, setSelectedMethod] = useState<string>('');
 
   useEffect(() => {
-    if (paymentMethods.length > 0 && !selectedMethod) {
-      setSelectedMethod(paymentMethods[0].code);
+    // --- MODIFICATION : Utiliser la nouvelle liste complète ---
+    if (allPaymentMethods.length > 0 && !selectedMethod) {
+      // Sélectionner Wave par défaut si disponible, sinon le premier de la liste
+      const wave = allPaymentMethods.find(m => m.code === 'wave');
+      setSelectedMethod(wave ? wave.code : allPaymentMethods[0].code);
     }
-  }, [paymentMethods, selectedMethod]);
+  }, [paymentMethods]); // Dépendance à paymentMethods pour recalculer allPaymentMethods
 
   const handlePayment = async () => {
     if (!selectedMethod) {
@@ -99,6 +107,8 @@ export default function PaymentModal({
         return 'phone-portrait';
       case 'card':
         return 'card';
+      // --- AJOUT : Icône pour Wave ---
+      case 'wave': return 'phone-portrait-outline';
       default:
         return 'cash';
     }
@@ -112,6 +122,8 @@ export default function PaymentModal({
         return colors.primary;
       case 'card':
         return colors.accent;
+      // --- AJOUT : Couleur pour Wave ---
+      case 'wave': return '#42C9FF'; // Couleur bleue de Wave
       default:
         return colors.textSecondary;
     }
@@ -139,7 +151,8 @@ export default function PaymentModal({
           <View style={styles.methodsSection}>
             <Text style={styles.sectionTitle}>Choisissez votre méthode de paiement</Text>
 
-            {paymentMethods.map((method) => (
+            {/* --- MODIFICATION : Utiliser la nouvelle liste complète --- */}
+            {allPaymentMethods.map((method) => (
               <TouchableOpacity
                 key={method.code}
                 style={[
@@ -160,6 +173,7 @@ export default function PaymentModal({
                     />
                   </View>
                   <View style={styles.methodDetails}>
+                    {/* --- CORRECTION : Affichage cohérent pour toutes les méthodes --- */}
                     <Text style={styles.methodName}>{method.name}</Text>
                     <Text style={styles.methodProvider}>{method.provider}</Text>
                   </View>

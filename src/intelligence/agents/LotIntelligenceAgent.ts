@@ -1,19 +1,6 @@
  // src/intelligence/agents/LotIntelligenceAgent.ts
-// Import dynamique pour éviter les problèmes d'initialisation
-let supabaseClient: any = null;
-
-const getSupabaseClient = async () => {
-  if (!supabaseClient) {
-    try {
-      const { ensureSupabaseInitialized } = await import('../../../app/integrations/supabase/client');
-      supabaseClient = await ensureSupabaseInitialized();
-    } catch (error) {
-      console.error('[LotIntelligenceAgent] Erreur chargement Supabase:', error);
-      return null;
-    }
-  }
-  return supabaseClient;
-};
+// --- CORRECTION : Utiliser une seule instance de Supabase ---
+import { supabase } from '../../../config';
 
 import { smartAlertSystem } from '../core/SmartAlertSystem';
 import { dataCollector } from '../core/DataCollector';
@@ -59,7 +46,7 @@ interface GrowthPrediction {
 interface FeedOptimization {
   current_consumption: number;
   recommended_daily_feed: number;
-  feed_conversion_ratio: number;
+  indice_de_consommation: number; // NOUVEAU : Remplacement de feed_conversion_ratio
   efficiency_score: number;
   recommendations: string[];
 }
@@ -250,11 +237,11 @@ class LotIntelligenceAgent {
 
     const actualConsumption = await this.getActualFeedConsumption(lot.id);
 
-    const fcr = actualConsumption.total_feed > 0 && currentWeight > 0 && lot.quantity > 0 ? actualConsumption.total_feed / (currentWeight * lot.quantity) : 0;
-    const efficiency = (standards.fcr_target / fcr) * 100;
+    const ic = actualConsumption.total_feed > 0 && currentWeight > 0 && lot.quantity > 0 ? actualConsumption.total_feed / (currentWeight * lot.quantity) : 0;
+    const efficiency = (standards.fcr_target / ic) * 100;
 
     const recommendations = this.generateFeedRecommendations(
-      fcr,
+      ic,
       standards.fcr_target,
       efficiency
     );
@@ -262,7 +249,7 @@ class LotIntelligenceAgent {
     return {
       current_consumption: actualConsumption.daily_average,
       recommended_daily_feed: totalDailyFeed,
-      feed_conversion_ratio: fcr,
+      indice_de_consommation: ic,
       efficiency_score: Math.min(efficiency, 100),
       recommendations,
     };
@@ -295,17 +282,6 @@ class LotIntelligenceAgent {
    * BENCHMARK AVEC AUTRES LOTS
    */
   private async benchmarkLot(lot: LotData): Promise<LotBenchmark> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) {
-      return {
-        current_performance: 0,
-        average_performance: 0,
-        best_performance: 0,
-        ranking_percentile: 50,
-        comparison_insights: ['Erreur de connexion à la base de données'],
-      };
-    }
-
     const { data: similarLots } = await supabase
       .from('lots')
       .select('*') 
@@ -345,71 +321,6 @@ class LotIntelligenceAgent {
       ranking_percentile: rankingPercentile,
       comparison_insights: comparisonInsights,
     };
-  }
-
-  /**
-   * NOUVEAU: ALERTE DE CHANGEMENT D'ALIMENTATION PROCHAIN
-   */
-  public async generateUpcomingFeedAlerts(userId: string): Promise<any[]> {
-    try {
-        const supabase = await getSupabaseClient();
-        if (!supabase) return [];
-
-        const { data: activeLots } = await supabase
-            .from('lots')
-            .select('id, name, age')
-            .eq('user_id', userId)
-            .eq('status', 'active');
-
-        if (!activeLots) return [];
-
-        const alerts = [];
-        const WARNING_DAYS = 3; // Prévenir 3 jours à l'avance
-
-        const STAGE_TRANSITIONS = [
-            { from: 'aliment_demarrage', to: 'aliment_croissance', at_age: 21 },
-            { from: 'aliment_croissance', to: 'aliment_finition', at_age: 42 },
-        ];
-
-        for (const lot of activeLots) {
-            for (const transition of STAGE_TRANSITIONS) {
-                const daysUntilTransition = transition.at_age - lot.age;
-
-                if (daysUntilTransition > 0 && daysUntilTransition <= WARNING_DAYS) {
-                    const { data: nextFeedStock, error } = await supabase
-                        .from('stock')
-                        .select('id')
-                        .eq('user_id', userId)
-                        .eq('feed_type', transition.to)
-                        .gt('quantity', 0)
-                        .limit(1);
-
-                    if (error) {
-                        console.error(`Error checking stock for ${transition.to}`, error);
-                        continue;
-                    }
-
-                    if (!nextFeedStock || nextFeedStock.length === 0) {
-                        alerts.push({
-                            id: `feed_change_${lot.id}_${transition.to}`,
-                            type: 'warning',
-                            title: 'Changement d\'aliment imminent',
-                            lot_id: lot.id,
-                            lot_name: lot.name,
-                            days_until_change: daysUntilTransition,
-                            current_feed: transition.from,
-                            next_feed: transition.to,
-                            message: `Le lot "${lot.name}" passera à l'aliment ${transition.to.split('_')[1]} dans ${daysUntilTransition} jour(s). Aucun stock de ce type n'a été trouvé.`,
-                        });
-                    }
-                }
-            }
-        }
-        return alerts;
-    } catch (error) {
-        console.error('[LotIntelligenceAgent] Erreur génération alertes changement aliment:', error);
-        return [];
-    }
   }
 
   /**
@@ -472,7 +383,7 @@ class LotIntelligenceAgent {
           type: 'lot_feed_consumption_abnormal' as any,
           context: {
             lot_name: lot.race,
-            fcr: analysis.feed.feed_conversion_ratio.toFixed(2),
+            ic: analysis.feed.indice_de_consommation.toFixed(2), // Utiliser 'ic'
             efficiency: analysis.feed.efficiency_score.toFixed(0),
           },
           relatedEntityType: 'lot',
@@ -482,6 +393,55 @@ class LotIntelligenceAgent {
     }
 
     await Promise.all(alerts);
+
+    // --- NOUVEAU : Vérification proactive du stock pour le prochain stade ---
+    await this.generateUpcomingFeedAlert(lot);
+  }
+
+  /**
+   * NOUVEAU : Vérifie le stock pour le prochain stade d'alimentation et crée une alerte si nécessaire.
+   */
+  private async generateUpcomingFeedAlert(lot: LotData) {
+    const WARNING_DAYS = 4; // Prévenir 4 jours à l'avance
+
+    const STAGE_TRANSITIONS: Record<string, { nextStage: string, atAge: number, nextFeedName: string }> = {
+      'starter': { nextStage: 'grower', atAge: 21, nextFeedName: 'Aliment Croissance' },
+      'grower': { nextStage: 'finisher', atAge: 32, nextFeedName: 'Aliment Finition' },
+      // Ajoutez d'autres transitions pour les pondeuses si nécessaire
+    };
+
+    const currentStage = this.getStageFromAge(lot.bird_type, lot.age);
+    const transition = STAGE_TRANSITIONS[currentStage];
+
+    if (!transition) return; // Pas de transition définie pour ce stade
+
+    const daysUntilTransition = transition.atAge - lot.age;
+
+    if (daysUntilTransition > 0 && daysUntilTransition <= WARNING_DAYS) {
+      // Vérifier si l'aliment pour le prochain stade est en stock
+      const { data: nextFeedStock, error } = await supabase
+        .from('stock')
+        .select('id')
+        .eq('user_id', lot.user_id)
+        .ilike('name', `%${transition.nextFeedName}%`) // Recherche flexible (ex: "Aliment Croissance")
+        .gt('quantity', 0)
+        .limit(1);
+
+      if (error) {
+        console.error(`[LotAgent] Erreur vérification stock pour ${transition.nextFeedName}`, error);
+        return;
+      }
+
+      // Si aucun stock n'est trouvé, créer une alerte
+      if (!nextFeedStock || nextFeedStock.length === 0) {
+        await smartAlertSystem.createAlert({
+          type: 'lot_next_feed_missing' as any,
+          context: { lot_name: lot.race, next_feed_name: transition.nextFeedName, days: daysUntilTransition },
+          relatedEntityType: 'lot',
+          relatedEntityId: lot.id,
+        });
+      }
+    }
   }
 
   /**
@@ -489,9 +449,6 @@ class LotIntelligenceAgent {
    */
   private async savePredictions(lot: LotData, growth: GrowthPrediction) {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -520,17 +477,23 @@ class LotIntelligenceAgent {
    */
 
   private async getLotData(lotId: string): Promise<LotData | null> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return null;
-
     const { data, error } = await supabase
       .from('lots')
       .select('id, name, breed, bird_type, quantity, age, target_weight, entry_date, created_at, user_id')
       .eq('id', lotId)
-      .single();
+      // --- CORRECTION : Utiliser maybeSingle() au lieu de single() ---
+      // single() génère une erreur si aucune ligne n'est trouvée (PGRST116).
+      // maybeSingle() retourne simplement null, ce qui est plus sûr et évite le plantage.
+      .maybeSingle();
 
     if (error) {
       console.error(`[LotIntelligenceAgent] Erreur getLotData pour ${lotId}:`, error);
+      return null;
+    }
+
+    // --- AJOUT : Gérer le cas où aucun lot n'est trouvé ---
+    if (!data) {
+      console.warn(`[LotIntelligenceAgent] Aucun lot trouvé pour l'ID: ${lotId}`);
       return null;
     }
 
@@ -560,9 +523,6 @@ class LotIntelligenceAgent {
   }
 
   private async getHistoricalGrowthData(userId: string, race: string) {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return { count: 0, avg_final_weight: 2.0 };
-
     const { data } = await supabase
       .from('lots')
       .select('target_weight, age')
@@ -612,6 +572,18 @@ class LotIntelligenceAgent {
     return 'critical';
   }
 
+  // --- NOUVEAU : Fonction utilitaire pour déterminer le stade ---
+  private getStageFromAge(birdType: string, age: number): 'starter' | 'grower' | 'finisher' | 'layer' | 'pre-layer' {
+    const type = birdType?.toLowerCase() || 'broiler';
+    if (type === 'broiler' || type === 'poulet de chair') {
+      if (age <= 21) return 'starter';
+      if (age <= 32) return 'grower';
+      return 'finisher';
+    }
+    // Ajouter la logique pour les pondeuses ici si nécessaire
+    return 'starter';
+  }
+
   private async getActualFeedConsumption(lotId: string) {
     return {
       daily_average: 50,
@@ -619,7 +591,7 @@ class LotIntelligenceAgent {
     };
   }
 
-  private generateFeedRecommendations(fcr: number, targetFcr: number, efficiency: number): string[] {
+  private generateFeedRecommendations(ic: number, targetIc: number, efficiency: number): string[] {
     const recommendations: string[] = [];
     if (efficiency < 70) {
       recommendations.push('⚠️ FCR élevé: vérifier qualité de l\'aliment');
@@ -636,8 +608,6 @@ class LotIntelligenceAgent {
   }
 
   private async getMortalityHistory(lotId: string) {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return [];
     const { data } = await supabase
       .from('daily_updates')
       .select('mortalite, date')
@@ -719,9 +689,6 @@ class LotIntelligenceAgent {
    */
   public async monitorAllLots(userId: string) {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
-
       const { data: lots } = await supabase
         .from('lots')
         .select('id')

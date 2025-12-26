@@ -29,18 +29,18 @@ const COMMON_SYMPTOMS = [
 ];
 
 export default function AIHealthAnalysis() {
-   const [images, setImages] = useState<string[]>([]);
-   const [description, setDescription] = useState('');
-   const [symptoms, setSymptoms] = useState<string[]>([]);
-   const [isLoading, setIsLoading] = useState(false);
-   const [loadingMessage, setLoadingMessage] = useState('');
-   const [analysisResult, setAnalysisResult] = useState<any>(null);
-   const [error, setError] = useState<string | null>(null);
+  const [images, setImages] = useState<string[]>([]);
+  const [description, setDescription] = useState('');
+  const [symptoms, setSymptoms] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
-   // Utiliser le hook d'abonnement pour vérifier les limites
-   const { subscription, hasAccess } = useSubscription();
-   const { refreshAvicoins } = useAvicoins();
-   const { trackAIAnalysis } = useDataCollector();
+  // Utiliser le hook d'abonnement pour vérifier les limites
+  const { subscription, hasAccess } = useSubscription();
+  const { refreshAvicoins } = useAvicoins();
+  const { trackAIAnalysis } = useDataCollector();
 
   const handleImagePick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -50,7 +50,7 @@ export default function AIHealthAnalysis() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+
       allowsMultipleSelection: true,
       quality: 1,
     });
@@ -74,203 +74,203 @@ export default function AIHealthAnalysis() {
   };
 
   const handleAnalysis = async () => {
-     if (images.length === 0 && !description && symptoms.length === 0) {
-       Alert.alert('Données insuffisantes', 'Veuillez ajouter au moins une photo, une description ou un symptôme.');
-       return;
-     }
+    if (images.length === 0 && !description && symptoms.length === 0) {
+      Alert.alert('Données insuffisantes', 'Veuillez ajouter au moins une photo, une description ou un symptôme.');
+      return;
+    }
 
-     // Variables pour suivre l'état des vérifications
-     let hasUnlimitedAccess = false;
-     let usageAllowed = true;
+    // Variables pour suivre l'état des vérifications
+    let hasUnlimitedAccess = false;
+    let usageAllowed = true;
 
-     // Vérifier les limites d'utilisation avant de procéder
+    // Vérifier les limites d'utilisation avant de procéder
 
-     try {
-       // Vérifier d'abord si l'utilisateur a un abonnement payant avec analyses illimitées
-       hasUnlimitedAccess = subscription?.plan?.features?.ai_analyses_per_month === -1;
+    try {
+      // Vérifier d'abord si l'utilisateur a un abonnement payant avec analyses illimitées
+      hasUnlimitedAccess = subscription?.plan?.features?.ai_analyses_per_month === -1;
 
-       if (!hasUnlimitedAccess) {
-         // Vérifier les limites d'utilisation pour les plans freemium/premium
-         const { data: usageCheckResult, error: usageError } = await supabase.rpc('check_usage_limit', {
-           feature_key: 'ai_analyses_per_month'
-         });
+      if (!hasUnlimitedAccess) {
+        // Vérifier les limites d'utilisation pour les plans freemium/premium
+        const { data: usageCheckResult, error: usageError } = await supabase.rpc('check_usage_limit', {
+          feature_key: 'ai_analyses_per_month'
+        });
 
-         if (usageError) {
-           console.error('❌ Error checking usage limit:', usageError);
-           Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
-           return;
-         }
+        if (usageError) {
+          console.error('❌ Error checking usage limit:', usageError);
+          Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
+          return;
+        }
 
-         usageAllowed = usageCheckResult;
+        usageAllowed = usageCheckResult;
 
-         if (!usageAllowed) {
-           // Vérifier si l'utilisateur a des Avicoins pour payer
-           const { data: avicoinsData, error: avicoinsError } = await supabase
-             .from('user_avicoins')
-             .select('balance')
-             .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
-             .maybeSingle();
+        if (!usageAllowed) {
+          // Vérifier si l'utilisateur a des Avicoins pour payer
+          const { data: avicoinsData, error: avicoinsError } = await supabase
+            .from('user_avicoins')
+            .select('balance')
+            .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+            .maybeSingle();
 
-           if (avicoinsError) {
-             console.error('❌ Error checking avicoins:', avicoinsError);
-           }
+          if (avicoinsError) {
+            console.error('❌ Error checking avicoins:', avicoinsError);
+          }
 
-           const avicoinsBalance = avicoinsData?.balance || 0;
-           const aiAnalysisCost = 5; // Coût fixe de 5 Avicoins par analyse IA
+          const avicoinsBalance = avicoinsData?.balance || 0;
+          const aiAnalysisCost = 5; // Coût fixe de 5 Avicoins par analyse IA
 
-           if (avicoinsBalance >= aiAnalysisCost) {
-             // Demander confirmation pour utiliser les Avicoins
-             Alert.alert(
-               'Limite atteinte - Utiliser Avicoins',
-               `Vous avez atteint votre limite mensuelle d'analyses IA.\n\nCoût: ${aiAnalysisCost} Avicoins\nSolde actuel: ${avicoinsBalance} Avicoins\n\nConfirmer l'utilisation d'Avicoins pour cette analyse ?`,
-               [
-                 { text: 'Annuler', style: 'cancel' },
-                 {
-                   text: 'Utiliser Avicoins',
-                   onPress: () => {
-                     // Continuer avec l'analyse en utilisant les Avicoins
-                     performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
-                   }
-                 }
-               ]
-             );
-             return;
-           } else {
-             // Pas assez d'Avicoins, proposer mise à niveau ou achat
-             const currentPlan = subscription?.plan?.name || 'freemium';
-             const limit = subscription?.plan?.features?.ai_analyses_per_month || 2;
+          if (avicoinsBalance >= aiAnalysisCost) {
+            // Demander confirmation pour utiliser les Avicoins
+            Alert.alert(
+              'Limite atteinte - Utiliser Avicoins',
+              `Vous avez atteint votre limite mensuelle d'analyses IA.\n\nCoût: ${aiAnalysisCost} Avicoins\nSolde actuel: ${avicoinsBalance} Avicoins\n\nConfirmer l'utilisation d'Avicoins pour cette analyse ?`,
+              [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                  text: 'Utiliser Avicoins',
+                  onPress: () => {
+                    // Continuer avec l'analyse en utilisant les Avicoins
+                    performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
+                  }
+                }
+              ]
+            );
+            return;
+          } else {
+            // Pas assez d'Avicoins, proposer mise à niveau ou achat
+            const currentPlan = subscription?.plan?.name || 'freemium';
+            const limit = subscription?.plan?.features?.ai_analyses_per_month || 2;
 
-             Alert.alert(
-               'Limite atteinte',
-               `Vous avez atteint la limite de ${limit} analyses IA par mois pour le plan ${currentPlan}.\n\nSolde Avicoins insuffisant (${avicoinsBalance} disponibles, ${aiAnalysisCost} requis).\n\nPassez à un plan supérieur ou achetez des Avicoins.`,
-               [
-                 { text: 'Annuler', style: 'cancel' },
-                 {
-                   text: 'Voir les plans',
-                   onPress: () => router.push('/subscription-plans')
-                 },
-                 {
-                   text: 'Acheter Avicoins',
-                   onPress: () => router.push('/subscription-plans')
-                 }
-               ]
-             );
-             return;
-           }
-         }
-       }
-     } catch (error: any) {
-       Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
-       return;
-     }
-     // Si on arrive ici, soit accès illimité soit limite non atteinte, on peut lancer l'analyse
-     await performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
-   };
+            Alert.alert(
+              'Limite atteinte',
+              `Vous avez atteint la limite de ${limit} analyses IA par mois pour le plan ${currentPlan}.\n\nSolde Avicoins insuffisant (${avicoinsBalance} disponibles, ${aiAnalysisCost} requis).\n\nPassez à un plan supérieur ou achetez des Avicoins.`,
+              [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                  text: 'Voir les plans',
+                  onPress: () => router.push('/subscription-plans')
+                },
+                {
+                  text: 'Acheter Avicoins',
+                  onPress: () => router.push('/subscription-plans')
+                }
+              ]
+            );
+            return;
+          }
+        }
+      }
+    } catch (error: any) {
+      Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
+      return;
+    }
+    // Si on arrive ici, soit accès illimité soit limite non atteinte, on peut lancer l'analyse
+    await performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
+  };
 
-   const performAnalysis = async (supabase: any, hasUnlimitedAccess: boolean, usageAllowed: boolean) => {
-     const startTime = performance.now(); // Démarrer le chronomètre
-     setIsLoading(true);
-     setError(null);
-     setAnalysisResult(null);
+  const performAnalysis = async (supabase: any, hasUnlimitedAccess: boolean, usageAllowed: boolean) => {
+    const startTime = performance.now(); // Démarrer le chronomètre
+    setIsLoading(true);
+    setError(null);
+    setAnalysisResult(null);
 
-     try {
-       setLoadingMessage('Compression des images...');
-       const compressedImagesBase64 = await Promise.all(
-         images.map(async (uri) => {
-           const compressedUri = await compressImage(uri);
-           // React Native's fetch doesn't support response.blob(), so we use XMLHttpRequest
-           const blob: Blob = await new Promise((resolve, reject) => {
-             const xhr = new XMLHttpRequest();
-             xhr.onload = () => resolve(xhr.response);
-             xhr.onerror = (e) => reject(new TypeError("Network request failed"));
-             xhr.responseType = "blob";
-             xhr.open("GET", compressedUri, true);
-             xhr.send(null);
-           });
-           return new Promise((resolve, reject) => {
-             const reader = new FileReader();
-             reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-             reader.onerror = reject;
-             reader.readAsDataURL(blob);
-           });
-         })
-       );
+    try {
+      setLoadingMessage('Compression des images...');
+      const compressedImagesBase64 = await Promise.all(
+        images.map(async (uri) => {
+          const compressedUri = await compressImage(uri);
+          // React Native's fetch doesn't support response.blob(), so we use XMLHttpRequest
+          const blob: Blob = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.onload = () => resolve(xhr.response);
+            xhr.onerror = (e) => reject(new TypeError("Network request failed"));
+            xhr.responseType = "blob";
+            xhr.open("GET", compressedUri, true);
+            xhr.send(null);
+          });
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        })
+      );
 
-       setLoadingMessage('Analyse par l\'IA en cours...');
-       const { data, error: functionError } = await supabase.functions.invoke('gemini-health-analysis', {
-         body: {
-           images: compressedImagesBase64,
-           description,
-           symptoms,
-         },
-       });
+      setLoadingMessage('Analyse par l\'IA en cours...');
+      const { data, error: functionError } = await supabase.functions.invoke('gemini-health-analysis', {
+        body: {
+          images: compressedImagesBase64,
+          description,
+          symptoms,
+        },
+      });
 
-       if (functionError) throw functionError;
-       if (data.error) throw new Error(data.error);
+      if (functionError) throw functionError;
+      if (data.error) throw new Error(data.error);
 
-       const duration = performance.now() - startTime;
+      const duration = performance.now() - startTime;
 
-       // TRACKER L'ANALYSE RÉUSSIE
-       trackAIAnalysis(
-         'health_diagnosis',
-         duration,
-         true, // succès
-         {
-           images_count: images.length,
-           symptoms_count: symptoms.length,
-           description_length: description.length,
-           diagnosis: data.diagnosis,
-           confidence: data.confidence,
-         }
-       );
+      // TRACKER L'ANALYSE RÉUSSIE
+      trackAIAnalysis(
+        'health_diagnosis',
+        duration,
+        true, // succès
+        {
+          images_count: images.length,
+          symptoms_count: symptoms.length,
+          description_length: description.length,
+          diagnosis: data.diagnosis,
+          confidence: data.confidence,
+        }
+      );
 
-       // Si l'analyse a réussi et que nous utilisons des Avicoins, déduire le coût
-       if (!hasUnlimitedAccess && !usageAllowed) {
-         const aiAnalysisCost = 5;
-         const { error: transactionError } = await supabase
-           .from('avicoins_transactions')
-           .insert({
-             user_id: (await supabase.auth.getUser()).data.user?.id,
-             amount: -aiAnalysisCost,
-             transaction_type: 'ai_analysis',
-             description: 'Analyse IA de santé animale'
-           });
+      // Si l'analyse a réussi et que nous utilisons des Avicoins, déduire le coût
+      if (!hasUnlimitedAccess && !usageAllowed) {
+        const aiAnalysisCost = 5;
+        const { error: transactionError } = await supabase
+          .from('avicoins_transactions')
+          .insert({
+            user_id: (await supabase.auth.getUser()).data.user?.id,
+            amount: -aiAnalysisCost,
+            transaction_type: 'ai_analysis',
+            description: 'Analyse IA de santé animale'
+          });
 
-         if (transactionError) {
-           console.error('❌ Error deducting avicoins:', transactionError);
-           // L'analyse a réussi mais la déduction a échoué - on continue quand même
-         } else {
-           console.log('✅ Avicoins deducted for AI analysis');
-           // Rafraîchir le solde Avicoins sur le dashboard
-           refreshAvicoins();
-         }
-       }
+        if (transactionError) {
+          console.error('❌ Error deducting avicoins:', transactionError);
+          // L'analyse a réussi mais la déduction a échoué - on continue quand même
+        } else {
+          console.log('✅ Avicoins deducted for AI analysis');
+          // Rafraîchir le solde Avicoins sur le dashboard
+          refreshAvicoins();
+        }
+      }
 
-       setAnalysisResult(data);
-     } catch (err: any) {
-       const duration = performance.now() - startTime;
+      setAnalysisResult(data);
+    } catch (err: any) {
+      const duration = performance.now() - startTime;
 
-       // TRACKER L'ANALYSE ÉCHOUÉE
-       trackAIAnalysis(
-         'health_diagnosis',
-         duration,
-         false, // échec
-         {
-           images_count: images.length,
-           symptoms_count: symptoms.length,
-           description_length: description.length,
-           error_message: err.message,
-         }
-       );
+      // TRACKER L'ANALYSE ÉCHOUÉE
+      trackAIAnalysis(
+        'health_diagnosis',
+        duration,
+        false, // échec
+        {
+          images_count: images.length,
+          symptoms_count: symptoms.length,
+          description_length: description.length,
+          error_message: err.message,
+        }
+      );
 
-       console.error('❌ AI Analysis Error:', err);
-       setError(err.message || 'Une erreur est survenue lors de l\'analyse.');
-       Alert.alert('Erreur d\'analyse', err.message || 'Impossible de terminer l\'analyse. Veuillez vérifier votre configuration et réessayer.');
-     } finally {
-       setIsLoading(false);
-       setLoadingMessage('');
-     }
-   };
+      console.error('❌ AI Analysis Error:', err);
+      setError(err.message || 'Une erreur est survenue lors de l\'analyse.');
+      Alert.alert('Erreur d\'analyse', err.message || 'Impossible de terminer l\'analyse. Veuillez vérifier votre configuration et réessayer.');
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  };
 
   const resetForm = () => {
     setImages([]);
@@ -309,29 +309,29 @@ export default function AIHealthAnalysis() {
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView>
-        <Text style={styles.sectionTitle}>Résultats de l'Analyse</Text>
-        <View style={styles.resultCard}>
-          <Text style={styles.resultLabel}>Diagnostic Probable</Text>
-          <Text style={styles.resultDiagnosis}>{analysisResult.diagnosis}</Text>
-          <Text style={styles.resultLabel}>Score de Confiance</Text>
-          <View style={styles.confidenceContainer}>
-            <View style={[styles.confidenceBar, { width: `${confidence}%`, backgroundColor: confidenceColor }]} />
+          <Text style={styles.sectionTitle}>Résultats de l'Analyse</Text>
+          <View style={styles.resultCard}>
+            <Text style={styles.resultLabel}>Diagnostic Probable</Text>
+            <Text style={styles.resultDiagnosis}>{analysisResult.diagnosis}</Text>
+            <Text style={styles.resultLabel}>Score de Confiance</Text>
+            <View style={styles.confidenceContainer}>
+              <View style={[styles.confidenceBar, { width: `${confidence}%`, backgroundColor: confidenceColor }]} />
+            </View>
+            <Text style={[styles.confidenceText, { color: confidenceColor }]}>{confidence}%</Text>
+            <Text style={styles.resultLabel}>Modèle d'IA Utilisé</Text>
+            <Text style={styles.modelText}>{getPublicModelName(analysisResult.model)}</Text>
           </View>
-          <Text style={[styles.confidenceText, { color: confidenceColor }]}>{confidence}%</Text>
-          <Text style={styles.resultLabel}>Modèle d'IA Utilisé</Text>
-          <Text style={styles.modelText}>{getPublicModelName(analysisResult.model)}</Text>
-        </View>
-        <View style={styles.resultCard}>
-          <Text style={styles.resultLabel}>Plan de Traitement Suggéré</Text>
-          <Text style={styles.resultPlan}>{analysisResult.treatmentPlan}</Text>
-        </View>
-        <View style={styles.warningCard}>
-          <Icon name="alert-triangle" size={24} color={colors.warning} />
-          <Text style={styles.warningText}>
-            Ce diagnostic est généré par une IA et ne remplace pas l'avis d'un vétérinaire professionnel.
-          </Text>
-        </View>
-        <Button text="Nouvelle Analyse" onPress={resetForm} style={{ marginTop: 20 }} />
+          <View style={styles.resultCard}>
+            <Text style={styles.resultLabel}>Plan de Traitement Suggéré</Text>
+            <Text style={styles.resultPlan}>{analysisResult.treatmentPlan}</Text>
+          </View>
+          <View style={styles.warningCard}>
+            <Icon name="alert-triangle" size={24} color={colors.warning} />
+            <Text style={styles.warningText}>
+              Ce diagnostic est généré par une IA et ne remplace pas l'avis d'un vétérinaire professionnel.
+            </Text>
+          </View>
+          <Button text="Nouvelle Analyse" onPress={resetForm} style={{ marginTop: 20 }} />
         </ScrollView>
       </SafeAreaView>
     );
@@ -342,38 +342,38 @@ export default function AIHealthAnalysis() {
       <ScrollView>
         <Text style={styles.sectionTitle}>Ajouter des Photos</Text>
         <View style={styles.imageContainer}>
-        {images.map((uri, index) => (
-          <Image key={index} source={{ uri }} style={styles.imagePreview} />
-        ))}
-        <TouchableOpacity style={styles.imagePicker} onPress={handleImagePick}>
-          <Icon name="camera" size={24} color={colors.primary} />
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.sectionTitle}>Décrire les Symptômes</Text>
-      <TextInput
-        style={styles.textInput}
-        placeholder="Ex: Mes poules ont la diarrhée depuis 2 jours, elles mangent moins..."
-        value={description}
-        onChangeText={setDescription}
-        multiline
-      />
-
-      <Text style={styles.sectionTitle}>Symptômes Courants</Text>
-      <View style={styles.symptomsContainer}>
-        {COMMON_SYMPTOMS.map(symptom => (
-          <TouchableOpacity
-            key={symptom}
-            style={[styles.symptomChip, symptoms.includes(symptom) && styles.symptomChipActive]}
-            onPress={() => toggleSymptom(symptom)}
-          >
-            <Text style={[styles.symptomText, symptoms.includes(symptom) && styles.symptomTextActive]}>{symptom}</Text>
+          {images.map((uri, index) => (
+            <Image key={index} source={{ uri }} style={styles.imagePreview} />
+          ))}
+          <TouchableOpacity style={styles.imagePicker} onPress={handleImagePick}>
+            <Icon name="camera" size={24} color={colors.primary} />
           </TouchableOpacity>
-        ))}
-      </View>
+        </View>
 
-      <Button text="Analyser avec l'IA" onPress={handleAnalysis} style={{ marginTop: 30 }} />
-      <View style={{ height: 40 }} />
+        <Text style={styles.sectionTitle}>Décrire les Symptômes</Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Ex: Mes poules ont la diarrhée depuis 2 jours, elles mangent moins..."
+          value={description}
+          onChangeText={setDescription}
+          multiline
+        />
+
+        <Text style={styles.sectionTitle}>Symptômes Courants</Text>
+        <View style={styles.symptomsContainer}>
+          {COMMON_SYMPTOMS.map(symptom => (
+            <TouchableOpacity
+              key={symptom}
+              style={[styles.symptomChip, symptoms.includes(symptom) && styles.symptomChipActive]}
+              onPress={() => toggleSymptom(symptom)}
+            >
+              <Text style={[styles.symptomText, symptoms.includes(symptom) && styles.symptomTextActive]}>{symptom}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Button text="Analyser avec l'IA" onPress={handleAnalysis} style={{ marginTop: 30 }} />
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );

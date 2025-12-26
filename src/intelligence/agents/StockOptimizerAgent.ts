@@ -1,5 +1,5 @@
- // src/intelligence/agents/StockOptimizerAgent.ts
-import { ensureSupabaseInitialized } from '../../../app/integrations/supabase/client';
+// src/intelligence/agents/StockOptimizerAgent.ts
+import { supabase } from '../../../config';
 import { smartAlertSystem } from '../core/SmartAlertSystem';
 import { dataCollector } from '../core/DataCollector';
 import { selfLearningLite } from '../core/SelfLearningEngineLite';
@@ -64,7 +64,7 @@ interface ConsumptionTracking {
   entry_type: 'automatic' | 'manual';
 }
 
-interface OptimizationSuggestion {
+export interface OptimizationSuggestion {
   type: 'order' | 'redistribute' | 'adjust_feeding' | 'change_supplier';
   title: string;
   description: string;
@@ -117,30 +117,30 @@ const ORDER_LEAD_TIME = 3;
 
 class StockOptimizerAgent {
   private static instance: StockOptimizerAgent;
-  
-  private constructor() {}
-  
+
+  private constructor() { }
+
   public static getInstance(): StockOptimizerAgent {
     if (!StockOptimizerAgent.instance) {
       StockOptimizerAgent.instance = new StockOptimizerAgent();
     }
     return StockOptimizerAgent.instance;
   }
-  
+
   /**
    * CALCUL AUTOMATIQUE DE LA CONSOMMATION PAR LOT
    */
   public calculateLotConsumption(lot: any): LotConsumption {
     const race = lot.name?.toLowerCase() || 'default';
     const ageJours = lot.age || 0;
-    
+
     // Obtenir consommation standard selon race et âge
     const feedFunction = FEED_CONSUMPTION_STANDARDS[race] || FEED_CONSUMPTION_STANDARDS['default'];
     const dailyFeedPerBird = feedFunction(ageJours);
-    
+
     // Calculer consommation totale du lot
     const totalDailyConsumption = dailyFeedPerBird * (lot.quantity || lot.quantity);
-    
+
     // Déterminer type d'aliment selon âge
     let feedType = 'aliment_standard';
     if (ageJours < 21) {
@@ -150,7 +150,7 @@ class StockOptimizerAgent {
     } else {
       feedType = 'aliment_finition';
     }
-    
+
     return {
       lot_id: lot.id,
       lot_name: lot.name,
@@ -162,12 +162,13 @@ class StockOptimizerAgent {
       last_update: new Date().toISOString(),
     };
   }
-  
+
   /**
    * CALCULER CONSOMMATION TOTALE DE LA FERME
    */
   public async calculateFarmTotalConsumption(farmId: string): Promise<{
     total_daily_consumption: number;
+    activeBirdCount: number; // --- AJOUT ---
     consumption_by_feed_type: Record<string, number>;
     consumption_by_lot: LotConsumption[];
   }> {
@@ -175,59 +176,58 @@ class StockOptimizerAgent {
       // --- CORRECTION : S'assurer que farmId est un UUID valide ---
       if (!farmId || farmId === 'null') {
         console.warn('[StockOptimizer] Tentative de calcul de consommation avec un farmId invalide:', farmId);
-        return { total_daily_consumption: 0, consumption_by_feed_type: {}, consumption_by_lot: [] };
+        return { total_daily_consumption: 0, activeBirdCount: 0, consumption_by_feed_type: {}, consumption_by_lot: [] };
       }
 
       // Récupérer tous les lots actifs
-      const supabase = await ensureSupabaseInitialized();
       const { data: lots, error } = await supabase
         .from('lots')
         .select('*')
         .eq('user_id', farmId)
         .eq('status', 'active');
-      
+
       if (error) throw error;
-      
+
       if (!lots || lots.length === 0) {
         return {
           total_daily_consumption: 0,
+          activeBirdCount: 0,
           consumption_by_feed_type: {},
           consumption_by_lot: [],
         };
       }
-      
+
       // Calculer consommation pour chaque lot
       const consumptionByLot = lots.map(lot => this.calculateLotConsumption(lot));
-      
-      // Agréger par type d'aliment
-      const consumptionByFeedType: Record<string, number> = {};
-      consumptionByLot.forEach(consumption => {
-        const feedType = consumption.feed_type;
-        consumptionByFeedType[feedType] = (consumptionByFeedType[feedType] || 0) + consumption.total_daily_consumption;
-      });
-      
-      // Total global
+
+      // Sommer le tout
       const totalDailyConsumption = consumptionByLot.reduce(
-        (sum, c) => sum + c.total_daily_consumption,
+        (sum, item) => sum + item.total_daily_consumption,
         0
       );
-      
+
+      // Calculer le nombre total d'oiseaux
+      const activeBirdCount = lots.reduce((sum, lot) => sum + (lot.quantity || 0), 0);
+
+      const consumptionByFeedType: Record<string, number> = {};
+      consumptionByLot.forEach(item => {
+        const type = item.feed_type;
+        consumptionByFeedType[type] = (consumptionByFeedType[type] || 0) + item.total_daily_consumption;
+      });
+
       return {
         total_daily_consumption: totalDailyConsumption,
+        activeBirdCount, // --- AJOUT ---
         consumption_by_feed_type: consumptionByFeedType,
         consumption_by_lot: consumptionByLot,
       };
     } catch (error) {
-      console.error('[StockOptimizer] Erreur calcul consommation:', error);
+      console.error('[StockOptimizer] Erreur calcul global:', error);
       dataCollector.trackError(error as Error, { farmId, action: 'calculateFarmConsumption' });
-      return {
-        total_daily_consumption: 0,
-        consumption_by_feed_type: {},
-        consumption_by_lot: [],
-      };
+      return { total_daily_consumption: 0, activeBirdCount: 0, consumption_by_feed_type: {}, consumption_by_lot: [] };
     }
   }
-  
+
   /**
    * PRÉDIRE LES BESOINS FUTURS
    */
@@ -238,18 +238,17 @@ class StockOptimizerAgent {
       const consumptionByFeedType = consumption.consumption_by_feed_type;
 
       // 2. Obtenir tous les articles en stock
-      const supabase = await ensureSupabaseInitialized();
       const { data: allStocks } = await supabase
         .from('stock')
         .select('*')
         .eq('user_id', farmId);
-      
+
       if (!allStocks || allStocks.length === 0) {
         return [];
       }
-      
+
       const predictions: FeedPrediction[] = [];
-      
+
       // 3. Pour chaque article en stock
       for (const stock of allStocks) {
         let dailyConsumption = 0;
@@ -260,70 +259,70 @@ class StockOptimizerAgent {
         }
 
         if (dailyConsumption > 0) {
-            // Logique de prédiction basée sur la consommation
-            const daysRemaining = stock.quantity / dailyConsumption;
-            const runoutDate = new Date();
-            runoutDate.setDate(runoutDate.getDate() + Math.floor(daysRemaining));
-            const orderDate = new Date();
-            orderDate.setDate(orderDate.getDate() + Math.floor(daysRemaining - ORDER_LEAD_TIME - SAFETY_STOCK_DAYS));
-            const recommendedQuantity = dailyConsumption * (30 + SAFETY_STOCK_DAYS);
-            const safetyStock = dailyConsumption * SAFETY_STOCK_DAYS;
+          // Logique de prédiction basée sur la consommation
+          const daysRemaining = stock.quantity / dailyConsumption;
+          const runoutDate = new Date();
+          runoutDate.setDate(runoutDate.getDate() + Math.floor(daysRemaining));
+          const orderDate = new Date();
+          orderDate.setDate(orderDate.getDate() + Math.floor(daysRemaining - ORDER_LEAD_TIME - SAFETY_STOCK_DAYS));
+          const recommendedQuantity = dailyConsumption * (30 + SAFETY_STOCK_DAYS);
+          const safetyStock = dailyConsumption * SAFETY_STOCK_DAYS;
 
-            let urgencyLevel: FeedPrediction['urgency_level'] = 'low';
-            if (daysRemaining < ORDER_LEAD_TIME) {
-              urgencyLevel = 'critical';
-            } else if (daysRemaining < ORDER_LEAD_TIME + SAFETY_STOCK_DAYS) {
-              urgencyLevel = 'high';
-            } else if (daysRemaining < 14) {
-              urgencyLevel = 'medium';
-            }
-            
-            if (urgencyLevel !== 'low') {
-                predictions.push({
-                  stock_item_id: stock.id,
-                  stock_name: stock.name,
-                  current_quantity: stock.quantity,
-                  daily_consumption: dailyConsumption,
-                  days_remaining: daysRemaining,
-                  estimated_runout_date: runoutDate.toISOString(),
-                  recommended_order_date: orderDate.toISOString(),
-                  recommended_order_quantity: recommendedQuantity,
-                  safety_stock: safetyStock,
-                  affected_lots: [], // Cette info est maintenant moins directe, à améliorer si besoin
-                  urgency_level: urgencyLevel,
-                });
-            }
-        } else if (stock.min_threshold && stock.quantity <= stock.min_threshold) {
-            // Si pas de consommation calculée, vérifier le seuil manuel (pour médicaments, etc.)
+          let urgencyLevel: FeedPrediction['urgency_level'] = 'low';
+          if (daysRemaining < ORDER_LEAD_TIME) {
+            urgencyLevel = 'critical';
+          } else if (daysRemaining < ORDER_LEAD_TIME + SAFETY_STOCK_DAYS) {
+            urgencyLevel = 'high';
+          } else if (daysRemaining < 14) {
+            urgencyLevel = 'medium';
+          }
+
+          if (urgencyLevel !== 'low') {
             predictions.push({
-                stock_item_id: stock.id,
-                stock_name: stock.name,
-                current_quantity: stock.quantity,
-                daily_consumption: 0,
-                days_remaining: 0,
-                estimated_runout_date: new Date().toISOString(),
-                recommended_order_date: new Date().toISOString(),
-                recommended_order_quantity: (stock.min_threshold || 10) * 2,
-                safety_stock: stock.min_threshold || 0,
-                affected_lots: [],
-                urgency_level: stock.quantity === 0 ? 'critical' : 'high',
+              stock_item_id: stock.id,
+              stock_name: stock.name,
+              current_quantity: stock.quantity,
+              daily_consumption: dailyConsumption,
+              days_remaining: daysRemaining,
+              estimated_runout_date: runoutDate.toISOString(),
+              recommended_order_date: orderDate.toISOString(),
+              recommended_order_quantity: recommendedQuantity,
+              safety_stock: safetyStock,
+              affected_lots: [], // Cette info est maintenant moins directe, à améliorer si besoin
+              urgency_level: urgencyLevel,
             });
+          }
+        } else if (stock.min_threshold && stock.quantity <= stock.min_threshold) {
+          // Si pas de consommation calculée, vérifier le seuil manuel (pour médicaments, etc.)
+          predictions.push({
+            stock_item_id: stock.id,
+            stock_name: stock.name,
+            current_quantity: stock.quantity,
+            daily_consumption: 0,
+            days_remaining: 0,
+            estimated_runout_date: new Date().toISOString(),
+            recommended_order_date: new Date().toISOString(),
+            recommended_order_quantity: (stock.min_threshold || 10) * 2,
+            safety_stock: stock.min_threshold || 0,
+            affected_lots: [],
+            urgency_level: stock.quantity === 0 ? 'critical' : 'high',
+          });
         }
       }
-      
+
       // Trier par urgence
       predictions.sort((a, b) => {
         const urgencyOrder = { critical: 0, high: 1, medium: 2, low: 3 };
         return urgencyOrder[a.urgency_level] - urgencyOrder[b.urgency_level];
       });
-      
+
       return predictions;
     } catch (error) {
       console.error('[StockOptimizer] Erreur prédiction besoins:', error);
       return [];
     }
   }
-  
+
   /**
    * ENREGISTRER CONSOMMATION RÉELLE
    */
@@ -334,8 +333,6 @@ class StockOptimizerAgent {
     entryType: 'automatic' | 'manual' = 'manual'
   ): Promise<void> {
     try {
-      const supabase = await ensureSupabaseInitialized();
-
       // 1. Obtenir consommation prévue
       const { data: lot } = await supabase
         .from('lots')
@@ -348,7 +345,7 @@ class StockOptimizerAgent {
       // 2. Calculer déviation
       const plannedConsumption = this.calculateLotConsumption(lot);
       const deviation = ((quantityConsumed - plannedConsumption.total_daily_consumption) /
-                        plannedConsumption.total_daily_consumption) * 100;
+        plannedConsumption.total_daily_consumption) * 100;
 
       // 3. Enregistrer dans table de suivi
       const tracking: ConsumptionTracking = {
@@ -406,7 +403,7 @@ class StockOptimizerAgent {
           );
         }
       }
-      
+
       // 7. Logger pour apprentissage
       dataCollector.collect(
         'stock_consumption_tracked' as any,
@@ -419,7 +416,7 @@ class StockOptimizerAgent {
         'medium' as any,
         'success'
       );
-      
+
       // 8. IA Légère apprend de la précision
       selfLearningLite.learn({
         action: `consumption_prediction_${lot.name}`,
@@ -427,20 +424,20 @@ class StockOptimizerAgent {
         duration: 0,
         context: { deviation, age: lot.age },
       });
-      
+
     } catch (error) {
       console.error('[StockOptimizer] Erreur tracking consommation:', error);
       dataCollector.trackError(error as Error, { lotId, stockItemId });
     }
   }
-  
+
   /**
    * GÉNÉRER ALERTES PROACTIVES
    */
   public async generateStockAlerts(farmId: string): Promise<void> {
     try {
       const predictions = await this.predictStockNeeds(farmId);
-      
+
       for (const prediction of predictions) {
         if (prediction.urgency_level === 'critical' || prediction.urgency_level === 'high') {
           await smartAlertSystem.createAlert({
@@ -461,23 +458,19 @@ class StockOptimizerAgent {
       console.error('[StockOptimizer] Erreur génération alertes:', error);
     }
   }
-  
+
   /**
    * SUGGESTIONS D'OPTIMISATION
    */
   public async generateOptimizationSuggestions(farmId: string): Promise<OptimizationSuggestion[]> {
     const suggestions: OptimizationSuggestion[] = [];
-    
-    try {
-      const supabase = await ensureSupabaseInitialized();
 
+    try {
       // 1. Analyser historique consommation
       const { data: trackingData } = await supabase
         .from('stock_consumption_tracking')
         .select('*, lots(*), stock(*)')
-        .gte('date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-        .order('date', { ascending: false });
-
+        .eq('user_id', farmId); // --- CORRECTION : Ajout du filtre manquant ---
       if (!trackingData || trackingData.length === 0) return suggestions;
 
       // 2. Surconsommation détectée
@@ -505,10 +498,10 @@ class StockOptimizerAgent {
         .eq('category', 'feed')
         .eq('type', 'expense')
         .gte('date', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString());
-      
+
       if (recentOrders && recentOrders.length > 6) {
         const avgOrderAmount = recentOrders.reduce((sum: number, o: any) => sum + (o.amount || 0), 0) / recentOrders.length;
-        
+
         suggestions.push({
           type: 'order',
           title: 'Optimiser les commandes groupées',
@@ -522,11 +515,11 @@ class StockOptimizerAgent {
           ],
         });
       }
-      
+
       // 4. Stock de sécurité insuffisant
       const predictions = await this.predictStockNeeds(farmId);
       const criticalItems = predictions.filter(p => p.days_remaining < 7);
-      
+
       if (criticalItems.length > 0) {
         suggestions.push({
           type: 'order',
@@ -541,37 +534,37 @@ class StockOptimizerAgent {
           ],
         });
       }
-      
+
       // Trier par priorité
       suggestions.sort((a, b) => b.priority_score - a.priority_score);
-      
+
       return suggestions;
     } catch (error) {
       console.error('[StockOptimizer] Erreur suggestions:', error);
       return [];
     }
   }
-  
+
   /**
    * SURVEILLANCE CONTINUE
    */
   public async monitorStockHealth(farmId: string): Promise<void> {
     try {
       console.log('[StockOptimizer] Surveillance stock démarrée');
-      
+
       // 1. Vérifier prédictions
       const predictions = await this.predictStockNeeds(farmId);
-      
+
       // 2. Générer alertes si nécessaire
       await this.generateStockAlerts(farmId);
-      
+
       // 3. Log résumé
       const criticalCount = predictions.filter(p => p.urgency_level === 'critical').length;
       const highCount = predictions.filter(p => p.urgency_level === 'high').length;
-      
+
       console.log(`[StockOptimizer] Stocks surveillés: ${predictions.length}`);
       console.log(`[StockOptimizer] Critique: ${criticalCount}, Urgent: ${highCount}`);
-      
+
     } catch (error) {
       console.error('[StockOptimizer] Erreur surveillance:', error);
     }
@@ -585,9 +578,9 @@ export const stockOptimizerAgent = StockOptimizerAgent.getInstance();
 export const useStockOptimizer = () => {
   return {
     calculateLotConsumption: (lot: any) => stockOptimizerAgent.calculateLotConsumption(lot),
-    calculateFarmConsumption: (farmId: string) => 
+    calculateFarmConsumption: (farmId: string) =>
       stockOptimizerAgent.calculateFarmTotalConsumption(farmId),
-    predictStockNeeds: (farmId: string) => 
+    predictStockNeeds: (farmId: string) =>
       stockOptimizerAgent.predictStockNeeds(farmId),
     trackConsumption: (lotId: string, stockId: string, quantity: number, type?: 'automatic' | 'manual') =>
       stockOptimizerAgent.trackConsumption(lotId, stockId, quantity, type),

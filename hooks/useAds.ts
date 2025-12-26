@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ensureSupabaseInitialized } from '../app/integrations/supabase/client';
+import { ensureSupabaseInitialized } from '../config';
 
 // This should match the AdItem interface in AdBanner.tsx
 export interface Ad {
@@ -12,13 +12,13 @@ export interface Ad {
 
 // This type matches the DB table
 interface Advertisement {
-    id: string;
-    title: string;
-    subtitle: string | null;
-    image_url: string;
-    target_url: string | null;
-    is_enabled: boolean;
-    created_at: string;
+  id: string;
+  title: string;
+  subtitle: string | null;
+  image_url: string;
+  target_url: string | null;
+  is_enabled: boolean;
+  created_at: string;
 }
 
 export const useAds = () => {
@@ -40,11 +40,11 @@ export const useAds = () => {
         setAds([]);
       } else {
         const mappedAds: Ad[] = (data || []).map((ad: Advertisement) => ({
-            id: ad.id,
-            title: ad.title,
-            subtitle: ad.subtitle || '',
-            image_url: ad.image_url,
-            target_url: ad.target_url || undefined,
+          id: ad.id,
+          title: ad.title,
+          subtitle: ad.subtitle || '',
+          image_url: ad.image_url,
+          target_url: ad.target_url || undefined,
         }));
         setAds(mappedAds);
       }
@@ -57,7 +57,42 @@ export const useAds = () => {
   }, []);
 
   useEffect(() => {
-    fetchAds();
+    fetchAds(); // Initial fetch
+
+    const setupSubscription = async () => {
+      try {
+        const supabase = await ensureSupabaseInitialized();
+        const channel = supabase
+          .channel('public-advertisements')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'advertisements' },
+            () => {
+              console.log('📢 Ads data changed, refetching.');
+              fetchAds();
+            }
+          )
+          .subscribe();
+
+        return channel;
+      } catch (error) {
+        console.error('Error setting up ads subscription:', error);
+        return null;
+      }
+    };
+
+    const channelPromise = setupSubscription();
+
+    // Cleanup
+    return () => {
+      channelPromise.then(channel => {
+        if (channel) {
+          ensureSupabaseInitialized().then(supabase => {
+            supabase.removeChannel(channel);
+          });
+        }
+      });
+    };
   }, [fetchAds]);
 
   return { ads, isLoading, refetchAds: fetchAds };

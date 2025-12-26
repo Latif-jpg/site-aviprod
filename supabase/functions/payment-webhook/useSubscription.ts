@@ -6,12 +6,15 @@ interface SubscriptionPlan {
   id: string;
   name: string;
   features: Record<string, any>;
+  // Ajout des champs pour la nouvelle structure
+  price_monthly: number;
 }
 
 interface UserSubscription {
   id: string;
   status: 'active' | 'cancelled' | 'past_due';
-  current_period_end: string;
+  expires_at: string; // Renommé pour correspondre à la DB
+  usage_limits: Record<string, number>; // Pour suivre l'utilisation (ex: ai_health_used)
   plan: SubscriptionPlan | null;
 }
 
@@ -35,11 +38,13 @@ export function useSubscription() {
         .select(`
           id,
           status,
-          current_period_end,
+          expires_at,
+          usage_limits,
           plan:subscription_plans (
             id,
             name,
-            features
+            features,
+            price_monthly
           )
         `)
         .eq('user_id', user.id)
@@ -64,13 +69,30 @@ export function useSubscription() {
   }, [authLoading, fetchSubscription]);
 
   const hasAccess = (feature: string): boolean => {
-    if (!subscription || subscription.status !== 'active') {
-      return false; // Pas d'accès si pas d'abonnement actif
+    // Freemium a toujours accès aux fonctionnalités de base
+    if (subscription?.plan?.name === 'freemium') {
+        // Ici, on peut définir les accès de base pour le plan gratuit
+        const freemiumFeatures = ['manual_feeding', 'basic_stock', 'basic_finance'];
+        if (freemiumFeatures.includes(feature)) return true;
     }
-    // La fonctionnalité "freemium" est toujours accessible
-    if (feature === 'freemium') return true;
 
-    return subscription.plan?.features?.[feature] === true;
+    if (!subscription || !['active', 'past_due'].includes(subscription.status)) {
+      return false;
+    }
+
+    const featureValue = subscription.plan?.features?.[feature];
+
+    // Gère les accès illimités (valeur -1) ou les quotas > 0
+    if (typeof featureValue === 'number') {
+      return featureValue === -1 || featureValue > 0;
+    }
+
+    // Gère les accès booléens (true/false)
+    if (typeof featureValue === 'boolean') {
+      return featureValue;
+    }
+
+    return false;
   };
 
   return {

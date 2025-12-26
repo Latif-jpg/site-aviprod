@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, commonStyles } from '../styles/commonStyles';
+import { colors } from '../styles/commonStyles';
 import Icon from '../components/Icon';
 import { router, useFocusEffect } from 'expo-router';
-import { useNotifications, Notification } from '../hooks/useNotifications';
+import { useNotifications, Notification } from '../components/NotificationContext';
+import { supabase } from '../config'; // --- AJOUT : Importer Supabase ---
 
 export default function NotificationsScreen() {
   const {
@@ -13,8 +14,15 @@ export default function NotificationsScreen() {
     loading,
     fetchNotifications,
     markAsRead,
-    markAllAsRead
+    markAllAsRead,
   } = useNotifications();
+
+  // Recharger les notifications lorsque l'écran est affiché
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchNotifications();
+    }, [fetchNotifications])
+  );
 
   const handleNotificationPress = async (notification: Notification) => {
     // ✅ Marquer comme lu immédiatement
@@ -25,6 +33,9 @@ export default function NotificationsScreen() {
     // Redirection selon le type
     if (notification.data?.action === 'view_seller_orders') {
       router.push('/seller-orders');
+    } else if (notification.data?.action === 'pay_order' && notification.data?.order_id) {
+      // --- AJOUT : Gérer la redirection vers la page de paiement ---
+      router.push({ pathname: '/order-payment', params: { orderId: notification.data.order_id } });
     } else if (notification.data?.order_id) {
       router.push('/order-tracking');
     } else if (notification.data?.delivery_id) {
@@ -104,7 +115,7 @@ export default function NotificationsScreen() {
 
   if (loading && notifications.length === 0) {
     return (
-      <SafeAreaView style={commonStyles.container}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Chargement des notifications...</Text>
@@ -114,7 +125,7 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <SafeAreaView style={commonStyles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Icon name="arrow-back" size={24} color={colors.text} />
@@ -157,6 +168,7 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background }, // Style de base
   header: {
     flexDirection: 'row',
     alignItems: 'center',

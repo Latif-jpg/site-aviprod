@@ -122,7 +122,7 @@ export default function WelcomeScreen() {
   const handleCompleteOnboarding = async () => {
     try {
       await AsyncStorage.setItem('@onboarding_completed', 'true');
-      router.replace('/auth');
+      router.replace('/auth'); // Rediriger vers l'écran de connexion
     } catch (error) {
       console.error('Error completing onboarding:', error);
       // Fallback in case of error

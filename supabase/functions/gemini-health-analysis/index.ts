@@ -431,6 +431,33 @@ Deno.serve(async (req) => {
       // Continue anyway, don't fail the request
     } else {
       console.log('✅ Analysis saved to database');
+
+      // --- Create a critical alert if needed ---
+      const CRITICAL_DISEASES = ['newcastle', 'influenza', 'gumboro', 'marek', 'coccidiosis', 'grippe aviaire'];
+      const isCritical = CRITICAL_DISEASES.some(d => analysisResult.diagnosis.toLowerCase().includes(d));
+
+      if (isCritical && analysisResult.confidence > 70) {
+        console.log(`🚨 Critical diagnosis detected: "${analysisResult.diagnosis}" with ${analysisResult.confidence}% confidence. Creating alert.`);
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: user.id,
+            lot_id: lotId,
+            type: 'error',
+            title: 'Alerte Sanitaire Critique',
+            message: `Diagnostic probable : "${analysisResult.diagnosis}" (confiance: ${analysisResult.confidence}%). Action immédiate recommandée.`,
+            data: {
+              analysisId: savedAnalysis?.id || null,
+              action: 'view_ai_analysis'
+            }
+          });
+
+        if (notificationError) {
+          console.error('⚠️ Error creating critical notification:', notificationError);
+        } else {
+          console.log('✅ Critical health alert created for user:', user.id);
+        }
+      }
     }
 
     // --- Securely deduct avicoins if payment was required ---

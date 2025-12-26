@@ -1,147 +1,89 @@
+import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
+import { supabase } from '../config';
+import { useProfile } from './ProfileContext'; // Importer le hook de profil
 
-import React, { createContext, useState, useEffect, useCallback, useContext, ReactNode } from 'react';
-import { ensureSupabaseInitialized } from '../app/integrations/supabase/client';
-import { useAuth } from '../hooks/useAuth';
-
-// Interfaces
-interface SubscriptionPlan {
+export interface SubscriptionPlan {
   id: string;
   name: string;
+  display_name: string;
+  description: string;
+  price_monthly: number;
+  price_yearly: number;
   features: Record<string, any>;
+  is_active: boolean;
 }
 
-interface UserSubscription {
+export interface ActiveSubscription {
   id: string;
-  status: 'active' | 'cancelled' | 'past_due';
-  current_period_end: string;
+  plan_id: string;
+  status: 'active' | 'inactive' | 'past_due' | 'canceled';
   plan: SubscriptionPlan | null;
 }
 
-interface AvicoinsData {
-  balance: number;
-  total_earned: number;
-  total_spent: number;
-}
-
 interface SubscriptionContextType {
-  subscription: UserSubscription | null;
-  avicoins: AvicoinsData | null;
+  subscription: ActiveSubscription | null;
+  allPlans: SubscriptionPlan[];
   loading: boolean;
-  hasAccess: (feature: string) => boolean;
-  getFeatureCost: (feature: string) => number;
-  canAffordFeature: (feature: string) => boolean;
-  refreshSubscription: () => Promise<void>;
+  refreshSubscription: () => void;
 }
 
-// Create Context
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
 
-// Provider Component
-export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { user, loading: authLoading } = useAuth();
-  const [subscription, setSubscription] = useState<UserSubscription | null>(null);
-  const [avicoins, setAvicoins] = useState<AvicoinsData | null>(null);
+export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
+  const { profile, loading: profileLoading } = useProfile(); // Utiliser le profil
+  const [allPlans, setAllPlans] = useState<SubscriptionPlan[]>([]);
+  const [activeSubscription, setActiveSubscription] = useState<ActiveSubscription | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchSubscription = useCallback(async () => {
-    if (!user) {
-      setSubscription(null);
-      setAvicoins(null);
-      setLoading(false);
-      return;
-    }
-
+  // --- CORRECTION : La fonction dépend maintenant du profil de manière stable et claire ---
+  const fetchSubscriptionData = useCallback(async () => {
     try {
-      setLoading(true);
-      const supabase = await ensureSupabaseInitialized();
+      // 1. Charger tous les plans disponibles
+      const { data: plansData, error: plansError } = await supabase
+        .from('subscription_plans')
+        .select('*')
+        .order('price_monthly', { ascending: true });
 
-      const { data: subscriptionData, error: subscriptionError } = await supabase
-        .from('user_subscriptions')
-        .select('id, status, current_period_end, plan:subscription_plans(id, name, display_name, features)')
-        .eq('user_id', user.id)
-        .in('status', ['active', 'past_due'])
-        .maybeSingle();
+      if (plansError) throw plansError;
+      setAllPlans(plansData || []);
 
-      if (subscriptionError) throw subscriptionError;
-      setSubscription(subscriptionData as UserSubscription | null);
-
-      const { data: avicoinsData, error: avicoinsError } = await supabase
-        .from('user_avicoins')
-        .select('balance, total_earned, total_spent')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (avicoinsError && avicoinsError.code !== 'PGRST116') {
-        console.error('❌ Error fetching avicoins:', avicoinsError);
+      // 2. Utiliser le profil DÉJÀ CHARGÉ par ProfileContext pour déterminer l'abonnement
+      if (profile && profile.subscription_status === 'active' && profile.subscription_plan_id) {
+        const activePlan = (plansData || []).find(p => p.id === profile.subscription_plan_id);
+        setActiveSubscription({
+          id: profile.id,
+          plan_id: profile.subscription_plan_id,
+          status: 'active',
+          plan: activePlan || null,
+        });
+        console.log('✅ [SubscriptionContext] Abonnement actif trouvé:', activePlan?.display_name);
+      } else {
+        setActiveSubscription(null);
+        console.log('ℹ️ [SubscriptionContext] Aucun abonnement actif trouvé pour l\'utilisateur.');
       }
-      setAvicoins(avicoinsData as AvicoinsData | null);
-
     } catch (error) {
-      console.error('❌ Error fetching user subscription:', error);
-      setSubscription(null);
-      setAvicoins(null);
-    } finally {
-      setLoading(false);
+      console.error("Erreur lors du chargement des abonnements:", error);
     }
-  }, [user]);
+  }, [profile]); // <-- La dépendance est maintenant 'profile'. Quand le profil change, on recalcule.
 
   useEffect(() => {
-    if (authLoading) return;
-    fetchSubscription();
-    if (!user) return;
-
-    const supabasePromise = ensureSupabaseInitialized();
-    const setupRealtimeSubscription = async () => {
-      const supabase = await supabasePromise;
-      const channel = supabase.channel(`user-updates-${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'user_subscriptions', filter: `user_id=eq.${user.id}` }, () => fetchSubscription())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'user_avicoins', filter: `user_id=eq.${user.id}` }, () => fetchSubscription())
-        .subscribe();
-      return () => { supabase.removeChannel(channel); };
-    };
-
-    const cleanupPromise = setupRealtimeSubscription();
-    return () => { cleanupPromise.then(cleanup => cleanup()); };
-  }, [authLoading, user, fetchSubscription]);
-
-  const hasAccess = (feature: string): boolean => {
-    if (feature === 'freemium') return true;
-    if (subscription && subscription.status === 'active') {
-      const planFeature = subscription.plan?.features?.[feature];
-      if (typeof planFeature === 'number') return planFeature === -1 || planFeature > 0;
-      return planFeature === true;
+    // Ne pas charger si le profil est encore en cours de chargement
+    if (!profileLoading) {
+      setLoading(true);
+      fetchSubscriptionData().finally(() => setLoading(false));
     }
-    const payableFeatures = ['auto_feeding', 'advanced_feeding', 'product_recommendations', 'full_history', 'export_reports', 'advanced_alerts'];
-    if (avicoins && avicoins.balance > 0 && payableFeatures.includes(feature)) {
-      return true;
-    }
-    return false;
-  };
-
-  const getFeatureCost = (feature: string): number => {
-    const costs: Record<string, number> = { 'auto_feeding': 5, 'advanced_feeding': 10, 'product_recommendations': 3, 'full_history': 2, 'export_reports': 8, 'advanced_alerts': 5, 'ai_analysis': 5, 'sell_on_marketplace': 2 };
-    return costs[feature] || 0;
-  };
-
-  const canAffordFeature = (feature: string): boolean => {
-    const cost = getFeatureCost(feature);
-    return avicoins ? avicoins.balance >= cost : false;
-  };
+  }, [profile, profileLoading, fetchSubscriptionData]); // <-- Réagit au changement de profil et de son état de chargement.
 
   const value = {
-    subscription,
-    avicoins,
-    loading: authLoading || loading,
-    hasAccess,
-    getFeatureCost,
-    canAffordFeature,
-    refreshSubscription: fetchSubscription,
+    subscription: activeSubscription,
+    allPlans,
+    loading: loading || profileLoading, // Le chargement est actif si le profil OU les abos chargent
+    refreshSubscription: fetchSubscriptionData,
   };
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
 };
 
-// Custom Hook
 export const useSubscription = () => {
   const context = useContext(SubscriptionContext);
   if (context === undefined) {

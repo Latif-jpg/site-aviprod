@@ -67,7 +67,7 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: 'home' as const, route: '/dashboard' },
     { id: 'lots', label: 'Lots', icon: 'egg' as const, route: '/lots' },
     { id: 'marketplace', label: 'Marché', icon: 'storefront' as const, route: '/marketplace' },
-    { id: 'feeding', label: 'Rations', icon: 'nutrition' as const, route: '/feeding' },
+    { id: 'feeding', label: 'Aliment', icon: 'nutrition' as const, route: '/feeding' },
     { id: 'health', label: 'Santé', icon: 'medical' as const, route: '/health' },
   ];
 
@@ -84,8 +84,10 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({
       // Update active route immediately for instant visual feedback
       setActiveRoute(tab.id);
       
-      // Navigate to the route using replace to avoid stacking
-      router.replace(tab.route);
+      // --- CORRECTION : Utiliser push() au lieu de replace() ---
+      // push() ajoute l'écran à l'historique, permettant le retour en arrière.
+      // replace() remplace l'écran, ce qui fait que le bouton retour quitte l'app.
+      router.push(tab.route);
       
       // Call callbacks if provided
       if (onTabChange) {

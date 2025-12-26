@@ -7,6 +7,8 @@ import Button from './Button';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator'; // Importation correcte
 import { supabase } from '../config'; // Import supabase directly
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 
 interface SellerKYCVerificationProps {
   onVerificationSubmitted: () => void;
@@ -32,7 +34,6 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
 
   const checkExistingVerification = async () => {
     try {
-      const supabase = await ensureSupabaseInitialized();
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
@@ -75,7 +76,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
     try {
       console.log('🗜️ Starting image compression...');
       console.log('📏 Original URI:', uri);
-      
+
       // First resize to a reasonable size
       const resized = await ImageManipulator.manipulateAsync(
         uri,
@@ -106,7 +107,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
 
       // Request permission
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
+
       if (status !== 'granted') {
         Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la galerie pour continuer');
         setIsProcessing(false);
@@ -117,7 +118,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       console.log('✅ Permission granted, launching image picker...');
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+
         allowsEditing: true,
         aspect: type === 'real' ? [1, 1] : [4, 3],
         quality: 0.7, // Lower initial quality to prevent memory issues
@@ -140,20 +141,20 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
 
       console.log('📷 Image selected, starting compression...');
       const selectedUri = result.assets[0].uri;
-      
+
       // Compress the image
       const compressedUri = await compressImage(selectedUri);
-      
+
       console.log(`✅ Setting ${type} photo...`);
       if (type === 'real') {
         setRealPhoto(compressedUri);
       } else {
         setIdPhoto(compressedUri);
       }
-      
+
       console.log('✅ Photo processed successfully');
       Alert.alert('Succès', 'Photo ajoutée avec succès');
-      
+
       setIsProcessing(false);
       setProcessingType(null);
     } catch (error: any) {
@@ -162,7 +163,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       setIsProcessing(false);
       setProcessingType(null);
       Alert.alert(
-        'Erreur', 
+        'Erreur',
         error.message || 'Impossible de sélectionner l\'image. Veuillez réessayer avec une image plus petite.'
       );
     }
@@ -176,7 +177,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
 
       // Request permission
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      
+
       if (status !== 'granted') {
         Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la caméra pour continuer');
         setIsProcessing(false);
@@ -209,20 +210,20 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
 
       console.log('📷 Photo captured, starting compression...');
       const capturedUri = result.assets[0].uri;
-      
+
       // Compress the image
       const compressedUri = await compressImage(capturedUri);
-      
+
       console.log(`✅ Setting ${type} photo...`);
       if (type === 'real') {
         setRealPhoto(compressedUri);
       } else {
         setIdPhoto(compressedUri);
       }
-      
+
       console.log('✅ Photo processed successfully');
       Alert.alert('Succès', 'Photo ajoutée avec succès');
-      
+
       setIsProcessing(false);
       setProcessingType(null);
     } catch (error: any) {
@@ -231,7 +232,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       setIsProcessing(false);
       setProcessingType(null);
       Alert.alert(
-        'Erreur', 
+        'Erreur',
         error.message || 'Impossible de prendre la photo. Veuillez réessayer.'
       );
     }
@@ -261,21 +262,13 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       const timestamp = Date.now();
       const fileName = `${userId}/kyc_${type}_${timestamp}.${fileExt}`;
 
-      // Correction: Create FormData manually for React Native compatibility
-      const formData = new FormData();
-      formData.append('file', {
-        uri: uri,
-        name: fileName,
-        type: 'image/jpeg',
-      } as any);
-
-      console.log('📝 File name:', fileName);
-      console.log('📤 Uploading to Supabase Storage...'); // Correction: Point-virgule supprimé
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      const arrayBuffer = decode(base64);
 
       const { data, error } = await supabase.storage
         .from('kyc-photos')
-        // Pass the FormData object directly
-        .upload(fileName, formData, {
+        .upload(fileName, arrayBuffer, {
+          contentType: 'image/jpeg',
           upsert: false,
         });
 
@@ -337,7 +330,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       // Upload photos to Supabase Storage
       console.log('📤 Uploading real photo...');
       const realPhotoUrl = await uploadPhotoToStorage(realPhoto, 'real', user.id);
-      
+
       if (!realPhotoUrl) {
         throw new Error('Échec du téléchargement de la photo réelle');
       }
@@ -346,7 +339,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
 
       console.log('📤 Uploading ID photo...');
       const idPhotoUrl = await uploadPhotoToStorage(idPhoto, 'id', user.id);
-      
+
       if (!idPhotoUrl) {
         throw new Error('Échec du téléchargement de la photo d\'identité');
       }
@@ -379,11 +372,11 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       }
 
       console.log('✅ Verification submitted successfully');
-      
+
       // Clear images from memory
       setRealPhoto(null);
       setIdPhoto(null);
-      
+
       Alert.alert(
         'Demande envoyée! ✅',
         'Votre demande de vérification a été envoyée avec succès. Notre équipe va l\'examiner et vous recevrez une notification une fois approuvée.',
@@ -398,7 +391,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       console.error('❌ Error submitting verification:', error);
       console.error('Error stack:', error.stack);
       Alert.alert(
-        'Erreur', 
+        'Erreur',
         error.message || 'Impossible de soumettre la vérification. Veuillez réessayer.'
       );
     } finally {
@@ -421,7 +414,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
         <Icon name="time" size={64} color={colors.warning} />
         <Text style={styles.statusTitle}>Vérification en cours</Text>
         <Text style={styles.statusText}>
-          Votre demande de vérification est en cours d&apos;examen par notre équipe. 
+          Votre demande de vérification est en cours d&apos;examen par notre équipe.
           Vous recevrez une notification une fois qu&apos;elle sera approuvée.
         </Text>
         <Button title="Fermer" onPress={onCancel} variant="secondary" />
@@ -469,8 +462,8 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
         <View style={styles.processingBanner}>
           <ActivityIndicator size="small" color={colors.primary} />
           <Text style={styles.processingText}>
-            {processingType === 'real' 
-              ? 'Traitement de votre photo...' 
+            {processingType === 'real'
+              ? 'Traitement de votre photo...'
               : 'Traitement de la photo CNI...'}
           </Text>
         </View>
@@ -511,7 +504,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
           </View>
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.agreeButton}
           onPress={() => setAgreedToTerms(!agreedToTerms)}
           disabled={isProcessing || isSubmitting}
@@ -571,7 +564,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
             Une photo claire de votre visage (selfie)
           </Text>
           <View style={styles.photoButtons}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.photoButton}
               onPress={() => takePhoto('real')}
               disabled={isProcessing || isSubmitting}
@@ -579,7 +572,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
               <Icon name="camera" size={24} color={isProcessing || isSubmitting ? colors.textSecondary : colors.orange} />
               <Text style={[styles.photoButtonText, (isProcessing || isSubmitting) && styles.photoButtonTextDisabled]}>Prendre</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.photoButton}
               onPress={() => pickImage('real')}
               disabled={isProcessing || isSubmitting}
@@ -591,7 +584,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
           {realPhoto && (
             <View style={styles.photoPreview}>
               <Image source={{ uri: realPhoto }} style={styles.previewImage} />
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.removeButton}
                 onPress={() => setRealPhoto(null)}
                 disabled={isProcessing || isSubmitting}
@@ -608,7 +601,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
             Carte d&apos;identité nationale, passeport ou permis de conduire
           </Text>
           <View style={styles.photoButtons}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.photoButton}
               onPress={() => takePhoto('id')}
               disabled={isProcessing || isSubmitting}
@@ -616,7 +609,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
               <Icon name="camera" size={24} color={isProcessing || isSubmitting ? colors.textSecondary : colors.orange} />
               <Text style={[styles.photoButtonText, (isProcessing || isSubmitting) && styles.photoButtonTextDisabled]}>Prendre</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.photoButton}
               onPress={() => pickImage('id')}
               disabled={isProcessing || isSubmitting}
@@ -628,7 +621,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
           {idPhoto && (
             <View style={styles.photoPreview}>
               <Image source={{ uri: idPhoto }} style={styles.previewImage} />
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.removeButton}
                 onPress={() => setIdPhoto(null)}
                 disabled={isProcessing || isSubmitting}
@@ -643,7 +636,7 @@ export default function SellerKYCVerification({ onVerificationSubmitted, onCance
       <View style={styles.securityNote}>
         <Icon name="lock-closed" size={20} color={colors.primary} />
         <Text style={styles.securityNoteText}>
-          Vos documents sont sécurisés et cryptés. Ils ne seront utilisés que pour la vérification 
+          Vos documents sont sécurisés et cryptés. Ils ne seront utilisés que pour la vérification
           et ne seront jamais partagés publiquement.
         </Text>
       </View>

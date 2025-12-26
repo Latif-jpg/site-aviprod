@@ -1,280 +1,168 @@
-
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  Button,
+  Share,
+  ActivityIndicator,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { supabase } from '../config'; // Assurez-vous que le chemin est correct
+import { useAuth } from '../hooks/useAuth';
 import { colors } from '../styles/commonStyles';
-import { router } from 'expo-router';
 import Icon from '../components/Icon';
-import { useTheme } from '../contexts/ThemeContext';
+import { router } from 'expo-router';
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  themeOptions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  themeOption: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.backgroundAlt,
-    gap: 8,
-  },
-  themeOptionSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  themeOptionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  themeOptionTextSelected: {
-    color: colors.white,
-  },
-  quickToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
-  },
-  quickToggleText: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
-    color: colors.text,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    paddingTop: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: {
-    marginRight: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    padding: 20,
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  sectionDescription: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: colors.backgroundAlt,
-    color: colors.text,
-    marginBottom: 12,
-  },
-  infoBox: {
-    flexDirection: 'row',
-    backgroundColor: colors.accentSecondary + '20',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.accentSecondary,
-    gap: 12,
-  },
-  infoContent: {
-    flex: 1,
-  },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.accentSecondary,
-    marginBottom: 4,
-  },
-  infoText: {
-    fontSize: 14,
-    color: colors.text,
-    lineHeight: 20,
-  },
-  linkButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-  },
-  linkText: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    alignSelf: 'flex-start',
-    marginBottom: 16,
-  },
-  statusText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: colors.textSecondary,
-  },
-  buttonContainer: {
-    gap: 12,
-    marginTop: 16,
-  },
-  testButton: {
-    backgroundColor: colors.accentSecondary,
-  },
-});
+// =================================================================
+// Le composant pour la section de parrainage
+// =================================================================
+const ReferralSection = () => {
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-export default function SettingsScreen() {
-  const { theme, setThemeType, toggleTheme } = useTheme();
+  useEffect(() => {
+    const fetchReferralCode = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) throw new Error('Utilisateur non trouvé');
 
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('referral_code')
+          .eq('id', user.id)
+          .limit(1); // Fetch as an array with a max of 1 item
+        
+        if (error) throw error;
+        
+        // If data is an array and has at least one item, take the first one.
+        // This is more robust than .single() if there are duplicate rows in the DB.
+        if (data && data.length > 0) {
+          // --- CORRECTION : Si le profil existe mais n'a pas de code, en générer un ---
+          if (data[0].referral_code) {
+            setReferralCode(data[0].referral_code);
+          } else {
+            console.log('Profil existant sans code, génération...');
+            const { data: newCodeData } = await supabase.rpc('generate_unique_referral_code');
+            if (newCodeData) {
+              await supabase.from('profiles').update({ referral_code: newCodeData }).eq('id', user.id);
+              setReferralCode(newCodeData);
+            }
+          }
+        } else {
+          // --- NOUVEAU : Si aucun profil n'est trouvé, en créer un ---
+          console.log('Aucun profil trouvé, création d\'un nouveau profil...');
+          const { data: newCodeData } = await supabase.rpc('generate_unique_referral_code');
+          if (newCodeData) {
+            // --- CORRECTION: Use upsert() instead of insert() ---
+            // upsert will create the profile if it doesn't exist, or update it if it does.
+            // This avoids "duplicate key" errors if the profile exists but is not visible due to RLS.
+            const { error: insertError } = await supabase
+              .from('profiles')
+              .upsert({ id: user.id, referral_code: newCodeData });
+
+            if (insertError) throw insertError;
+            setReferralCode(newCodeData);
+            console.log('Profil créé avec le code:', newCodeData);
+          }
+        }
+      } catch (error) {
+        console.error(
+          'Erreur de chargement du code de parrainage:',
+          (error as Error).message
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReferralCode();
+  }, []);
+
+  const onShare = async () => {
+    if (!referralCode) return;
+    try {
+      // Partager le code de parrainage avec instructions
+      const deepLink = `aviprodapp://auth?referral_code=${referralCode}`;
+      const message = `Rejoins-moi sur Aviprod et gagne 50 avicoins bonus !\n\nCode de parrainage : ${referralCode}\n\nOu utilise ce lien : ${deepLink}`;
+
+      await Share.share({
+        message: message,
+        title: 'Rejoins Aviprod !',
+      });
+    } catch (error) {
+      alert((error as Error).message);
+    }
+  };
+
+  if (loading) {
+    return <ActivityIndicator style={styles.loader} />;
+  }
+
+  if (!referralCode) {
+    return (
+      <Text style={styles.errorText}>
+        Impossible de charger votre code de parrainage.
+      </Text>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Icon name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Paramètres</Text>
-      </View>
+    <View style={styles.sectionContainer}>
+      <Text style={styles.title}>Partagez et gagnez des récompenses !</Text>
+      <Text style={styles.description}>Votre code de parrainage unique :</Text>
+      <Text style={styles.code}>{referralCode}</Text>
+      <Button onPress={onShare} title="Partager mon lien" />
+    </View>
+  );
+};
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🎨 Thème de l'Application</Text>
-            <Text style={styles.sectionDescription}>
-              Choisissez votre thème préféré pour l'application.
-            </Text>
+// =================================================================
+// L'écran de paramètres qui utilise le composant de parrainage
+// =================================================================
+export default function SettingsScreen() {
+  const { user } = useAuth();
 
-            <View style={styles.themeOptions}>
-              <TouchableOpacity
-                style={[
-                  styles.themeOption,
-                  theme.type === 'light' && styles.themeOptionSelected
-                ]}
-                onPress={() => setThemeType('light')}
-              >
-                <Icon name="sunny" size={24} color={theme.type === 'light' ? colors.white : colors.primary} />
-                <Text style={[
-                  styles.themeOptionText,
-                  theme.type === 'light' && styles.themeOptionTextSelected
-                ]}>
-                  Clair
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.themeOption,
-                  theme.type === 'dark' && styles.themeOptionSelected
-                ]}
-                onPress={() => setThemeType('dark')}
-              >
-                <Icon name="moon" size={24} color={theme.type === 'dark' ? colors.white : colors.primary} />
-                <Text style={[
-                  styles.themeOptionText,
-                  theme.type === 'dark' && styles.themeOptionTextSelected
-                ]}>
-                  Sombre
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.themeOption,
-                  theme.type === 'system' && styles.themeOptionSelected
-                ]}
-                onPress={() => setThemeType('system')}
-              >
-                <Icon name="phone-portrait" size={24} color={theme.type === 'system' ? colors.white : colors.primary} />
-                <Text style={[
-                  styles.themeOptionText,
-                  theme.type === 'system' && styles.themeOptionTextSelected
-                ]}>
-                  Système
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={styles.quickToggle}
-              onPress={toggleTheme}
-            >
-              <Icon name={theme.isDark ? "sunny" : "moon"} size={20} color={colors.primary} />
-              <Text style={styles.quickToggleText}>
-                Basculer vers {theme.isDark ? 'clair' : 'sombre'}
-              </Text>
-              <Icon name="chevron-forward" size={16} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>ℹ️ À Propos</Text>
-            <Text style={styles.sectionDescription}>
-              AviprodApp v1.0.0{'\n'}
-              Application de gestion de ferme avicole{'\n'}
-              © 2025 Tous droits réservés
-            </Text>
-          </View>
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Icon name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Paramètres</Text>
         </View>
+
+        {user && (
+          <View style={styles.userInfo}>
+            <Text>Connecté en tant que : {user.email}</Text>
+          </View>
+        )}
+
+        {/* C'est ici que nous ajoutons la section de parrainage ! */}
+        <ReferralSection />
+
+        {/* Vous pouvez ajouter d'autres paramètres ici */}
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+  backButton: { marginRight: 16 },
+  headerTitle: { fontSize: 22, fontWeight: 'bold', color: colors.text },
+  userInfo: { paddingHorizontal: 16, marginBottom: 20 },
+  sectionContainer: { margin: 16, padding: 20, alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, elevation: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
+  title: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: colors.text },
+  description: { fontSize: 14, color: colors.textSecondary },
+  code: { fontSize: 24, fontWeight: 'bold', marginVertical: 15, color: colors.primary },
+  loader: { marginVertical: 20 },
+  errorText: { color: 'red', fontStyle: 'italic' },
+});

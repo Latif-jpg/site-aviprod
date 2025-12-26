@@ -1,5 +1,5 @@
 // src/intelligence/ui/RationAdvisorDashboard.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,836 +7,431 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Dimensions,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Picker } from '@react-native-picker/picker';
 import { colors, commonStyles } from '../../../styles/commonStyles';
 import Icon from '../../../components/Icon';
+import Button from '../../../components/Button';
 import { useRationAdvisor } from '../agents/RationAdvisor';
 import { supabase } from '../../../config';
 
 const { width } = Dimensions.get('window');
 
-interface RationAdvisorDashboardProps {
-  lotId?: string;
-  userId: string;
-  onClose?: () => void;
-}
-
-interface RationAnalysis {
+// Interfaces
+interface EnrichedRationAnalysis {
   race: string;
   phase: string;
   quantity: number;
   daily_feed_per_bird: number;
+  total_daily_kg: number;
   ingredients: Array<{
     name: string;
     percentage: number;
-    total_quantity: number;
-    cost_per_kg: number;
+    quantity_kg_per_day: number;
   }>;
   nutritional_values: {
     protein_percentage: number;
     energy_kcal: number;
     calcium_percentage?: number;
-    phosphorus_percentage?: number;
   };
-  total_cost_per_day: number;
   total_cost_per_kg: number;
-  bags_needed: number;
   efficiency_score: number;
-  recommendations: string[];
+  cycle: {
+    days_remaining: number;
+    total_kg: number;
+    total_bags: number;
+  };
 }
 
-interface FeedOptimization {
-  current_ration: RationAnalysis;
-  optimized_ration: RationAnalysis;
-  cost_savings: number;
-  performance_improvement: number;
-  implementation_steps: string[];
-  expected_roi: number;
-}
-
-interface ConsumptionAnalysis {
-  lot_id: string;
-  planned_consumption: number;
-  actual_consumption: number;
-  deviation_percentage: number;
-  efficiency_trend: 'improving' | 'stable' | 'declining';
-  recommendations: string[];
+interface RationAdvisorDashboardProps {
+  lot: any;
+  userId: string;
+  onClose?: () => void;
+  onSaveSuccess?: () => void;
 }
 
 export default function RationAdvisorDashboard({
-  lotId,
+  lot,
   userId,
-  onClose
+  onClose,
+  onSaveSuccess
 }: RationAdvisorDashboardProps) {
-  const { formulateRation, optimizeRation, analyzeConsumption } = useRationAdvisor();
-  const [currentRation, setCurrentRation] = useState<RationAnalysis | null>(null);
-  const [optimizedRation, setOptimizedRation] = useState<FeedOptimization | null>(null);
-  const [consumptionAnalysis, setConsumptionAnalysis] = useState<ConsumptionAnalysis | null>(null);
+  const { formulateRation } = useRationAdvisor();
+  const [currentRation, setCurrentRation] = useState<EnrichedRationAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedStock, setFeedStock] = useState<any[]>([]);
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
+  // Charger le stock d'aliments
   useEffect(() => {
-    loadRationAnalysis();
-  }, [lotId, userId]);
+    const loadFeedStock = async () => {
+        if (!lot) return;
+        try {
+            const { data, error: stockError } = await supabase
+              .from('stock')
+              .select('id, name')
+              .eq('category', 'feed');
+            if (stockError) throw stockError;
+            setFeedStock(data || []);
+            if (data && data.length > 0) {
+              setSelectedFeedId(data[0].id);
+            }
+        } catch (err) {
+            console.error("Erreur chargement du stock d'aliments:", err);
+        }
+    };
+    loadFeedStock();
+  }, [lot]);
 
-  const loadRationAnalysis = async () => {
+  const loadRationAnalysis = useCallback(async () => {
+    if (!lot) {
+      setError("Aucun lot sélectionné.");
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
+      
+      // 🔍 DEBUG - Afficher les données du lot
+      console.log('🔍 DEBUG Lot:', {
+        name: lot.name,
+        quantity: lot.quantity,
+        age: lot.age,
+        weight: lot.poids_moyen,
+        birdType: lot.bird_type
+      });
 
-      if (lotId) {
-        // --- CORRECTION : Récupérer les données du lot avant de les utiliser ---
-        const { data: lotData, error: lotError } = await supabase
-          .from('lots')
-          .select('bird_type, age, quantity')
-          .eq('id', lotId)
-          .single();
-
-        if (lotError) throw lotError;
-
-        const getPhaseFromAge = (birdType: string, age: number) => {
-          if (birdType === 'layers') {
-            if (age <= 42) return 'démarrage'; if (age <= 119) return 'croissance'; if (age <= 140) return 'pré-ponte'; return 'ponte';
-          }
-          if (age <= 21) return 'démarrage'; if (age <= 32) return 'croissance'; return 'finition';
-        };
-
-        const baseRation = await formulateRation(lotData.bird_type || 'poulet_de_chair', getPhaseFromAge(lotData.bird_type || 'poulet_de_chair', lotData.age), lotData.quantity);
-        if (baseRation) {
-          // Transformer RationFormula en RationAnalysis pour l'affichage
-          const rationAnalysis: RationAnalysis = {
-            race: baseRation.race,
-            phase: baseRation.phase,
-            quantity: lotData.quantity,
-            daily_feed_per_bird: 100, // Valeur par défaut, à calculer selon la phase
-            ingredients: baseRation.ingredients.map(ing => ({
-              name: ing.name,
-              percentage: ing.percentage,
-              total_quantity: (ing.percentage / 100) * lotData.quantity,
-              cost_per_kg: ing.cost_per_kg
-            })),
-            nutritional_values: {
-              protein_percentage: baseRation.ingredients.reduce((sum, ing) =>
-                sum + (ing.nutritional_value.protein * ing.percentage / 100), 0),
-              energy_kcal: baseRation.ingredients.reduce((sum, ing) =>
-                sum + (ing.nutritional_value.energy * ing.percentage / 100), 0),
-              calcium_percentage: baseRation.ingredients.reduce((sum, ing) =>
-                sum + ((ing.nutritional_value.calcium || 0) * ing.percentage / 100), 0) || undefined,
-              phosphorus_percentage: baseRation.ingredients.reduce((sum, ing) =>
-                sum + ((ing.nutritional_value.phosphorus || 0) * ing.percentage / 100), 0) || undefined
-            },
-            total_cost_per_day: baseRation.total_cost_per_kg * (100 / 1000) * lotData.quantity, // Estimation
-            total_cost_per_kg: baseRation.total_cost_per_kg,
-            bags_needed: Math.ceil((baseRation.total_cost_per_kg * lotData.quantity) / 50000), // Estimation 50kg/bag
-            efficiency_score: baseRation.efficiency_score,
-            recommendations: ['Ration équilibrée selon les standards', 'Surveiller la consommation réelle']
-          };
-
-          setCurrentRation(rationAnalysis);
-
-          // Optimiser la ration
-          const optimization = await optimizeRation(baseRation.id);
-          if (optimization) {
-            // Transformer RationOptimization en FeedOptimization
-            const feedOptimization: FeedOptimization = {
-              current_ration: rationAnalysis,
-              optimized_ration: {
-                ...rationAnalysis,
-                race: optimization.optimized_ration.race,
-                phase: optimization.optimized_ration.phase,
-                ingredients: optimization.optimized_ration.ingredients.map(ing => ({
-                  name: ing.name,
-                  percentage: ing.percentage,
-                  total_quantity: (ing.percentage / 100) * lotData.quantity,
-                  cost_per_kg: ing.cost_per_kg
-                })),
-                nutritional_values: {
-                  protein_percentage: optimization.optimized_ration.ingredients.reduce((sum, ing) =>
-                    sum + (ing.nutritional_value.protein * ing.percentage / 100), 0),
-                  energy_kcal: optimization.optimized_ration.ingredients.reduce((sum, ing) =>
-                    sum + (ing.nutritional_value.energy * ing.percentage / 100), 0),
-                  calcium_percentage: optimization.optimized_ration.ingredients.reduce((sum, ing) =>
-                    sum + ((ing.nutritional_value.calcium || 0) * ing.percentage / 100), 0) || undefined,
-                  phosphorus_percentage: optimization.optimized_ration.ingredients.reduce((sum, ing) =>
-                    sum + ((ing.nutritional_value.phosphorus || 0) * ing.percentage / 100), 0) || undefined
-                },
-                total_cost_per_day: optimization.optimized_ration.total_cost_per_kg * (100 / 1000) * lotData.quantity,
-                total_cost_per_kg: optimization.optimized_ration.total_cost_per_kg,
-                bags_needed: Math.ceil((optimization.optimized_ration.total_cost_per_kg * lotData.quantity) / 50000),
-                efficiency_score: optimization.optimized_ration.efficiency_score,
-                recommendations: optimization.recommendations
-              },
-              cost_savings: optimization.cost_savings,
-              performance_improvement: optimization.performance_improvement,
-              implementation_steps: ['Étape 1: Tester sur un petit lot', 'Étape 2: Monitorer la consommation', 'Étape 3: Ajuster si nécessaire'],
-              expected_roi: 25 // Valeur par défaut
-            };
-
-            setOptimizedRation(feedOptimization);
-          }
+      const getPhaseFromAge = (birdType: string, age: number) => {
+        const type = birdType?.toLowerCase() || 'broilers';
+        if (['layers', 'pondeuse', 'breeders'].includes(type)) {
+          if (age <= 42) return 'démarrage';
+          if (age <= 119) return 'croissance';
+          return 'ponte';
         }
-      }
+        if (age <= 21) return 'démarrage';
+        if (age <= 32) return 'croissance';
+        return 'finition';
+      };
+
+      const phase = getPhaseFromAge(lot.bird_type, lot.age);
+
+      const breedKey = ['layers', 'pondeuse', 'breeders'].includes(lot.bird_type?.toLowerCase() || '') ? 'layer' : 'broiler';
+      const stageKey = phase === 'démarrage' ? 'starter' : phase === 'croissance' ? 'grower' : phase === 'ponte' ? 'layer' : 'finisher';
+      
+      const { data: rationStandards, error: standardsError } = await supabase
+        .from('feed_rations')
+        .select('daily_consumption_per_bird_grams')
+        .eq('breed', breedKey)
+        .eq('stage', stageKey)
+        .single();
+        
+      if (standardsError && standardsError.code !== 'PGRST116') throw standardsError;
+
+      // ✅ CORRECTION : Récupérer la valeur par oiseau depuis la base
+      const dailyFeedPerBird = rationStandards?.daily_consumption_per_bird_grams || 100;
+
+      // 🔍 DEBUG - Afficher la consommation calculée
+      console.log('📊 Consommation calculée:', {
+        dailyFeedPerBird: `${dailyFeedPerBird}g/oiseau/jour`,
+        source: rationStandards ? 'Base de données' : 'Valeur par défaut'
+      });
+
+      const baseRation = await formulateRation(lot.bird_type, phase, lot.quantity);
+      if (!baseRation) throw new Error(`L'IA n'a pas pu formuler de ration pour le lot ${lot.name}.`);
+
+      // ✅ CORRECTION : Calcul correct du total quotidien
+      const totalDailyKg = (dailyFeedPerBird * lot.quantity) / 1000;
+
+      // 🔍 DEBUG - Afficher les calculs
+      console.log('📊 Calculs finaux:', {
+        perBird: `${dailyFeedPerBird}g`,
+        quantity: lot.quantity,
+        totalDaily: `${totalDailyKg.toFixed(2)}kg`,
+        calculation: `(${dailyFeedPerBird}g × ${lot.quantity} oiseaux) ÷ 1000 = ${totalDailyKg.toFixed(2)}kg`
+      });
+      
+      const STAGE_END_DAYS = {
+        layer: { 'démarrage': 42, 'croissance': 119, 'ponte': 540 },
+        broiler: { 'démarrage': 21, 'croissance': 32, 'finition': 45 }
+      };
+      const stageEndDay = STAGE_END_DAYS[breedKey as keyof typeof STAGE_END_DAYS][phase as keyof typeof STAGE_END_DAYS[typeof breedKey]] || lot.age + 1;
+      const daysRemaining = Math.max(0, stageEndDay - lot.age);
+      const totalKgForCycle = totalDailyKg * daysRemaining;
+      const totalBagsForCycle = Math.ceil(totalKgForCycle / 50);
+
+      const enrichedAnalysis: EnrichedRationAnalysis = {
+        race: baseRation.race,
+        phase: baseRation.phase,
+        quantity: lot.quantity,
+        daily_feed_per_bird: dailyFeedPerBird, // ✅ Valeur PAR OISEAU en grammes
+        total_daily_kg: totalDailyKg, // ✅ Total pour tout le lot en kg
+        ingredients: baseRation.ingredients.map(ing => ({
+          name: ing.name,
+          percentage: ing.percentage,
+          quantity_kg_per_day: (ing.percentage / 100) * totalDailyKg,
+        })),
+        nutritional_values: {
+          protein_percentage: baseRation.ingredients.reduce((sum, ing) => sum + (ing.nutritional_value.protein * ing.percentage / 100), 0),
+          energy_kcal: baseRation.ingredients.reduce((sum, ing) => sum + (ing.nutritional_value.energy * ing.percentage / 100), 0),
+          calcium_percentage: baseRation.ingredients.reduce((sum, ing) => sum + ((ing.nutritional_value.calcium || 0) * ing.percentage / 100), 0) || undefined,
+        },
+        total_cost_per_kg: baseRation.total_cost_per_kg,
+        efficiency_score: baseRation.efficiency_score,
+        cycle: {
+          days_remaining: daysRemaining,
+          total_kg: totalKgForCycle,
+          total_bags: totalBagsForCycle,
+        }
+      };
+
+      // 🔍 DEBUG FINAL - Afficher le résultat complet
+      console.log('✅ Ration finale:', {
+        phase: enrichedAnalysis.phase,
+        perBird: `${enrichedAnalysis.daily_feed_per_bird}g/oiseau`,
+        totalDaily: `${enrichedAnalysis.total_daily_kg.toFixed(2)}kg/jour`,
+        totalCycle: `${enrichedAnalysis.cycle.total_kg.toFixed(2)}kg sur ${enrichedAnalysis.cycle.days_remaining} jours`,
+        bags: `${enrichedAnalysis.cycle.total_bags} sacs de 50kg`
+      });
+
+      setCurrentRation(enrichedAnalysis);
+
     } catch (err: any) {
-      console.error('Erreur analyse ration:', err);
-      setError(err.message || 'Erreur lors de l\'analyse des rations');
+      console.error('❌ Erreur analyse ration:', err);
+      setError(err.message || "Erreur lors de l'analyse de la ration.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [lot, formulateRation]);
 
-  const getEfficiencyColor = (score: number) => {
-    if (score >= 80) return '#10996E';
-    if (score >= 60) return '#4CAF50';
-    if (score >= 40) return '#FF9800';
-    return '#E53935';
-  };
+  useEffect(() => {
+    loadRationAnalysis();
+  }, [loadRationAnalysis]);
 
-  const getTrendColor = (trend: string) => {
-    switch (trend) {
-      case 'improving': return '#10996E';
-      case 'stable': return '#FF9800';
-      case 'declining': return '#E53935';
-      default: return colors.textSecondary;
+  const handleSave = async () => {
+    if (!currentRation || !lot || !selectedFeedId) {
+      Alert.alert("Erreur", "Veuillez générer une ration et sélectionner un aliment avant d'enregistrer.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const rationName = `Ration IA (${currentRation.phase}) - ${currentRation.race}`;
+      
+      // 🔍 DEBUG - Vérifier les valeurs avant sauvegarde
+      console.log('💾 Sauvegarde ration:', {
+        rationName,
+        dailyPerBird: `${currentRation.daily_feed_per_bird}g`,
+        protein: `${currentRation.nutritional_values.protein_percentage.toFixed(1)}%`,
+        energy: `${Math.round(currentRation.nutritional_values.energy_kcal)} kcal`
+      });
+
+      const { error: rationError } = await supabase
+        .from("custom_feed_rations")
+        .insert({
+          user_id: userId,
+          lot_id: lot.id,
+          name: rationName,
+          daily_consumption_per_bird_grams: currentRation.daily_feed_per_bird, // ✅ Valeur correcte
+          protein_percentage: currentRation.nutritional_values.protein_percentage,
+          energy_kcal: Math.round(currentRation.nutritional_values.energy_kcal),
+          notes: `Ration IA générée. Phase: ${currentRation.phase}. Total cycle: ${currentRation.cycle.total_kg.toFixed(2)} kg (${currentRation.cycle.total_bags} sacs). Jours restants: ${currentRation.cycle.days_remaining}.`,
+        });
+
+      if (rationError) throw new Error(`Impossible d'enregistrer la ration: ${rationError.message}`);
+
+      const dailyQuantityPerBirdKg = currentRation.daily_feed_per_bird / 1000; // ✅ Conversion correcte
+      
+      // 🔍 DEBUG - Vérifier l'assignation
+      console.log('🔗 Assignation:', {
+        dailyPerBirdKg: dailyQuantityPerBirdKg,
+        dailyPerBirdGrams: currentRation.daily_feed_per_bird,
+        feedId: selectedFeedId
+      });
+
+      const { error: rpcError } = await supabase.rpc('upsert_lot_assignment', {
+        p_user_id: userId,
+        p_lot_id: lot.id,
+        p_stock_item_id: selectedFeedId,
+        p_daily_quantity: dailyQuantityPerBirdKg, // ✅ En kg par oiseau
+        p_feed_type: currentRation.phase
+      });
+
+      if (rpcError) throw new Error(`Impossible d'assigner la ration: ${rpcError.message}`);
+      
+      Alert.alert(
+        "✅ Succès", 
+        `Ration enregistrée:\n• ${currentRation.daily_feed_per_bird}g/oiseau/jour\n• ${currentRation.total_daily_kg.toFixed(2)}kg/jour total\n• ${currentRation.cycle.total_bags} sacs pour la phase`
+      );
+      
+      if (onSaveSuccess) onSaveSuccess();
+      if (onClose) onClose();
+
+    } catch (error: any) {
+      console.error('❌ Erreur sauvegarde:', error);
+      Alert.alert("Erreur d'enregistrement", error.message);
+    } finally {
+      setIsSaving(false);
     }
   };
-
-  const formatCurrency = (amount: number) => {
-    return amount.toLocaleString('fr-FR') + ' FCFA';
+  
+  const getEfficiencyColor = (score: number) => {
+    if (score >= 80) return '#10b981';
+    if (score >= 40) return '#f59e0b';
+    return '#ef4444';
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={commonStyles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Optimisation des rations IA...</Text>
-          <Text style={styles.loadingSubtext}>
-            Formulation équilibrée, analyse coûts, recommandations
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const renderContent = () => {
+    if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Optimisation de la ration IA...</Text></View>;
+    if (error) return <View style={styles.errorContainer}><Icon name="alert-circle" size={48} color={colors.error} /><Text style={styles.errorText}>Erreur d'analyse</Text><Text style={styles.errorSubtext}>{error}</Text><TouchableOpacity style={styles.retryButton} onPress={loadRationAnalysis}><Icon name="refresh" size={20} color={colors.white} /><Text style={styles.retryButtonText}>Réessayer</Text></TouchableOpacity></View>;
 
-  if (error) {
-    return (
-      <SafeAreaView style={commonStyles.container}>
-        <View style={styles.errorContainer}>
-          <Icon name="alert-circle" size={48} color={colors.error} />
-          <Text style={styles.errorText}>Erreur d'analyse</Text>
-          <Text style={styles.errorSubtext}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadRationAnalysis}>
-            <Icon name="refresh" size={20} color={colors.white} />
-            <Text style={styles.retryButtonText}>Réessayer</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
+    if (currentRation) {
+      return (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Icon name="document-text" size={24} color={colors.primary} />
+              <Text style={styles.sectionTitle}>Ration Suggérée par IA</Text>
+              <View style={[styles.efficiencyBadge, { backgroundColor: getEfficiencyColor(currentRation.efficiency_score) }]}>
+                <Text style={styles.efficiencyText}>{currentRation.efficiency_score}%</Text>
+              </View>
+            </View>
+
+            {/* ✅ CORRECTION : Affichage clair des valeurs */}
+            <View style={styles.rationGrid}>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Par oiseau/jour</Text>
+                <Text style={styles.metricValue}>{currentRation.daily_feed_per_bird}g</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Total lot/jour</Text>
+                <Text style={styles.metricValue}>{currentRation.total_daily_kg.toFixed(2)} kg</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Coût / kg</Text>
+                <Text style={styles.metricValue}>{currentRation.total_cost_per_kg.toFixed(0)} F</Text>
+              </View>
+            </View>
+            
+            <View style={styles.cycleSection}>
+                <Text style={styles.cycleTitle}>📦 Prévision phase: {currentRation.phase} ({currentRation.cycle.days_remaining} j. restants)</Text>
+                <View style={styles.cycleGrid}>
+                    <View style={styles.cycleItem}>
+                      <Text style={styles.cycleLabel}>Total Requis</Text>
+                      <Text style={styles.cycleValue}>{currentRation.cycle.total_kg.toFixed(1)} kg</Text>
+                    </View>
+                    <View style={styles.cycleItem}>
+                      <Text style={styles.cycleLabel}>Sacs de 50kg</Text>
+                      <Text style={styles.cycleValue}>{currentRation.cycle.total_bags}</Text>
+                    </View>
+                </View>
+            </View>
+
+            <View style={styles.ingredientsSection}>
+              <Text style={styles.ingredientsTitle}>📋 Composition de la ration</Text>
+              {currentRation.ingredients.map((ing, index) => (
+                <View key={index} style={styles.ingredientRow}>
+                  <Text style={styles.ingredientName}>{ing.name}</Text>
+                  <View style={styles.ingredientValues}>
+                    <Text style={styles.ingredientPercentage}>{ing.percentage.toFixed(1)}%</Text>
+                    <Text style={styles.ingredientQuantity}>{ing.quantity_kg_per_day.toFixed(2)} kg/j</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Assigner cette ration</Text>
+            <Text style={styles.label}>Sélectionner l'aliment du stock qui correspond</Text>
+            <View style={styles.pickerContainer}>
+              <Picker 
+                selectedValue={selectedFeedId} 
+                onValueChange={(itemValue) => setSelectedFeedId(itemValue)} 
+                style={styles.picker}
+              >
+                {feedStock.length > 0 ? 
+                  feedStock.map(feed => <Picker.Item key={feed.id} label={feed.name} value={feed.id} />) 
+                  : <Picker.Item label="Aucun aliment en stock..." value={null} />
+                }
+              </Picker>
+            </View>
+            <Button 
+              text={isSaving ? "Enregistrement..." : "Enregistrer et Assigner"} 
+              onPress={handleSave} 
+              disabled={isSaving || !selectedFeedId} 
+              style={{marginTop: 16}}
+            />
+          </View>
+        </ScrollView>
+      );
+    }
+    return null;
   }
 
   return (
     <SafeAreaView style={commonStyles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          {onClose && (
-            <TouchableOpacity onPress={onClose} style={styles.backButton}>
-              <Icon name="arrow-back" size={24} color={colors.text} />
-            </TouchableOpacity>
-          )}
+          {onClose && <TouchableOpacity onPress={onClose} style={styles.backButton}><Icon name="arrow-back" size={24} color={colors.text} /></TouchableOpacity>}
           <View>
-            <Text style={styles.title}>Rations IA</Text>
-            <Text style={styles.subtitle}>Optimisation alimentaire intelligente</Text>
+            <Text style={styles.title}>Ration IA pour {lot?.name || 'Lot'}</Text>
+            <Text style={styles.subtitle}>{lot?.quantity} sujets · {lot?.age} jours · {lot?.bird_type}</Text>
           </View>
         </View>
         <TouchableOpacity onPress={loadRationAnalysis} style={styles.refreshButton}>
-          <Icon name="refresh" size={20} color={colors.primary} />
+          {loading ? <ActivityIndicator size="small" color={colors.primary} /> : <Icon name="refresh" size={20} color={colors.primary} />}
         </TouchableOpacity>
       </View>
-
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-
-        {/* ANALYSE DE CONSOMMATION */}
-        {consumptionAnalysis && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Icon name="fast-food" size={24} color={colors.primary} />
-              <Text style={styles.sectionTitle}>Analyse de Consommation</Text>
-            </View>
-
-            <View style={styles.consumptionGrid}>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Consommation prévue</Text>
-                <Text style={styles.metricValue}>
-                  {consumptionAnalysis.planned_consumption.toFixed(0)} kg
-                </Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Consommation réelle</Text>
-                <Text style={[styles.metricValue, {
-                  color: Math.abs(consumptionAnalysis.deviation_percentage) > 15 ? '#E53935' : '#10996E'
-                }]}>
-                  {consumptionAnalysis.actual_consumption.toFixed(0)} kg
-                </Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Écart</Text>
-                <Text style={[styles.metricValue, {
-                  color: Math.abs(consumptionAnalysis.deviation_percentage) > 15 ? '#E53935' : '#10996E'
-                }]}>
-                  {consumptionAnalysis.deviation_percentage > 0 ? '+' : ''}
-                  {consumptionAnalysis.deviation_percentage.toFixed(1)}%
-                </Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Tendance</Text>
-                <Text style={[styles.metricValue, {
-                  color: getTrendColor(consumptionAnalysis.efficiency_trend)
-                }]}>
-                  {consumptionAnalysis.efficiency_trend.toUpperCase()}
-                </Text>
-              </View>
-            </View>
-
-            {/* Recommandations de consommation */}
-            {consumptionAnalysis.recommendations.length > 0 && (
-              <View style={styles.recommendations}>
-                <Text style={styles.recommendationsTitle}>💡 Recommandations</Text>
-                {consumptionAnalysis.recommendations.map((rec, index) => (
-                  <Text key={index} style={styles.recommendation}>
-                    • {rec}
-                  </Text>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* RATION ACTUELLE */}
-        {currentRation && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Icon name="document-text" size={24} color={colors.primary} />
-              <Text style={styles.sectionTitle}>Ration Actuelle</Text>
-              <View style={[styles.efficiencyBadge, {
-                backgroundColor: getEfficiencyColor(currentRation.efficiency_score)
-              }]}>
-                <Text style={styles.efficiencyText}>
-                  {currentRation.efficiency_score}% efficacité
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.rationGrid}>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Race</Text>
-                <Text style={styles.metricValue}>{currentRation.race}</Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Phase</Text>
-                <Text style={styles.metricValue}>{currentRation.phase}</Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Animaux</Text>
-                <Text style={styles.metricValue}>{currentRation.quantity}</Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Consommation/jour</Text>
-                <Text style={styles.metricValue}>
-                  {currentRation.daily_feed_per_bird.toFixed(1)}g/animal
-                </Text>
-              </View>
-            </View>
-
-            {/* Valeurs nutritionnelles */}
-            <View style={styles.nutritionSection}>
-              <Text style={styles.nutritionTitle}>🥘 Valeurs Nutritionnelles</Text>
-              <View style={styles.nutritionGrid}>
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionLabel}>Protéines</Text>
-                  <Text style={styles.nutritionValue}>
-                    {currentRation.nutritional_values.protein_percentage.toFixed(1)}%
-                  </Text>
-                </View>
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionLabel}>Énergie</Text>
-                  <Text style={styles.nutritionValue}>
-                    {currentRation.nutritional_values.energy_kcal} kcal/kg
-                  </Text>
-                </View>
-                {currentRation.nutritional_values.calcium_percentage && (
-                  <View style={styles.nutritionItem}>
-                    <Text style={styles.nutritionLabel}>Calcium</Text>
-                    <Text style={styles.nutritionValue}>
-                      {currentRation.nutritional_values.calcium_percentage.toFixed(1)}%
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            {/* Coûts */}
-            <View style={styles.costSection}>
-              <Text style={styles.costTitle}>💰 Analyse Coûts</Text>
-              <View style={styles.costGrid}>
-                <View style={styles.costItem}>
-                  <Text style={styles.costLabel}>Coût journalier</Text>
-                  <Text style={styles.costValue}>
-                    {formatCurrency(currentRation.total_cost_per_day)}
-                  </Text>
-                </View>
-                <View style={styles.costItem}>
-                  <Text style={styles.costLabel}>Coût au kg</Text>
-                  <Text style={styles.costValue}>
-                    {currentRation.total_cost_per_kg.toFixed(0)} FCFA/kg
-                  </Text>
-                </View>
-                <View style={styles.costItem}>
-                  <Text style={styles.costLabel}>Sacs (50kg)</Text>
-                  <Text style={styles.costValue}>
-                    {currentRation.bags_needed}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Ingrédients */}
-            <View style={styles.ingredientsSection}>
-              <Text style={styles.ingredientsTitle}>📋 Composition</Text>
-              {currentRation.ingredients.slice(0, 5).map((ingredient, index) => (
-                <View key={index} style={styles.ingredientRow}>
-                  <Text style={styles.ingredientName}>{ingredient.name}</Text>
-                  <Text style={styles.ingredientPercentage}>
-                    {ingredient.percentage.toFixed(1)}%
-                  </Text>
-                  <Text style={styles.ingredientCost}>
-                    {ingredient.cost_per_kg} FCFA/kg
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* OPTIMISATION */}
-        {optimizedRation && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Icon name="lightbulb" size={24} color={colors.primary} />
-              <Text style={styles.sectionTitle}>Optimisation IA</Text>
-            </View>
-
-            <View style={styles.optimizationGrid}>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Économies</Text>
-                <Text style={[styles.metricValue, { color: '#10996E' }]}>
-                  {formatCurrency(optimizedRation.cost_savings)}
-                </Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Amélioration perf.</Text>
-                <Text style={[styles.metricValue, { color: '#4CAF50' }]}>
-                  +{optimizedRation.performance_improvement.toFixed(1)}%
-                </Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>ROI attendu</Text>
-                <Text style={[styles.metricValue, { color: '#FF9800' }]}>
-                  {optimizedRation.expected_roi.toFixed(0)}%
-                </Text>
-              </View>
-
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Étapes</Text>
-                <Text style={styles.metricValue}>
-                  {optimizedRation.implementation_steps.length}
-                </Text>
-              </View>
-            </View>
-
-            {/* Étapes d'implémentation */}
-            <View style={styles.implementationSection}>
-              <Text style={styles.implementationTitle}>🚀 Plan d'implémentation</Text>
-              {optimizedRation.implementation_steps.map((step, index) => (
-                <Text key={index} style={styles.implementationStep}>
-                  {index + 1}. {step}
-                </Text>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* RECOMMANDATIONS GÉNÉRALES */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Icon name="information-circle" size={24} color={colors.primary} />
-            <Text style={styles.sectionTitle}>Conseils IA</Text>
-          </View>
-
-          <View style={styles.tipsList}>
-            <View style={styles.tipCard}>
-              <Text style={styles.tipTitle}>🔄 Ajustements progressifs</Text>
-              <Text style={styles.tipText}>
-                Changez la ration progressivement sur 5-7 jours pour éviter les troubles digestifs.
-              </Text>
-            </View>
-
-            <View style={styles.tipCard}>
-              <Text style={styles.tipTitle}>📊 Suivi des performances</Text>
-              <Text style={styles.tipText}>
-                Monitorer le taux de croissance, la consommation et la mortalité après changement.
-              </Text>
-            </View>
-
-            <View style={styles.tipCard}>
-              <Text style={styles.tipTitle}>🌡️ Conditions environnementales</Text>
-              <Text style={styles.tipText}>
-                Adaptez les rations selon la température et l'humidité pour optimiser l'efficacité.
-              </Text>
-            </View>
-
-            <View style={styles.tipCard}>
-              <Text style={styles.tipTitle}>💰 Analyse coûts-bénéfices</Text>
-              <Text style={styles.tipText}>
-                Évaluez régulièrement le ROI des changements de ration sur la performance globale.
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.bottomPadding} />
-      </ScrollView>
+      {renderContent()}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  loadingText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  loadingSubtext: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.error,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  errorSubtext: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    paddingBottom: 10,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  backButton: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  refreshButton: {
-    padding: 8,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  section: {
-    marginHorizontal: 20,
-    marginBottom: 24,
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    flex: 1,
-  },
-  efficiencyBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  efficiencyText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  consumptionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
-  },
-  rationGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
-  },
-  optimizationGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
-  },
-  metricCard: {
-    width: (width - 40 - 24 - 32) / 2,
-    backgroundColor: colors.background,
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  metricLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  metricValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  recommendations: {
-    backgroundColor: colors.warning + '10',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.warning + '20',
-  },
-  recommendationsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.warning,
-    marginBottom: 8,
-  },
-  recommendation: {
-    fontSize: 14,
-    color: colors.text,
-    marginBottom: 4,
-    lineHeight: 20,
-  },
-  nutritionSection: {
-    backgroundColor: colors.success + '10',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.success + '20',
-    marginBottom: 16,
-  },
-  nutritionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.success,
-    marginBottom: 8,
-  },
-  nutritionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  nutritionItem: {
-    flex: 1,
-    minWidth: (width - 40 - 24 - 32) / 3,
-    alignItems: 'center',
-  },
-  nutritionLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  nutritionValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  costSection: {
-    backgroundColor: colors.primary + '10',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.primary + '20',
-    marginBottom: 16,
-  },
-  costTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.primary,
-    marginBottom: 8,
-  },
-  costGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  costItem: {
-    flex: 1,
-    minWidth: (width - 40 - 24 - 32) / 3,
-    alignItems: 'center',
-  },
-  costLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  costValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  ingredientsSection: {
-    backgroundColor: colors.background,
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  ingredientsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  ingredientRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  ingredientName: {
-    fontSize: 14,
-    color: colors.text,
-    flex: 1,
-  },
-  ingredientPercentage: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: '600',
-    width: 60,
-    textAlign: 'center',
-  },
-  ingredientCost: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    width: 80,
-    textAlign: 'right',
-  },
-  implementationSection: {
-    backgroundColor: colors.success + '10',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.success + '20',
-  },
-  implementationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.success,
-    marginBottom: 8,
-  },
-  implementationStep: {
-    fontSize: 14,
-    color: colors.text,
-    marginBottom: 4,
-    lineHeight: 20,
-  },
-  tipsList: {
-    gap: 12,
-  },
-  tipCard: {
-    backgroundColor: colors.background,
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  tipTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.primary,
-    marginBottom: 8,
-  },
-  tipText: {
-    fontSize: 14,
-    color: colors.text,
-    lineHeight: 20,
-  },
-  bottomPadding: {
-    height: 100,
-  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
+  loadingText: { fontSize: 18, fontWeight: '600', color: colors.text, marginTop: 16, textAlign: 'center' },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
+  errorText: { fontSize: 18, fontWeight: '600', color: colors.error, marginTop: 16, textAlign: 'center' },
+  errorSubtext: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center' },
+  retryButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, marginTop: 16 },
+  retryButtonText: { fontSize: 16, fontWeight: '600', color: colors.white },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom:10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backButton: { padding: 8, marginLeft: -8 },
+  title: { fontSize: 20, fontWeight: '700', color: colors.text },
+  subtitle: { fontSize: 14, color: colors.textSecondary },
+  refreshButton: { padding: 8 },
+  scrollView: { flex: 1 },
+  section: { margin: 20, marginTop: 0, marginBottom: 24 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: colors.text, flex: 1 },
+  efficiencyBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  efficiencyText: { fontSize: 12, fontWeight: '600', color: colors.white },
+  rationGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 },
+  metricCard: { width: (width - 40 - 24) / 3, backgroundColor: colors.backgroundAlt, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
+  metricLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 4, textAlign: 'center' },
+  metricValue: { fontSize: 16, fontWeight: '700', color: colors.text },
+  cycleSection: { backgroundColor: `${colors.primary}10`, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: `${colors.primary}20`, marginBottom: 16 },
+  cycleTitle: { fontSize: 16, fontWeight: '600', color: colors.primary, marginBottom: 8 },
+  cycleGrid: { flexDirection: 'row', justifyContent: 'space-around' },
+  cycleItem: { alignItems: 'center' },
+  cycleLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 4 },
+  cycleValue: { fontSize: 18, fontWeight: '700', color: colors.primary },
+  ingredientsSection: { marginTop: 16 },
+  ingredientsTitle: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  ingredientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  ingredientName: { fontSize: 15, color: colors.text, flex: 2 },
+  ingredientValues: { flexDirection: 'row', flex: 1, justifyContent: 'space-between'},
+  ingredientPercentage: { fontSize: 15, color: colors.primary, fontWeight: '600', textAlign: 'right' },
+  ingredientQuantity: { fontSize: 13, color: colors.textSecondary, textAlign: 'right'},
+  pickerContainer: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, marginTop: 4, backgroundColor: "#fff" },
+  picker: { height: 50 },
+  label: { fontWeight: "600", marginTop: 10, marginBottom: 4, color: colors.text },
 });

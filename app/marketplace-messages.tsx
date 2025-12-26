@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from '../components/Icon';
-import SimpleBottomSheet from '../components/BottomSheet';
+import SimpleBottomSheet from '../components/BottomSheet'; // --- NOTE : Import inutilisé, peut être retiré ---
 import MarketplaceChat from '../components/MarketplaceChat';
-import { getImageUrl, supabase } from '../config';
+import { getMarketplaceImageUrl, supabase } from '../config';
+import { useNotifications } from '../components/NotificationContext'; // --- AJOUT ---
 
 interface Conversation {
   id: string;
@@ -27,6 +28,14 @@ export default function MarketplaceMessagesScreen() {
   const [isChatVisible, setIsChatVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const { fetchUnreadMessagesCount } = useNotifications(); // --- AJOUT ---
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadConversations();
+    setRefreshing(false);
+  }, []);
 
   // Recharger les conversations quand l'écran est affiché
   const loadConversations = async () => {
@@ -59,7 +68,7 @@ export default function MarketplaceMessagesScreen() {
 
       // Étape 2: Récupérer les informations des produits
       const productIds = [...new Set(messages?.map(msg => msg.product_id) || [])];
-      
+
       const { data: products, error: productsError } = await supabase
         .from('marketplace_products')
         .select('id, name, image')
@@ -70,7 +79,7 @@ export default function MarketplaceMessagesScreen() {
       const productsMap = new Map(products?.map(p => [p.id, p]) || []);
 
       // Étape 3: Récupérer les informations des utilisateurs
-      const otherUserIds = [...new Set(messages?.map(msg => 
+      const otherUserIds = [...new Set(messages?.map(msg =>
         msg.sender_id === user.id ? msg.receiver_id : msg.sender_id
       ) || [])];
 
@@ -103,7 +112,7 @@ export default function MarketplaceMessagesScreen() {
             other_user_id: otherUserId,
             product_name: product?.name || 'Produit',
             other_user_name: otherUserName || 'Utilisateur inconnu',
-            product_image: getImageUrl(product?.image),
+            product_image: getMarketplaceImageUrl(product?.image),
             last_message: msg.message,
             last_message_time: msg.created_at,
             unread_count: 0,
@@ -133,43 +142,28 @@ export default function MarketplaceMessagesScreen() {
 
   // Recharger les conversations quand l'écran est affiché
   useFocusEffect(
-    useCallback(() => {
+    React.useCallback(() => {
       loadConversations();
 
       // Écouter les changements en temps réel
-      const setupRealtimeSubscription = async () => {
-        const subscription = supabase
-          .channel('marketplace_messages_changes')
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'marketplace_messages'
-            },
-            (payload: any) => {
-              console.log('Realtime message received:', payload);
-              // --- OPTIMISATION : Mettre à jour seulement la conversation affectée ---
-              const newMessage = payload.new;
-              if (newMessage) {
-                // Recharger les conversations de manière optimisée
-                // ou mettre à jour l'état local directement pour une meilleure performance.
-                // Pour la simplicité, nous rechargeons, mais une mise à jour ciblée serait idéale.
-                loadConversations(); 
-              }
-            }
-          )
-          .subscribe();
+      const channel = supabase.channel('marketplace_messages_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'marketplace_messages' },
+          (payload) => {
+            console.log('Realtime message received, reloading conversations:', payload);
+            loadConversations();
+          }
+        )
+        .subscribe();
 
-        // La fonction de nettoyage est retournée pour être appelée lors du démontage du composant
-        return () => {
-          subscription.unsubscribe();
-        };
+      // La fonction de nettoyage est retournée pour être appelée lors du démontage du composant
+      return () => {
+        console.log('🔌 Unsubscribing from marketplace messages channel.');
+        supabase.removeChannel(channel);
       };
-
-      setupRealtimeSubscription();
-    }, [])
-  ); // Le tableau vide assure que cela ne s'exécute qu'une fois au montage
+    }, []) // Le tableau vide assure que cela ne s'exécute qu'une fois au montage/démontage
+  );
 
   const handleConversationPress = async (conversation: Conversation) => {
     // Sauvegarder le compteur actuel avant de le mettre à zéro
@@ -198,6 +192,9 @@ export default function MarketplaceMessagesScreen() {
         console.error('Error marking messages as read:', updateError);
         return;
       }
+
+      // --- NOUVEAU : Rafraîchir le compteur global ---
+      fetchUnreadMessagesCount();
     } catch (error) {
       console.error('Error marking messages as read:', error);
       // En cas d'erreur, remettre le compteur à sa valeur précédente
@@ -225,13 +222,50 @@ export default function MarketplaceMessagesScreen() {
 
       // Mettre à jour l'état local
       const conversationId = `${productId}-${otherUserId}`;
-      setConversations(prev => prev.map(c => 
+      setConversations(prev => prev.map(c =>
         c.id === conversationId ? { ...c, unread_count: 0 } : c
       ));
+
+      // --- NOUVEAU : Rafraîchir le compteur global ---
+      fetchUnreadMessagesCount();
     } catch (error) {
       console.error('Error marking conversation as read:', error);
     }
-  }, [currentUserId]);
+  }, [currentUserId, fetchUnreadMessagesCount]);
+
+  const markAllAsRead = async () => {
+    if (!currentUserId) return;
+
+    try {
+      // 1. Mise à jour visuelle immédiate
+      setConversations(prev => prev.map(c => ({ ...c, unread_count: 0 })));
+
+      // 2. Mise à jour en base de données avec vérification (.select())
+      const { data, error } = await supabase
+        .from('marketplace_messages')
+        .update({ read_at: new Date().toISOString() })
+        .eq('receiver_id', currentUserId)
+        .is('read_at', null)
+        .select();
+
+      if (error) throw error;
+
+      // 3. Vérification : Si aucune ligne n'a été touchée, c'est que la DB n'a pas changé
+      if (data && data.length === 0) {
+        console.warn("⚠️ Aucune ligne mise à jour. Vérifiez les permissions RLS.");
+        // On recharge pour ne pas mentir à l'utilisateur
+        loadConversations();
+      } else {
+        // Succès confirmé
+        console.log(`✅ ${data?.length} messages marqués comme lus.`);
+        fetchUnreadMessagesCount();
+      }
+    } catch (error) {
+      console.error('Error marking all messages as read:', error);
+      Alert.alert("Erreur", "Impossible de marquer les messages comme lus.");
+      loadConversations();
+    }
+  };
 
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -264,7 +298,9 @@ export default function MarketplaceMessagesScreen() {
           <Icon name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Messages</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={markAllAsRead}>
+          <Text style={styles.markAllReadText}>Tout lu</Text>
+        </TouchableOpacity>
       </View>
 
       {conversations.length === 0 ? (
@@ -276,7 +312,13 @@ export default function MarketplaceMessagesScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
+          }
+        >
           {conversations.map((conversation) => (
             <TouchableOpacity
               key={conversation.id}
@@ -284,7 +326,7 @@ export default function MarketplaceMessagesScreen() {
               onPress={() => handleConversationPress(conversation)}
             >
               {conversation.product_image ? (
-                <Image 
+                <Image
                   source={{ uri: conversation.product_image }}
                   style={styles.productImage}
                 />
@@ -323,6 +365,7 @@ export default function MarketplaceMessagesScreen() {
         onClose={() => {
           setIsChatVisible(false);
           loadConversations();
+          fetchUnreadMessagesCount(); // --- AJOUT ---
         }}
       >
         {selectedConversation && (
@@ -449,5 +492,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: colors.white,
+  },
+  markAllReadText: {
+    color: colors.primary,
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

@@ -37,7 +37,7 @@ const SponsoredCarousel: React.FC<SponsoredCarouselProps> = ({ products, onProdu
           <TouchableOpacity
             key={product.id}
             style={styles.flashSaleCard}
-            onPress={() => onProductPress(product)}
+            onPress={() => onProductPress(product)} // La fonction imageUrl est déjà le bon type
           >
             <Image source={{ uri: imageUrl }} style={styles.flashSaleImage} />
             <View style={styles.flashSaleBadge}>

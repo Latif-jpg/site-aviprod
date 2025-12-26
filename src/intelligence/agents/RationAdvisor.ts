@@ -1,19 +1,5 @@
-// src/intelligence/agents/RationAdvisor.ts
-// Import dynamique pour éviter les problèmes d'initialisation
-let supabaseClient: any = null;
-
-const getSupabaseClient = async () => {
-  if (!supabaseClient) {
-    try {
-      const { ensureSupabaseInitialized } = await import('../../../app/integrations/supabase/client');
-      supabaseClient = await ensureSupabaseInitialized();
-    } catch (error) {
-      console.error('[RationAdvisor] Erreur chargement Supabase:', error);
-      return null;
-    }
-  }
-  return supabaseClient;
-};
+import React, { useCallback, useMemo } from 'react';
+import { supabase } from '../../../config';
 
 import { smartAlertSystem } from '../core/SmartAlertSystem';
 import { dataCollector } from '../core/DataCollector';
@@ -133,6 +119,29 @@ const STANDARD_RATIONS: Record<string, Record<string, Partial<RationFormula>>> =
     }
   },
   'pondeuse': {
+    'démarrage': {
+      nutritional_targets: {
+        protein_min: 18, protein_max: 22,
+        energy_min: 2700, energy_max: 3100,
+        calcium_min: 0.9, calcium_max: 1.3
+      }
+    },
+    'croissance': {
+      nutritional_targets: {
+        protein_min: 15, protein_max: 18,
+        energy_min: 2800, energy_max: 3200,
+        calcium_min: 0.8, calcium_max: 1.2
+      }
+    },
+    'ponte': {
+      nutritional_targets: {
+        protein_min: 16, protein_max: 18,
+        energy_min: 2700, energy_max: 2900,
+        calcium_min: 3.5, calcium_max: 4.5
+      }
+    }
+  },
+  'breeders': {
     'démarrage': {
       nutritional_targets: {
         protein_min: 18, protein_max: 22,
@@ -361,9 +370,6 @@ class RationAdvisor {
     period: string = 'month'
   ): Promise<FeedEfficiencyAnalysis | null> {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return null;
-
       // 1. Récupérer données de consommation et performance
       const consumptionData = await this.getLotConsumptionData(lotId, period);
       const performanceData = await this.getLotPerformanceData(lotId, period);
@@ -436,9 +442,6 @@ class RationAdvisor {
    */
   public async updateIngredientPrices(marketData: IngredientMarketData[]): Promise<void> {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
-
       for (const data of marketData) {
         await supabase.from('ingredient_prices').upsert({
           ingredient_id: data.ingredient_id,
@@ -899,9 +902,6 @@ class RationAdvisor {
   }
 
   private async getCurrentMarketPrices(): Promise<Record<string, number>> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return {};
-
     try {
       const { data } = await supabase
         .from('ingredient_prices')
@@ -921,9 +921,6 @@ class RationAdvisor {
   }
 
   private async findIngredientAlternatives(ingredientId: string): Promise<any[]> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return [];
-
     try {
       const { data } = await supabase
         .from('ingredient_prices')
@@ -938,9 +935,6 @@ class RationAdvisor {
   }
 
   private async getRationById(rationId: string): Promise<RationFormula | null> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return null;
-
     try {
       const { data } = await supabase
         .from('custom_feed_rations')
@@ -976,9 +970,6 @@ class RationAdvisor {
   }
 
   private async getLotConsumptionData(lotId: string, period: string): Promise<any> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return null;
-
     const days = period === 'week' ? 7 : 30;
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
@@ -1008,9 +999,6 @@ class RationAdvisor {
   }
 
   private async getLotPerformanceData(lotId: string, period: string): Promise<any> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return null;
-
     const days = period === 'week' ? 7 : 30;
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
@@ -1041,9 +1029,6 @@ class RationAdvisor {
 
   private async saveRationFormula(ration: RationFormula): Promise<void> {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
-
       await supabase.from('ration_formulas').insert({
         id: ration.id,
         name: ration.name,
@@ -1064,9 +1049,6 @@ class RationAdvisor {
 
   private async saveOptimizationResult(optimization: RationOptimization): Promise<void> {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
-
       await supabase.from('ration_optimizations').insert({
         current_ration_id: optimization.current_ration.id,
         optimized_ration_id: optimization.optimized_ration.id,
@@ -1125,14 +1107,34 @@ export const rationAdvisor = RationAdvisor.getInstance();
 export const rationAdvisorWrapper = new RationAdvisorWrapper();
 
 export const useRationAdvisor = () => {
-  return {
-    formulateRation: (race: string, phase: string, quantity: number, constraints?: any) =>
+  const formulateRation = useCallback(
+    (race: string, phase: string, quantity: number, constraints?: any) =>
       rationAdvisor.formulateRation(race, phase, quantity, constraints),
-    optimizeRation: (rationId: string, performanceData?: any) =>
+    []
+  );
+
+  const optimizeRation = useCallback(
+    (rationId: string, performanceData?: any) =>
       rationAdvisor.optimizeExistingRation(rationId, performanceData),
-    analyzeEfficiency: (lotId: string, userId: string, period?: string) =>
+    []
+  );
+
+  const analyzeEfficiency = useCallback(
+    (lotId: string, userId: string, period?: string) =>
       rationAdvisor.analyzeFeedEfficiency(lotId, userId, period),
-    updatePrices: (marketData: any[]) =>
+    []
+  );
+
+  const updatePrices = useCallback(
+    (marketData: any[]) =>
       rationAdvisor.updateIngredientPrices(marketData),
-  };
+    []
+  );
+
+  return useMemo(() => ({
+    formulateRation,
+    optimizeRation,
+    analyzeEfficiency,
+    updatePrices,
+  }), [formulateRation, optimizeRation, analyzeEfficiency, updatePrices]);
 };

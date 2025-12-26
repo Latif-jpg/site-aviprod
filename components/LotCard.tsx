@@ -1,4 +1,3 @@
-
 import React, { memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { colors } from '../styles/commonStyles';
@@ -47,6 +46,7 @@ const LotCard = ({ lot, onPress }: LotCardProps) => {
         const daysRemaining = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         return daysRemaining > 0 ? daysRemaining : 0;
       } catch (e) {
+        console.error('Error calculating days until exit:', e);
         // Fallback to age-based calculation if date is invalid
       }
     }
@@ -79,6 +79,17 @@ const LotCard = ({ lot, onPress }: LotCardProps) => {
 
   const calculateExitDate = () => {
     try {
+      // Priorité à la date de vente prévue si elle existe
+      if (lot.targetSaleDate) {
+        const targetDate = new Date(lot.targetSaleDate);
+        return targetDate.toLocaleDateString('fr-FR', { 
+          day: '2-digit', 
+          month: 'short', 
+          year: 'numeric' 
+        });
+      }
+
+      // Sinon, calcul basé sur l'âge type
       const exitAges: Record<string, number> = {
         broilers: 42,
         layers: 540,

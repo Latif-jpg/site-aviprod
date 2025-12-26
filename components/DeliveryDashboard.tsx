@@ -3,8 +3,9 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIn
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from './Icon';
-import { ensureSupabaseInitialized } from '../app/integrations/supabase/client';
+import { supabase, ensureSupabaseInitialized } from '../config'; // Import supabase directly
 import { router } from 'expo-router';
+// import GoogleAdBanner from './GoogleAdBanner';
 
 const { width } = Dimensions.get('window');
 
@@ -35,19 +36,28 @@ export default function DeliveryDashboard() {
   const [showRoleSelector, setShowRoleSelector] = useState(false);
 
   useEffect(() => {
-    loadDashboardData();
+    // --- CORRECTION : Utiliser onAuthStateChange pour une gestion fiable de la session ---
+    // S'abonner aux changements d'état d'authentification.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        // Cet événement se déclenche lorsque la session est chargée (y compris depuis le cache).
+        if (session?.user) {
+          loadDashboardData(session.user.id); // On passe l'ID de l'utilisateur
+        } else {
+          // Si aucune session n'est trouvée, on refuse l'accès.
+          Alert.alert('Accès refusé', 'Vous devez être connecté pour accéder à cet espace.', [
+            { text: 'Retour', style: 'cancel', onPress: () => router.back() }
+          ]);
+          setIsLoading(false);
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (userId: string) => {
     try {
-      setIsLoading(true);
-      const supabase = await ensureSupabaseInitialized();
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        Alert.alert('Erreur', 'Vous devez être connecté');
-        return;
-      }
+      setIsLoading(true); // S'assurer que le chargement est activé
 
       // Check all available roles for this user
       const roles: string[] = [];
@@ -57,12 +67,22 @@ export default function DeliveryDashboard() {
         const { data: driverData, error: driverError } = await supabase
           .from('livreur_verifications')
           .select('id, verification_status')
-          .eq('user_id', user.id)
+          .eq('user_id', userId) // Utiliser l'ID passé en paramètre
           .eq('verification_status', 'approved')
           .limit(1)
           .maybeSingle();
 
-        console.log('Driver check result:', { driverData, driverError, userId: user.id });
+        if (driverError) {
+          console.error('Error checking driver status:', driverError);
+        }
+
+        if (!driverData) {
+          Alert.alert(
+            'Inscription requise',
+            'Vous devez vous inscrire en tant que livreur pour accéder à cette fonctionnalité.'
+          );
+        }
+        console.log('Driver check result:', { driverData, driverError, userId: userId });
 
         if (driverData && !driverError) {
           roles.push('driver');
@@ -76,7 +96,7 @@ export default function DeliveryDashboard() {
       const { data: products } = await supabase
         .from('marketplace_products')
         .select('id')
-        .eq('seller_id', user.id)
+        .eq('seller_id', userId) // Utiliser l'ID passé en paramètre
         .limit(1);
 
       if (products && products.length > 0) {
@@ -87,7 +107,7 @@ export default function DeliveryDashboard() {
       const { data: orders } = await supabase
         .from('orders')
         .select('id')
-        .eq('buyer_id', user.id)
+        .eq('buyer_id', userId) // Utiliser l'ID passé en paramètre
         .limit(1);
 
       if (orders && orders.length > 0) {
@@ -96,7 +116,7 @@ export default function DeliveryDashboard() {
 
       setAvailableRoles(roles);
 
-      // Always show role selector first (as requested)
+      // Toujours afficher le sélecteur de rôle en premier (comme demandé)
       setShowRoleSelector(true);
 
     } catch (error: any) {
@@ -143,9 +163,19 @@ export default function DeliveryDashboard() {
         .select('id')
         .eq('user_id', userId)
         .eq('verification_status', 'approved')
-        .single();
+        .limit(1) // S'assurer de ne récupérer qu'une seule entrée au maximum
+        .maybeSingle(); // Gérer le cas où aucune entrée n'est trouvée, ou une seule
 
-      if (driverError || !driverVerification) throw new Error('Driver not found or not approved.');
+      if (driverError || !driverVerification) {
+        console.error('Driver not found or not approved:', driverError);
+        Alert.alert(
+          'Accès refusé',
+          'Votre profil de livreur n\'est pas trouvé ou n\'a pas encore été approuvé.',
+          [{ text: 'Retour', style: 'cancel', onPress: () => router.back() }]
+        );
+        setIsLoading(false); // Arrêter le chargement
+        return; // Arrêter l'exécution de la fonction
+      }
 
       // Get driver stats
       const { data: driverStats } = await supabase
@@ -463,29 +493,30 @@ export default function DeliveryDashboard() {
                 if (option.available) {
                   selectRole(option.key as 'customer' | 'driver' | 'seller');
                 } else {
+                  // Si le rôle n'est pas disponible, vérifier de quel rôle il s'agit
                   if (option.key === 'driver') {
-                    // Check if user has a pending driver verification
+                    // Si l'utilisateur clique sur "Livreur" sans être approuvé
                     const checkPendingDriver = async () => {
                       const supabase = await ensureSupabaseInitialized();
                       const { data: { user } } = await supabase.auth.getUser();
                       if (user) {
                         const { data: pendingDriver } = await supabase
                           .from('livreur_verifications')
-                          .select('id, verification_status')
+                          .select('verification_status')
                           .eq('user_id', user.id)
                           .single();
 
                         if (pendingDriver) {
                           if (pendingDriver.verification_status === 'pending') {
                             Alert.alert(
-                              'Demande en attente',
-                              'Votre demande de livreur est en cours de validation par l\'administrateur. Vous serez notifié une fois approuvé.',
+                              'Demande en cours',
+                              'Votre demande est en cours de validation. Vous serez notifié une fois approuvée.',
                               [{ text: 'OK' }]
                             );
                           } else if (pendingDriver.verification_status === 'rejected') {
                             Alert.alert(
                               'Demande rejetée',
-                              'Votre demande de livreur a été rejetée. Vous pouvez soumettre une nouvelle demande.',
+                              'Votre précédente demande a été rejetée. Souhaitez-vous en faire une nouvelle ?',
                               [
                                 { text: 'Annuler', style: 'cancel' },
                                 { text: 'Nouvelle demande', onPress: () => router.push('/driver-registration') }
@@ -493,15 +524,17 @@ export default function DeliveryDashboard() {
                             );
                           }
                         } else {
+                          // Si aucune demande n'a jamais été faite
                           router.push('/driver-registration');
                         }
                       }
                     };
                     checkPendingDriver();
                   } else {
+                    // Pour les autres rôles non disponibles (client, vendeur)
                     Alert.alert(
                       'Rôle non disponible',
-                      `Vous n'avez pas encore d'activité en tant que ${option.title.toLowerCase()}. Commencez par ${option.key === 'customer' ? 'faire un achat' : 'ajouter un produit'}.`
+                      `Pour activer le rôle '${option.title}', vous devez d'abord ${option.key === 'customer' ? 'passer une commande' : 'ajouter un produit sur le marché'}.`
                     );
                   }
                 }
@@ -559,8 +592,8 @@ export default function DeliveryDashboard() {
         >
           <Text style={styles.roleSwitcherText}>
             {userRole === 'customer' ? 'Client' :
-             userRole === 'seller' ? 'Vendeur' :
-             userRole === 'driver' ? 'Livreur' : 'Choisir'}
+              userRole === 'seller' ? 'Vendeur' :
+                userRole === 'driver' ? 'Livreur' : 'Choisir'}
           </Text>
           <Icon name="chevron-down" size={16} color={colors.primary} />
         </TouchableOpacity>
@@ -573,15 +606,18 @@ export default function DeliveryDashboard() {
 
     if (userRole === 'driver') {
       actions.push(
-        { title: 'Commande / Livraison', icon: 'car', action: () => {
-          // Direct navigation to driver app for approved drivers
-          router.push('/delivery-driver');
-        }, color: colors.primary },
-        { 
-          title: 'Historique', 
-          icon: 'time', 
-          action: () => router.push({ pathname: '/order-tracking', params: { mode: 'driver' } }), 
-          color: colors.accent }
+        {
+          title: 'Commande / Livraison', icon: 'car', action: () => {
+            // Direct navigation to driver app for approved drivers
+            router.push('/delivery-driver');
+          }, color: colors.primary
+        },
+        {
+          title: 'Historique',
+          icon: 'time',
+          action: () => router.push({ pathname: '/order-tracking', params: { mode: 'driver' } }),
+          color: colors.accent
+        }
       );
     } else if (userRole === 'customer') {
       actions.push(
@@ -650,6 +686,7 @@ export default function DeliveryDashboard() {
           {renderStatsCards()}
           {renderQuickActions()}
           {renderRecentDeliveries()}
+          {/* <GoogleAdBanner /> */}
         </View>
       </ScrollView>
     </SafeAreaView>

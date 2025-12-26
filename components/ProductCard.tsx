@@ -1,4 +1,4 @@
-import React from 'react';
+ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { colors } from '../styles/commonStyles';
 import { getMarketplaceImageUrl } from '../config'; // Importer la fonction

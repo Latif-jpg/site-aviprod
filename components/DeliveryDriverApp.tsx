@@ -651,32 +651,28 @@ export default function DeliveryDriverApp() {
       console.log('   - SET status = in_transit');
       console.log('   - SET estimated_delivery_time =', arrivalTime.toISOString());
   
-      // Appel de la Edge Function pour mettre à jour le statut avec les droits admin
-      const { data: updatedData, error: updateError } = await supabase.functions.invoke('update-delivery-status', {
+      // --- CORRECTION : Utilisation d'une Edge Function pour la mise à jour ---
+      // Cela centralise la logique et contourne les problèmes de permissions RLS complexes.
+      const { data: functionData, error: functionError } = await supabase.functions.invoke('update-delivery-status', {
         body: {
           deliveryId: selectedDelivery.id,
           status: 'in_transit',
           estimatedDeliveryTime: arrivalTime.toISOString(),
         },
       });
-  
+
       console.log('\n📊 Réponse Supabase UPDATE:');
-      console.log('   - Error:', updateError ? '❌ OUI' : '✅ NON');
-      console.log('   - Data:', updatedData ? '✅ OUI' : '❌ NULL');
+      console.log('   - Error:', functionError ? '❌ OUI' : '✅ NON');
+      console.log('   - Data:', functionData ? '✅ OUI' : '❌ NULL');
   
-      if (updateError) {
-        // Si l'erreur vient de la fonction Edge, elle peut être dans `updateError.context.error`
-        const detailedError = updateError.context?.error || updateError;
-        console.error('\n❌ ERREUR UPDATE DÉTAILLÉE:');
-        console.error('   - Code:', updateError.code);
-        console.error('   - Message:', updateError.message);
-        console.error('   - Details:', updateError.details);
-        console.error('   - Hint:', updateError.hint);
-        console.error('   - Objet complet:', JSON.stringify(updateError, null, 2));
-        throw updateError;
+      if (functionError) {
+        console.error('\n❌ ERREUR DE LA EDGE FUNCTION:', JSON.stringify(functionError, null, 2));
+        // Tenter d'extraire un message d'erreur plus clair du corps de la réponse
+        const errorMessage = functionError.context?.data?.error || functionError.message;
+        throw new Error(errorMessage);
       }
   
-      if (!updatedData) {
+      if (!functionData) {
         console.error('\n❌ ERREUR: Aucune ligne mise à jour');
         console.error('Cela indique probablement un problème de permissions RLS ou que la fonction a échoué');
         console.error('La politique RLS empêche la mise à jour pour cet utilisateur/cette livraison');
@@ -701,7 +697,7 @@ export default function DeliveryDriverApp() {
       }
   
       console.log('\n✅ MISE À JOUR RÉUSSIE!');
-      console.log('Données mises à jour:', JSON.stringify(updatedData, null, 2));
+      console.log('Données mises à jour:', JSON.stringify(functionData, null, 2));
   
       // ─────────────────────────────────────────────────────────────────────────
       // ÉTAPE 7: Notification client (via trigger DB)
@@ -1051,7 +1047,7 @@ export default function DeliveryDriverApp() {
               <View style={styles.modalSection}>
                 <Text style={styles.modalSectionTitle}>📍 Point de Retrait (Vendeur)</Text>
                 <View style={styles.modalAddressCard}>
-                  <Text style={styles.modalAddressName}>{typeof selectedDelivery?.order?.seller_name === 'object' ? selectedDelivery.order.seller_name.full_name : selectedDelivery?.order?.seller_name || 'Vendeur inconnu'}</Text>
+                  <Text style={styles.modalAddressName}>{typeof selectedDelivery?.order?.seller_name === 'object' && selectedDelivery.order.seller_name ? selectedDelivery.order.seller_name.full_name : selectedDelivery?.order?.seller_name || 'Vendeur inconnu'}</Text>
                   <Text style={styles.modalAddressText}>{selectedDelivery?.pickup_location?.address || 'Adresse non spécifiée'}</Text>
                   <Text style={styles.modalAddressText}>{selectedDelivery?.pickup_location?.city}</Text>
                 </View>
@@ -1060,7 +1056,7 @@ export default function DeliveryDriverApp() {
               <View style={styles.modalSection}>
                 <Text style={styles.modalSectionTitle}>🏁 Point de Livraison (Client)</Text>
                 <View style={styles.modalAddressCard}>
-                  <Text style={styles.modalAddressName}>{typeof selectedDelivery?.order?.buyer_name === 'object' ? selectedDelivery.order.buyer_name.full_name : selectedDelivery?.order?.buyer_name || 'Client inconnu'}</Text>
+                  <Text style={styles.modalAddressName}>{typeof selectedDelivery?.order?.buyer_name === 'object' && selectedDelivery.order.buyer_name ? selectedDelivery.order.buyer_name.full_name : selectedDelivery?.order?.buyer_name || 'Client inconnu'}</Text>
                   <Text style={styles.modalAddressText}>{selectedDelivery?.delivery_location?.address}</Text>
                   <Text style={styles.modalAddressText}>{selectedDelivery?.delivery_location?.city}</Text>
                   <Text style={styles.modalAddressPhone}>📞 {selectedDelivery?.delivery_location?.phone}</Text>
@@ -1139,15 +1135,20 @@ export default function DeliveryDriverApp() {
           <Icon name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Espace Livreur</Text>
-        <TouchableOpacity
-          style={[styles.onlineButton, isOnline && styles.onlineButtonActive]}
-          onPress={toggleOnlineStatus}
-        >
-          <View style={[styles.onlineIndicator, isOnline && styles.onlineIndicatorActive]} />
-          <Text style={[styles.onlineButtonText, isOnline && styles.onlineButtonTextActive]}>
-            {isOnline ? 'En ligne' : 'Hors ligne'}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.onlineButton, isOnline && styles.onlineButtonActive]}
+            onPress={toggleOnlineStatus}
+          >
+            <View style={[styles.onlineIndicator, isOnline && styles.onlineIndicatorActive]} />
+            <Text style={[styles.onlineButtonText, isOnline && styles.onlineButtonTextActive]}>
+              {isOnline ? 'En ligne' : 'Hors ligne'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.historyButton} onPress={() => router.push({ pathname: '/order-tracking', params: { mode: 'driver' } })}>
+            <Icon name="time" size={24} color={colors.text} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -1181,6 +1182,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   backButton: {
     marginRight: 16,
   },
@@ -1188,6 +1193,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: colors.text,
+    flex: 1,
   },
   onlineButton: {
     flexDirection: 'row',

@@ -1,19 +1,6 @@
 // src/intelligence/agents/HealthAdvisor.ts
-// Import dynamique pour éviter les problèmes d'initialisation
-let supabaseClient: any = null;
-
-const getSupabaseClient = async () => {
-  if (!supabaseClient) {
-    try {
-      const { ensureSupabaseInitialized } = await import('../../../app/integrations/supabase/client');
-      supabaseClient = await ensureSupabaseInitialized();
-    } catch (error) {
-      console.error('[HealthAdvisor] Erreur chargement Supabase:', error);
-      return null;
-    }
-  }
-  return supabaseClient;
-};
+// --- CORRECTION : Utiliser une seule instance de Supabase ---
+import { supabase } from '../../../config';
 
 import { smartAlertSystem } from '../core/SmartAlertSystem';
 import { dataCollector } from '../core/DataCollector';
@@ -185,9 +172,6 @@ class HealthAdvisor {
     period: 'week' | 'month' = 'month'
   ): Promise<HealthTrend | null> {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return null;
-
       // Récupérer données de santé du lot
       const healthData = await this.getLotHealthData(lotId, period);
 
@@ -221,9 +205,6 @@ class HealthAdvisor {
    */
   public async predictDiseases(lotId: string, userId: string): Promise<DiseasePrediction[]> {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return [];
-
       // Récupérer historique et conditions actuelles
       const lotData = await this.getLotData(lotId);
       const healthHistory = await this.getHealthHistory(lotId, userId);
@@ -292,9 +273,6 @@ class HealthAdvisor {
 
   private async analyzeImages(images: string[], description: string, symptoms: string[]): Promise<Partial<HealthAnalysis> | null> {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return null;
-
       // Utiliser la fonction Supabase existante pour l'analyse d'images
       const { data, error } = await supabase.functions.invoke('gemini-health-analysis', {
         body: {
@@ -319,9 +297,6 @@ class HealthAdvisor {
   }
 
   private async getLotHealthContext(lotId: string, userId: string): Promise<any> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return null;
-
     // Récupérer données récentes du lot
     const { data: lot } = await supabase
       .from('lots')
@@ -470,9 +445,6 @@ class HealthAdvisor {
     lotId?: string
   ) {
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -551,9 +523,6 @@ class HealthAdvisor {
   }
 
   private async getLotHealthData(lotId: string, period: HealthTrend['period']): Promise<any[]> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return [];
-
     const days = period === 'week' ? 7 : 30;
     const { data } = await supabase
       .from('daily_updates')
@@ -624,9 +593,6 @@ class HealthAdvisor {
   }
 
   private async getLotData(lotId: string): Promise<any> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return null;
-
     const { data } = await supabase
       .from('lots')
       .select('*')
@@ -637,9 +603,6 @@ class HealthAdvisor {
   }
 
   private async getHealthHistory(lotId: string, userId: string): Promise<any[]> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return [];
-
     const { data } = await supabase
       .from('ai_health_analyses')
       .select('*')
@@ -654,11 +617,6 @@ class HealthAdvisor {
   private async getEnvironmentalFactors(userId: string): Promise<any> {
     // Récupérer des données réelles si possible, sinon valeurs par défaut
     try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) {
-        return this.getDefaultEnvironmentalFactors();
-      }
-
       // Essayer de récupérer des données météo ou régionales depuis la base
       const { data: userProfile } = await supabase
         .from('profiles')

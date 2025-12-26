@@ -15,10 +15,8 @@ if (typeof Blob === 'undefined') {
   global.Blob = require('blob-polyfill').Blob;
 }
 
-// URL polyfill if needed
-if (typeof URL === 'undefined') {
-  global.URL = require('react-native-url-polyfill');
-}
+// URL polyfill for Supabase OAuth flow
+import 'react-native-url-polyfill/auto';
 
 // FormData polyfill if needed
 if (typeof FormData === 'undefined') {

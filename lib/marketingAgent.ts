@@ -82,7 +82,7 @@ export function marketingAgent(context: AgentContext, products: Product[], maxRe
     }
 
     // Bonus: Proximité géographique
-    if (context.profile.zone && p.zone && context.profile.zone === p.zone) score += 10
+    if (context.profile?.zone && p.zone && context.profile.zone === p.zone) score += 10
 
     // Petit facteur aléatoire pour dé-prioriser les produits avec un score de 0
     if (score > 0) score += Math.random() * 5

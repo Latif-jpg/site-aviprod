@@ -13,13 +13,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../../../styles/commonStyles';
 import Icon from '../../../components/Icon';
-import { useLotIntelligence } from '../agents/LotIntelligenceAgent';
+import { useLotIntelligence as defaultUseLotIntelligence } from '../agents/LotIntelligenceAgent';
 
 const { width } = Dimensions.get('window');
 
 interface LotIntelligenceDashboardProps {
   lotId: string;
   onClose?: () => void;
+  // --- CORRECTION : Permettre l'injection d'un hook personnalisé pour les logs ---
+  useLotIntelligenceHook?: typeof defaultUseLotIntelligence;
 }
 
 interface AnalysisResult {
@@ -63,11 +65,13 @@ interface AnalysisResult {
 
 export default function LotIntelligenceDashboard({
   lotId,
-  onClose
+  onClose,
+  useLotIntelligenceHook
 }: LotIntelligenceDashboardProps) {
-  const { analyzeLot } = useLotIntelligence();
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  // --- CORRECTION : Utiliser le hook injecté s'il existe, sinon le hook par défaut ---
+  const useIntelligence = useLotIntelligenceHook || defaultUseLotIntelligence;
+  const { lot, insights, kpis, loading: intelligenceLoading } = useIntelligence(lotId);
+
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -75,24 +79,9 @@ export default function LotIntelligenceDashboard({
   }, [lotId]);
 
   const loadAnalysis = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await analyzeLot(lotId);
-      if (result) {
-        setAnalysis(result);
-      } else {
-        setError('Impossible d\'analyser ce lot');
-      }
-    } catch (err: any) {
-      console.error('Erreur analyse lot:', err);
-      setError(err.message || 'Erreur lors de l\'analyse');
-    } finally {
-      setLoading(false);
-    }
+    // La logique est maintenant entièrement gérée par le hook injecté.
   };
-
+  
   const getGrowthTrendColor = (trend: string) => {
     switch (trend) {
       case 'excellent': return '#10996E';
@@ -122,7 +111,7 @@ export default function LotIntelligenceDashboard({
     });
   };
 
-  if (loading) {
+  if (intelligenceLoading) {
     return (
       <SafeAreaView style={commonStyles.container}>
         <View style={styles.loadingContainer}>
@@ -152,7 +141,7 @@ export default function LotIntelligenceDashboard({
     );
   }
 
-  if (!analysis) return null;
+  if (!lot || !kpis) return null; // Attendre que le lot et les KPIs soient chargés par le hook
 
   return (
     <SafeAreaView style={commonStyles.container}>
@@ -181,11 +170,11 @@ export default function LotIntelligenceDashboard({
           <View style={styles.sectionHeader}>
             <Icon name="trending-up" size={24} color={colors.primary} />
             <Text style={styles.sectionTitle}>Prédiction de Croissance</Text>
-            <View style={[styles.confidenceBadge, {
-              backgroundColor: analysis.growth.confidence_score > 80 ? '#10996E' : '#FF9800'
+            <View style={[styles.confidenceBadge, { 
+              backgroundColor: (kpis.confidence_score || 80) > 80 ? '#10996E' : '#FF9800'
             }]}>
               <Text style={styles.confidenceText}>
-                {analysis.growth.confidence_score}% confiance
+                {kpis.confidence_score || 80}% confiance
               </Text>
             </View>
           </View>
@@ -194,44 +183,44 @@ export default function LotIntelligenceDashboard({
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Poids actuel</Text>
               <Text style={styles.metricValue}>
-                {analysis.growth.current_weight.toFixed(1)} kg
+                {(lot.poids_moyen || 0).toFixed(1)} kg
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Poids prédit</Text>
               <Text style={styles.metricValue}>
-                {analysis.growth.predicted_final_weight.toFixed(1)} kg
+                {(kpis.predicted_weight || 0).toFixed(1)} kg
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Date de vente</Text>
               <Text style={styles.metricValue}>
-                {formatDate(analysis.growth.predicted_sale_date)}
+                {formatDate(kpis.predicted_sale_date || new Date())}
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Tendance</Text>
               <Text style={[styles.metricValue, {
-                color: getGrowthTrendColor(analysis.growth.growth_trend)
+                color: getGrowthTrendColor(kpis.growth_trend || 'average')
               }]}>
-                {analysis.growth.growth_trend.toUpperCase()}
+                {(kpis.growth_trend || 'average').toUpperCase()}
               </Text>
             </View>
           </View>
 
           {/* Fenêtre optimale de vente */}
-          <View style={styles.optimalWindow}>
+          {kpis.optimal_sale_window && <View style={styles.optimalWindow}>
             <Text style={styles.optimalTitle}>🔔 Fenêtre de vente optimale</Text>
             <Text style={styles.optimalDates}>
-              {formatDate(analysis.growth.optimal_sale_window.start_date)} - {formatDate(analysis.growth.optimal_sale_window.end_date)}
+              {formatDate(kpis.optimal_sale_window.start_date)} - {formatDate(kpis.optimal_sale_window.end_date)}
             </Text>
             <Text style={styles.optimalMargin}>
-              Marge estimée: {analysis.growth.optimal_sale_window.estimated_margin} CFA
+              Marge estimée: {kpis.optimal_sale_window.estimated_margin} CFA
             </Text>
-          </View>
+          </View>}
         </View>
 
         {/* ALIMENTATION */}
@@ -245,43 +234,43 @@ export default function LotIntelligenceDashboard({
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Consommation actuelle</Text>
               <Text style={styles.metricValue}>
-                {analysis.feed.current_consumption.toFixed(0)} kg/jour
+                {(kpis.current_consumption || 0).toFixed(0)} kg/jour
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Recommandé</Text>
               <Text style={styles.metricValue}>
-                {analysis.feed.recommended_daily_feed.toFixed(0)} kg/jour
+                {(kpis.recommended_feed || 0).toFixed(0)} kg/jour
               </Text>
             </View>
 
             <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>FCR</Text>
+              <Text style={styles.metricLabel}>IC (Indice Cons.)</Text>
               <Text style={[styles.metricValue, {
-                color: analysis.feed.feed_conversion_ratio < 1.8 ? '#10996E' : '#FF9800'
+                color: (kpis.ic || 2) < 1.8 ? '#10996E' : '#FF9800'
               }]}>
-                {analysis.feed.feed_conversion_ratio.toFixed(2)}
+                {(kpis.ic || 0).toFixed(2)}
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Efficacité</Text>
               <Text style={[styles.metricValue, {
-                color: analysis.feed.efficiency_score > 80 ? '#10996E' : '#FF9800'
+                color: (kpis.efficiency_score || 0) > 80 ? '#10996E' : '#FF9800'
               }]}>
-                {analysis.feed.efficiency_score.toFixed(0)}%
+                {(kpis.efficiency_score || 0).toFixed(0)}%
               </Text>
             </View>
           </View>
 
           {/* Recommandations */}
-          {analysis.feed.recommendations.length > 0 && (
+          {insights.filter((i: any) => i.category === 'feed').length > 0 && (
             <View style={styles.recommendations}>
               <Text style={styles.recommendationsTitle}>💡 Recommandations</Text>
-              {analysis.feed.recommendations.map((rec, index) => (
+              {insights.filter((i: any) => i.category === 'feed').map((insight: any, index: number) => (
                 <Text key={index} style={styles.recommendation}>
-                  • {rec}
+                  • {insight.description}
                 </Text>
               ))}
             </View>
@@ -299,45 +288,45 @@ export default function LotIntelligenceDashboard({
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Taux mortalité</Text>
               <Text style={[styles.metricValue, {
-                color: analysis.health.mortality_rate < 5 ? '#10996E' : '#E53935'
+                color: (lot.taux_mortalite || 0) < 5 ? '#10996E' : '#E53935'
               }]}>
-                {analysis.health.mortality_rate.toFixed(1)}%
+                {(lot.taux_mortalite || 0).toFixed(1)}%
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Tendance</Text>
               <Text style={[styles.metricValue, {
-                color: analysis.health.mortality_trend === 'improving' ? '#10996E' :
-                       analysis.health.mortality_trend === 'worsening' ? '#E53935' : '#FF9800'
+                color: (kpis.mortality_trend || 'stable') === 'improving' ? '#10996E' :
+                       (kpis.mortality_trend || 'stable') === 'worsening' ? '#E53935' : '#FF9800'
               }]}>
-                {analysis.health.mortality_trend.toUpperCase()}
+                {(kpis.mortality_trend || 'stable').toUpperCase()}
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Niveau de risque</Text>
               <Text style={[styles.metricValue, {
-                color: getHealthRiskColor(analysis.health.risk_level)
+                color: getHealthRiskColor(kpis.risk_level || 'low')
               }]}>
-                {analysis.health.risk_level.toUpperCase()}
+                {(kpis.risk_level || 'low').toUpperCase()}
               </Text>
             </View>
           </View>
 
           {/* Problèmes prédits */}
-          {analysis.health.predicted_issues.length > 0 && (
+          {insights.filter((i: any) => i.category === 'health_prediction').length > 0 && (
             <View style={styles.predictedIssues}>
               <Text style={styles.issuesTitle}>⚠️ Problèmes potentiels détectés</Text>
-              {analysis.health.predicted_issues.map((issue, index) => (
+              {insights.filter((i: any) => i.category === 'health_prediction').map((insight: any, index: number) => (
                 <View key={index} style={styles.issueCard}>
-                  <Text style={styles.issueText}>{issue.issue}</Text>
+                  <Text style={styles.issueText}>{insight.title}</Text>
                   <View style={styles.issueDetails}>
                     <Text style={styles.issueProbability}>
-                      Probabilité: {issue.probability}%
+                      Probabilité: {insight.probability}%
                     </Text>
                     <Text style={styles.issueDays}>
-                      Dans {issue.days_to_occurrence} jours
+                      Dans {insight.days_to_occurrence} jours
                     </Text>
                   </View>
                 </View>
@@ -357,41 +346,41 @@ export default function LotIntelligenceDashboard({
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Performance actuelle</Text>
               <Text style={styles.metricValue}>
-                {analysis.benchmark.current_performance.toFixed(1)}/100
+                {(kpis.benchmark?.current_performance || 0).toFixed(1)}/100
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Moyenne ferme</Text>
               <Text style={styles.metricValue}>
-                {analysis.benchmark.average_performance.toFixed(1)}/100
+                {(kpis.benchmark?.average_performance || 0).toFixed(1)}/100
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Meilleure performance</Text>
               <Text style={styles.metricValue}>
-                {analysis.benchmark.best_performance.toFixed(1)}/100
+                {(kpis.benchmark?.best_performance || 0).toFixed(1)}/100
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Classement</Text>
               <Text style={[styles.metricValue, {
-                color: analysis.benchmark.ranking_percentile > 75 ? '#10996E' :
-                       analysis.benchmark.ranking_percentile > 50 ? '#4CAF50' :
-                       analysis.benchmark.ranking_percentile > 25 ? '#FF9800' : '#E53935'
+                color: (kpis.benchmark?.ranking_percentile || 0) > 75 ? '#10996E' :
+                       (kpis.benchmark?.ranking_percentile || 0) > 50 ? '#4CAF50' :
+                       (kpis.benchmark?.ranking_percentile || 0) > 25 ? '#FF9800' : '#E53935'
               }]}>
-                Top {analysis.benchmark.ranking_percentile.toFixed(0)}%
+                Top {(kpis.benchmark?.ranking_percentile || 0).toFixed(0)}%
               </Text>
             </View>
           </View>
 
           {/* Insights */}
-          {analysis.benchmark.comparison_insights.length > 0 && (
+          {kpis.benchmark?.comparison_insights.length > 0 && (
             <View style={styles.insights}>
               <Text style={styles.insightsTitle}>📊 Insights de comparaison</Text>
-              {analysis.benchmark.comparison_insights.map((insight, index) => (
+              {kpis.benchmark.comparison_insights.map((insight: string, index: number) => (
                 <Text key={index} style={styles.insight}>
                   • {insight}
                 </Text>

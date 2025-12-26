@@ -90,13 +90,14 @@ type IconName =
   | 'diamond';
 
 interface IconProps {
-  name: IconName;
+  // Accept any string so callers can use full icon names like 'cash-outline'
+  name: string | IconName;
   size?: number;
   color?: string;
   iconSet?: 'ionicons' | 'material';
 }
 
-const iconMap: Record<IconName, keyof typeof Ionicons.glyphMap> = {
+const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
   'home': 'home',
   'egg': 'egg',
   'storefront': 'storefront',
@@ -186,7 +187,9 @@ const iconMap: Record<IconName, keyof typeof Ionicons.glyphMap> = {
 };
 
 const Icon: React.FC<IconProps> = ({ name, size = 24, color = '#000000', iconSet = 'ionicons' }) => {
-  const iconName = iconMap[name as IconName] || 'help-circle';
+  // Prefer explicit mapping for legacy/alias names, otherwise pass through the provided name.
+  const mapped = iconMap[name as string];
+  const iconName = mapped || (name as string);
 
   if (iconSet === 'material') {
     return <MaterialIcons name={iconName as any} size={size} color={color} />;

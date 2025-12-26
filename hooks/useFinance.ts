@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ensureSupabaseInitialized } from '../app/integrations/supabase/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from './useAuth';
+import { ensureSupabaseInitialized } from '../config';
 
 export interface FinancialRecord {
   id: string;
@@ -22,6 +23,8 @@ export const useFinance = (period: 'week' | 'month' | 'quarter') => {
   const [financialRecords, setFinancialRecords] = useState<FinancialRecord[]>([]);
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const { user: authUser } = useAuth();
 
   const calculateSummary = (currentRecords: FinancialRecord[]): FinancialSummary => {
     // Calculs pour la période actuelle
@@ -50,59 +53,136 @@ export const useFinance = (period: 'week' | 'month' | 'quarter') => {
     try {
       setLoading(true);
       const supabase = await ensureSupabaseInitialized();
-      const { data: { user } } = await supabase.auth.getUser();
+      let user = authUser;
+      if (!user) {
+        const authRes = await supabase.auth.getUser();
+        user = authRes?.data?.user ?? null;
+      }
 
       if (!user) {
+        console.warn('useFinance: no authenticated user available, aborting loadFinancialRecords');
         setFinancialRecords([]);
         setFinancialSummary(null);
+        setLoading(false);
         return;
       }
 
-      // Définir les dates pour la période actuelle et la période précédente
+      // Define dates based on the currentPeriod argument
       const now = new Date();
+      const endDate = now.toISOString().split('T')[0];
       let daysToSubtract = 7;
-      if (period === 'week') {
+      if (currentPeriod === 'week') {
         daysToSubtract = 7;
-      } else if (period === 'month') {
+      } else if (currentPeriod === 'month') {
         daysToSubtract = 30;
-      } else if (period === 'quarter') {
+      } else if (currentPeriod === 'quarter') {
         daysToSubtract = 90;
       }
 
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - daysToSubtract);
+      const startDate = fromDate.toISOString().split('T')[0];
 
-      const { data: currentDataRes, error } = await supabase
-        .from('financial_records')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('record_date', fromDate.toISOString());
+      // --- NOUVELLE LOGIQUE : Appel unique à la RPC complète ---
+      console.log(`useFinance: Calling RPC get_comprehensive_financial_analysis for period ${currentPeriod}`);
+      const { data, error } = await supabase.rpc('get_comprehensive_financial_analysis', {
+        p_user_id: user.id,
+        p_start_date: startDate,
+        p_end_date: endDate,
+      });
 
       if (error) throw error;
 
-      const allCurrentRecords = currentDataRes || [];
+      // Extraire les données de la réponse de la RPC
+      const allCurrentRecords = (data.transactions || []) as FinancialRecord[];
+      const summaryData = data.current_period;
 
-      // Trier les enregistrements actuels par date pour l'affichage.
+      const summary: FinancialSummary = {
+        totalIncome: summaryData.revenue || 0,
+        totalExpenses: summaryData.expenses || 0,
+        profit: summaryData.profit || 0,
+        profitMargin: summaryData.profit_margin || 0,
+        isRentable: (summaryData.profit || 0) > 0,
+      };
+
+      // Sort records for display
       const sortedCurrentRecords = allCurrentRecords.sort((a, b) => new Date(b.record_date).getTime() - new Date(a.record_date).getTime());
 
-      // Mettre à jour l'état pour l'affichage de la liste (uniquement les 5 plus récents).
-      setFinancialRecords(sortedCurrentRecords.slice(0, 5));
-
-      // Mettre à jour le résumé financier en utilisant TOUTES les données de la période actuelle.
-      setFinancialSummary(calculateSummary(allCurrentRecords));
+      // Mettre à jour les deux états avec les données de la RPC
+      setFinancialRecords(sortedCurrentRecords);
+      setFinancialSummary(summary);
 
     } catch (error: any) {
       console.error('❌ Error loading financial records:', error);
-      // Ne pas mettre d'alerte ici pour ne pas déranger l'utilisateur à chaque rechargement
     } finally {
       setLoading(false);
     }
-  }, [period]); // Correction: La fonction dépend maintenant de 'period'.
+  }, [authUser]); // Recompute when authUser changes so we retry after login
 
   useEffect(() => {
     console.log(`🔄 Period changed to: ${period}. Reloading financial data...`);
-    loadFinancialRecords();
-  }, [period, loadFinancialRecords]); // `loadFinancialRecords` est maintenant une dépendance stable.
+    // Update the ref that holds the latest requested period so realtime
+    // handlers can use the most recent value without forcing a resubscribe.
+    lastPeriodRef.current = period;
+    loadFinancialRecords(period);
+  }, [period, loadFinancialRecords]);
+
+  // --- NEW: Real-time subscription for financial records ---
+  // Keep a ref of the last requested period so the realtime handler can
+  // always reload the latest period without re-creating the subscription.
+  const lastPeriodRef = useRef<'week' | 'month' | 'quarter'>(period);
+
+  useEffect(() => {
+    const setupFinanceSubscription = async () => {
+      try {
+        const supabase = await ensureSupabaseInitialized();
+        // Prefer auth context user to avoid AuthSessionMissingError
+        let subUser = authUser;
+        if (!subUser) {
+          const authRes = await supabase.auth.getUser();
+          console.log('useFinance: setupFinanceSubscription auth.getUser response:', authRes);
+          subUser = authRes?.data?.user ?? null;
+        } else {
+          console.log('useFinance: setupFinanceSubscription using auth context user:', authUser?.id);
+        }
+        if (!subUser) return;
+
+        const financeChannel = supabase
+          .channel('finance-changes')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'financial_records',
+              filter: `user_id=eq.${subUser.id}`,
+            },
+            () => {
+              // Use the ref to get the latest period without re-subscribing.
+              const rp = lastPeriodRef.current;
+              console.log('💰 Financial data changed, reloading for period (from ref):', rp);
+              loadFinancialRecords(rp);
+            }
+          )
+          .subscribe();
+
+        return () => {
+          console.log('🔌 Unsubscribing from finance real-time changes.');
+          supabase.removeChannel(financeChannel);
+        };
+      } catch (error) {
+        console.error('❌ Error setting up realtime subscription for finance:', error);
+      }
+    };
+
+    const cleanupPromise = setupFinanceSubscription();
+
+    return () => {
+      cleanupPromise?.then(cleanupFn => cleanupFn?.());
+    };
+    // NOTE: do not include `period` here to avoid resubscribing on every
+    // period change; the ref provides the latest value to the handler.
+  }, [loadFinancialRecords, authUser]);
 
   return {
     financialRecords,

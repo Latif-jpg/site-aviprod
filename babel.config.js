@@ -28,7 +28,8 @@ module.exports = function (api) {
         },
       ],
       '@babel/plugin-proposal-export-namespace-from',
-      'react-native-worklets/plugin', // react-native-worklets/plugin must be listed last!
+      // IMPORTANT: react-native-reanimated/plugin doit toujours être le dernier.
+      'react-native-reanimated/plugin',
     ],
   };
 };

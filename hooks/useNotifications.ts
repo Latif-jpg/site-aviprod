@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ensureSupabaseInitialized } from '../app/integrations/supabase/client';
+import { ensureSupabaseInitialized } from '../config';
 import { useAuth } from './useAuth';
 import { useDataCollector } from '../src/hooks/useDataCollector';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 export interface Notification {
   id: string;
@@ -20,6 +21,18 @@ export const useNotifications = () => {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const { trackAction } = useDataCollector();
+
+  // Helper pour mapper les données brutes
+  const mapNotification = (data: any): Notification => ({
+    id: data.id,
+    type: data.type || 'info',
+    title: data.title || data.type || 'Notification',
+    message: data.message || '',
+    data: data.data || {},
+    read: data.read || false,
+    created_at: data.created_at || new Date().toISOString(),
+    user_id: data.user_id,
+  });
 
   const fetchUnreadCount = useCallback(async () => {
     if (!user) {
@@ -66,16 +79,7 @@ export const useNotifications = () => {
 
       if (error) throw error;
 
-      const mappedNotifications: Notification[] = (data || []).map(notif => ({
-        id: notif.id,
-        type: notif.type || 'info',
-        title: notif.type || 'Notification',
-        message: notif.message || '',
-        data: notif.data || {},
-        read: notif.read || false,
-        created_at: notif.created_at || new Date().toISOString(),
-        user_id: notif.user_id,
-      }));
+      const mappedNotifications = (data || []).map(mapNotification);
 
       console.log('📬 Loaded notifications:', mappedNotifications.length);
       setNotifications(mappedNotifications);
@@ -148,6 +152,8 @@ export const useNotifications = () => {
   }, [user, notifications]);
 
   useEffect(() => {
+    let channel: RealtimeChannel | null = null;
+
     if (user) {
       fetchUnreadCount();
       fetchNotifications();
@@ -156,81 +162,55 @@ export const useNotifications = () => {
         try {
           const supabase = await ensureSupabaseInitialized();
 
-          const channel = supabase
-            .channel('notifications-channel')
+          // Utilisation d'un nom de canal unique pour éviter les conflits
+          channel = supabase
+            .channel(`notifications-global-${user.id}`)
             .on(
               'postgres_changes',
               {
-                event: 'INSERT',
+                event: '*', // Écoute TOUS les événements (INSERT, UPDATE, DELETE)
                 schema: 'public',
                 table: 'notifications',
                 filter: `user_id=eq.${user.id}`,
               },
               (payload) => {
-                console.log('🔔 New notification received:', payload.new);
+                console.log('🔔 Notification Realtime Event:', payload.eventType);
 
-                const newNotif = payload.new as any;
-                setNotifications(prev => [{
-                  id: newNotif.id,
-                  type: newNotif.type || 'info',
-                  title: newNotif.type || 'Notification',
-                  message: newNotif.message || '',
-                  data: newNotif.data || {},
-                  read: newNotif.read || false,
-                  created_at: newNotif.created_at,
-                  user_id: newNotif.user_id,
-                }, ...prev]);
-
-                setUnreadCount(prev => prev + 1);
-              }
-            )
-            .on(
-              'postgres_changes',
-              {
-                event: 'UPDATE',
-                schema: 'public',
-                table: 'notifications',
-                filter: `user_id=eq.${user.id}`,
-              },
-              (payload) => {
-                console.log('📝 Notification updated:', payload.new);
-
-                const updatedNotif = payload.new as any;
-                setNotifications(prev =>
-                  prev.map(notif =>
-                    notif.id === updatedNotif.id
-                      ? {
-                          ...notif,
-                          read: updatedNotif.read,
-                          message: updatedNotif.message,
-                          data: updatedNotif.data,
-                        }
-                      : notif
-                  )
-                );
-
+                // Toujours rafraîchir le compteur pour être sûr
                 fetchUnreadCount();
+
+                if (payload.eventType === 'INSERT') {
+                  const newNotif = mapNotification(payload.new);
+                  setNotifications(prev => [newNotif, ...prev]);
+                } else if (payload.eventType === 'UPDATE') {
+                  const updatedNotif = mapNotification(payload.new);
+                  setNotifications(prev =>
+                    prev.map(n => n.id === updatedNotif.id ? updatedNotif : n)
+                  );
+                } else {
+                  // Pour DELETE ou autre, on recharge tout pour être sûr
+                  fetchNotifications();
+                }
               }
             )
             .subscribe((status) => {
-              console.log('📡 Realtime subscription status:', status);
+              console.log(`📡 Notifications subscription status: ${status}`);
             });
 
-          return () => {
-            console.log('🔌 Unsubscribing from notifications channel');
-            supabase.removeChannel(channel);
-          };
         } catch (error) {
           console.error('Error setting up realtime subscription:', error);
         }
       };
 
-      const cleanup = setupRealtimeSubscription();
-
-      return () => {
-        cleanup?.then(cleanupFn => cleanupFn?.());
-      };
+      setupRealtimeSubscription();
     }
+
+    return () => {
+      if (channel) {
+        console.log('🔌 Unsubscribing from notifications channel');
+        ensureSupabaseInitialized().then(supabase => supabase.removeChannel(channel!));
+      }
+    };
   }, [user, fetchUnreadCount, fetchNotifications]);
 
   return {

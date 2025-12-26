@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ensureSupabaseInitialized } from '../app/integrations/supabase/client';
+import { ensureSupabaseInitialized } from '../config';
 
 export interface Payment {
   id: string;

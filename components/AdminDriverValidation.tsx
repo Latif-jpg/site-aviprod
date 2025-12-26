@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Image, Dim
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from './Icon'; // Importation correcte
-import { supabase } from '../config'; // Import supabase directly
+import { supabase, ensureSupabaseInitialized } from '../config'; // Import supabase directly
 import { router } from 'expo-router';
 
 const { width } = Dimensions.get('window');
@@ -31,6 +31,7 @@ interface DriverApplication {
   payment_proof: string;
   status: string;
   created_at: string;
+  notes?: string;
 }
 
 export default function AdminDriverValidation() {
@@ -66,9 +67,6 @@ export default function AdminDriverValidation() {
       // Transform data to match our interface
       const transformedData = await Promise.all(driverApplications.map(async (item) => {
         try {
-          const notes = item.notes ? JSON.parse(item.notes) : {};
-          const supabase = await ensureSupabaseInitialized();
-
           const getPublicUrl = (path: string | null) => {
             if (!path) return null;
             return supabase.storage.from('deliver_kyc').getPublicUrl(path).data?.publicUrl || null;
@@ -123,7 +121,8 @@ export default function AdminDriverValidation() {
         .update({
           verification_status: action === 'approve' ? 'approved' : 'rejected',
           reviewed_at: new Date().toISOString(),
-          review_notes: action === 'approve' ? 'Validation automatique - Livreur approuvé' : 'Demande rejetée par l\'administrateur'
+          // La colonne 'notes' n'existe pas encore en base de données. Décommentez la ligne suivante une fois créée.
+          // notes: action === 'approve' ? 'Validation automatique - Livreur approuvé' : 'Demande rejetée par l\'administrateur'
         })
         .eq('id', application.id);
 
@@ -149,6 +148,47 @@ export default function AdminDriverValidation() {
       Alert.alert('Erreur', `Impossible de traiter la demande: ${error.message}`);
     }
   };
+
+  const renderApplicationCard = (application: DriverApplication) => (
+    <TouchableOpacity
+      key={application.id}
+      style={styles.applicationCard}
+      onPress={() => {
+        setSelectedApplication(application);
+        setShowDetails(true);
+      }}
+    >
+      <View style={styles.applicationHeader}>
+        <View style={styles.applicantInfo}>
+          {application.profile_photo ? (
+            <Image source={{ uri: application.profile_photo }} style={styles.profileImage} />
+          ) : (
+            <View style={[styles.profileImage, { backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+              <Icon name="person" size={24} color={colors.textSecondary} />
+            </View>
+          )}
+          <View>
+            <Text style={styles.applicantName}>{application.full_name}</Text>
+            <Text style={styles.applicantEmail}>{application.email}</Text>
+          </View>
+        </View>
+        <View style={styles.applicationMeta}>
+          <Text style={styles.applicationDate}>
+            {new Date(application.created_at).toLocaleDateString()}
+          </Text>
+          <View style={styles.pendingBadge}>
+            <Text style={styles.pendingText}>En attente</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.applicationDetails}>
+        <Text style={styles.vehicleInfo}>🚗 {application.vehicle_type === 'bike' ? 'Vélo' : application.vehicle_type === 'motorcycle' ? 'Moto' : 'Voiture'} {application.license_plate ? `• ${application.license_plate}` : ''}</Text>
+        <Text style={styles.zonesInfo} numberOfLines={1}>📍 {application.delivery_zones.join(', ')}</Text>
+        <Text style={styles.phoneInfo}>📞 {application.phone_number}</Text>
+      </View>
+    </TouchableOpacity>
+  );
 
   const renderApplicationDetails = () => {
     if (!selectedApplication) return null;
@@ -206,7 +246,7 @@ export default function AdminDriverValidation() {
                 <Text style={styles.vehicleLabel}>Type</Text>
                 <Text style={styles.vehicleValue}>
                   {selectedApplication.vehicle_type === 'bike' ? 'Vélo' :
-                   selectedApplication.vehicle_type === 'motorcycle' ? 'Moto' : 'Voiture'}
+                    selectedApplication.vehicle_type === 'motorcycle' ? 'Moto' : 'Voiture'}
                 </Text>
               </View>
               {selectedApplication.license_plate && (

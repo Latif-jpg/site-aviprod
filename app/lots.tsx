@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Dimensions, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,11 +9,201 @@ import Icon from '../components/Icon';
 import LotCard from '../components/LotCard';
 import SimpleBottomSheet from '../components/BottomSheet';
 import AddLotForm from '../components/AddLotForm'; // Importation correcte
+import EditLotForm from '../components/EditLotForm'; // --- NOUVEAU : Importer le formulaire d'édition ---
 import FloatingActionButton from '../components/FloatingActionButton';
 import { supabase } from '../config'; // Import supabase directly
 import BottomNavigation from '../components/BottomNavigation';
 import LotIntelligenceDashboard from '../src/intelligence/ui/LotIntelligenceDashboard';
-import { useLotIntelligence } from '../src/intelligence/agents/LotIntelligenceAgent';
+
+// --- MISE À JOUR MAJEURE : Intégration de la logique de l'agent d'intelligence ---
+// Le code de LotIntelligenceAgent.ts est maintenant intégré ici pour garantir son exécution
+// et utiliser les données de lot les plus à jour (avec l'âge dynamique).
+
+const BREED_STANDARDS: Record<string, any> = {
+  'default': { target_weight_6weeks: 2.0, fcr_target: 1.8, growth_rate_per_day: 60, normal_mortality_rate: 5 },
+  'broiler': { target_weight_6weeks: 2.2, fcr_target: 1.7, growth_rate_per_day: 65, normal_mortality_rate: 4 },
+  'cobb500': { target_weight_6weeks: 2.3, fcr_target: 1.65, growth_rate_per_day: 68, normal_mortality_rate: 3.5 },
+  'ross 308': { target_weight_6weeks: 2.2, fcr_target: 1.7, growth_rate_per_day: 66, normal_mortality_rate: 4 },
+  'isa brown': { target_weight_6weeks: 1.5, fcr_target: 2.0, growth_rate_per_day: 25, normal_mortality_rate: 3 },
+};
+
+const getBreedStandards = (breed: string) => {
+  const normalized = breed?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'default';
+  return BREED_STANDARDS[normalized] || BREED_STANDARDS['default'];
+};
+
+// --- NOUVEAU : Logique de calcul pour la fenêtre de vente optimale ---
+const calculateOptimalSaleWindow = (lot: any, standards: any) => {
+  const sellingPricePerKg = lot.selling_price || 2500; // Prix de vente/kg (CFA), défaut à 2500 si non défini
+  const feedCostPerKg = 400; // Coût de l'aliment/kg (CFA)
+
+  let currentWeight = lot.poids_moyen || (standards.growth_rate_per_day * lot.age) / 1000;
+  let optimalStartDate: Date | null = null;
+  let optimalEndDate: Date | null = null;
+
+  // Simuler les 30 prochains jours
+  for (let i = 0; i < 30; i++) {
+    const dailyFeedConsumption = (currentWeight * 0.10); // Approximation: 10% du poids corporel en aliment/jour
+    const dailyFeedCost = dailyFeedConsumption * feedCostPerKg;
+    const dailyWeightGainKg = standards.growth_rate_per_day / 1000;
+    const dailyRevenueGain = dailyWeightGainKg * sellingPricePerKg;
+
+    if (dailyRevenueGain > dailyFeedCost && !optimalStartDate) {
+      optimalStartDate = new Date();
+      optimalStartDate.setDate(optimalStartDate.getDate() + i);
+    }
+
+    if (dailyRevenueGain < dailyFeedCost && optimalStartDate && !optimalEndDate) {
+      optimalEndDate = new Date();
+      optimalEndDate.setDate(optimalEndDate.getDate() + i);
+      break; // La fenêtre est trouvée
+    }
+    currentWeight += dailyWeightGainKg;
+  }
+
+  // Si aucune fin n'est trouvée, définir une fenêtre de 7 jours par défaut
+  if (optimalStartDate && !optimalEndDate) {
+    optimalEndDate = new Date(optimalStartDate);
+    optimalEndDate.setDate(optimalStartDate.getDate() + 7);
+  }
+
+  // Fallback si aucune fenêtre n'est trouvée
+  if (!optimalStartDate) {
+    optimalStartDate = new Date();
+    optimalStartDate.setDate(optimalStartDate.getDate() + (42 - lot.age));
+    optimalEndDate = new Date(optimalStartDate);
+    optimalEndDate.setDate(optimalStartDate.getDate() + 5);
+  }
+
+  return {
+    start_date: optimalStartDate.toISOString(),
+    end_date: optimalEndDate.toISOString(),
+    estimated_margin: (sellingPricePerKg - (feedCostPerKg * 1.7)) * currentWeight, // Marge brute estimée
+  };
+};
+
+const useLotIntelligenceWithLogging = (lotData: any | null) => {
+  const [insights, setInsights] = useState<any[]>([]);
+  const [kpis, setKpis] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!lotData) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchAndAnalyze = async () => {
+      console.log(`🧠 [IA - 1/3] Lancement de l'agent d'intelligence pour le lot ID: ${lotData.id}`);
+      setLoading(true);
+      try {
+        console.log('🧠 [IA - 2/3] Données brutes du lot reçues par l\'agent :', JSON.stringify(lotData, null, 2));
+
+        // --- DÉBUT DE LA LOGIQUE D'ANALYSE RÉELLE ---
+        const standards = getBreedStandards(lotData.breed);
+        const currentWeight = lotData.poids_moyen || (standards.growth_rate_per_day * lotData.age) / 1000;
+
+        // 1. Prédiction de Croissance
+        const daysRemaining = Math.max(0, 42 - lotData.age);
+        const predictedGrowth = daysRemaining * standards.growth_rate_per_day / 1000;
+        const predictedFinalWeight = currentWeight + predictedGrowth;
+        const predictedSaleDate = new Date();
+        predictedSaleDate.setDate(predictedSaleDate.getDate() + daysRemaining);
+
+        // 2. Calcul de la fenêtre de vente optimale
+        const optimalWindow = calculateOptimalSaleWindow(lotData, standards);
+
+        // 2. Analyse Santé
+        const mortalityRate = lotData.taux_mortalite || 0;
+        let riskLevel = 'low';
+        if (mortalityRate > standards.normal_mortality_rate * 2) riskLevel = 'high';
+        else if (mortalityRate > standards.normal_mortality_rate) riskLevel = 'medium';
+
+        // 3. Analyse Alimentaire (FCR simulé car données manquantes)
+        // --- MISE À JOUR : Logique pour utiliser la consommation réelle ---
+        // À l'avenir, cette valeur viendra de la gestion de stock.
+        // Exemple: supabase.rpc('get_feed_consumed_by_lot', { p_lot_id: lotData.id })
+        const realTotalFeedConsumed = lotData.feed_consumption || 0; // On utilise la colonne 'feed_consumption' du lot
+
+        const initialWeight = (lotData.initial_quantity || lotData.quantity) * 0.040; // Poids initial estimé à 40g/sujet
+        const currentTotalWeight = currentWeight * lotData.quantity;
+        const totalWeightGain = currentTotalWeight - initialWeight;
+
+        // Calcul de l'IC (Indice de Consommation) réel si les données sont disponibles
+        const ic = totalWeightGain > 0 && realTotalFeedConsumed > 0 ? realTotalFeedConsumed / totalWeightGain : 0;
+        const efficiencyScore = ic > 0 ? Math.min(100, (standards.fcr_target / ic) * 100) : 0;
+
+        // 4. Construction des KPIs
+        const calculatedKpis = {
+          predicted_weight: predictedFinalWeight,
+          predicted_sale_date: predictedSaleDate.toISOString(),
+          growth_trend: currentWeight > (standards.growth_rate_per_day * lotData.age) / 1000 ? 'good' : 'average',
+          confidence_score: lotData.poids_moyen ? 85 : 60,
+          optimal_sale_window: optimalWindow,
+          current_consumption: realTotalFeedConsumed / lotData.age || 0, // Consommation moyenne par jour
+          recommended_feed: (currentWeight * 0.05 * lotData.quantity),
+          ic: ic, // Utiliser 'ic' au lieu de 'fcr'
+          efficiency_score: efficiencyScore,
+          mortality_rate: mortalityRate,
+          mortality_trend: 'stable', // Donnée à intégrer
+          risk_level: riskLevel,
+          benchmark: {
+            current_performance: efficiencyScore,
+            average_performance: 75, // Simulé
+            best_performance: 95, // Simulé
+            ranking_percentile: 60, // Simulé
+            comparison_insights: ["Votre FCR est meilleur que la moyenne de la ferme."], // Simulé
+          }
+        };
+
+        // 5. Génération des Insights
+        const generatedInsights = [];
+        if (riskLevel === 'high') {
+          generatedInsights.push({
+            category: 'health_prediction',
+            title: 'Risque Sanitaire Élevé',
+            description: `Le taux de mortalité (${mortalityRate.toFixed(1)}%) est supérieur à la norme (${standards.normal_mortality_rate}%).`,
+            probability: 70,
+            days_to_occurrence: 3,
+          });
+        }
+        // --- NOUVEAU : Alerte de stock manquant pour le prochain aliment ---
+        const daysUntilGrower = 21 - lotData.age;
+        if (daysUntilGrower > 0 && daysUntilGrower <= 4) {
+          generatedInsights.push({
+            category: 'feed_stock',
+            title: 'Stock préventif requis',
+            description: `Le lot passera à l'Aliment Croissance dans ${daysUntilGrower} jours. Pensez à vérifier votre stock.`
+          });
+        }
+        if (efficiencyScore < 70 && ic > 0) {
+          generatedInsights.push({
+            category: 'feed',
+            description: `L'Indice de Consommation (IC) de ${ic.toFixed(2)} est élevé. Vérifiez la qualité et le gaspillage de l'aliment.`
+          });
+        } else {
+          generatedInsights.push({
+            category: 'feed',
+            description: `L'efficacité alimentaire est bonne. Continuez les bonnes pratiques.`
+          });
+        }
+
+        setInsights(generatedInsights);
+        setKpis(calculatedKpis);
+        console.log('🧠 [IA - 3/3] Analyses finales générées :', JSON.stringify({ insights: generatedInsights, kpis: calculatedKpis }, null, 2));
+
+      } catch (error) {
+        console.error("Erreur dans l'agent d'intelligence:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAndAnalyze();
+  }, [lotData]);
+
+  return { lot: lotData, insights, kpis, loading };
+};
 
 const { width } = Dimensions.get('window');
 
@@ -170,6 +360,9 @@ const styles = StyleSheet.create({
   insightInfo: {
     borderLeftColor: '#3b82f6',
   },
+  insightWarning: {
+    borderLeftColor: '#f59e0b',
+  },
   insightHeader: {
     flexDirection: 'row',
     marginBottom: 12,
@@ -271,6 +464,26 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  // --- NOUVEAU : Styles pour les icônes d'action sur la carte ---
+  actionIconsContainer: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderRadius: 20,
+    padding: 6,
+  },
+  actionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // La couleur de fond est définie directement dans le JSX
+  },
   emptyState: {
     padding: 40,
     alignItems: 'center',
@@ -320,16 +533,13 @@ export default function LotsScreen() {
   const [showAddLot, setShowAddLot] = useState(false);
   const [showIntelligence, setShowIntelligence] = useState(false);
   const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
+  const [lotToEdit, setLotToEdit] = useState<any | null>(null); // --- NOUVEAU : Pour la modale d'édition ---
   const [filter, setFilter] = useState<'all' | 'my-lots' | 'active' | 'archived'>('all');
   const [lots, setLots] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-
-  // Simuler une fonction de mise à jour du contexte de données global
-  // Dans une vraie application, cela viendrait de votre hook useData
-  // const { setLots: setGlobalLots } = useData(); 
-  const setGlobalLots = (data: any[]) => console.log("🌍 Mise à jour de l'état global des lots.");
+  const [selectedLotForDetail, setSelectedLotForDetail] = useState<any | null>(null);
 
   useEffect(() => {
     loadLots();
@@ -358,19 +568,24 @@ export default function LotsScreen() {
       if (error) throw error;
 
       console.log('Loaded lots:', data);
-      
+
       const lotsWithDynamicAge = data?.map(lot => {
-        const entryDate = new Date(lot.entry_date);
+        // --- CORRECTION : Créer une nouvelle instance de date pour le calcul afin de ne pas modifier l'originale ---
+        const entryDate = new Date(lot.entry_date || lot.created_at);
         const today = new Date();
-        // Set hours to 0 to compare dates only
-        today.setHours(0, 0, 0, 0);
-        entryDate.setHours(0, 0, 0, 0);
-        const daysOnFarm = Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
-        const dynamicAge = (lot.age || 0) + daysOnFarm;        
+        // --- CORRECTION FINALE : Utiliser initial_age_days et un calcul de date robuste ---
+        entryDate.setUTCHours(0, 0, 0, 0);
+        today.setUTCHours(0, 0, 0, 0);
+        const daysOnFarm = Math.max(0, Math.round((today.getTime() - entryDate.getTime()) / 86400000)); // 86400000 = 1000 * 60 * 60 * 24
+        let dynamicAge = (lot.initial_age_days || 0) + daysOnFarm;
+
+        // --- CORRECTION : Un lot entré aujourd'hui a au moins 1 jour d'âge ---
+        if (daysOnFarm === 0 && dynamicAge < 1) dynamicAge = 1;
 
         let trackingInfo = null;
         if (lot.target_sale_date) {
           const targetDate = new Date(lot.target_sale_date);
+          targetDate.setUTCHours(0, 0, 0, 0); // Assurer la comparaison au jour près
           const daysUntilTarget = Math.floor((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           trackingInfo = {
             daysInFarm: daysOnFarm,
@@ -384,19 +599,23 @@ export default function LotsScreen() {
             isTargetTracking: false,
           };
         }
-        
+
         return {
           ...lot,
           age: dynamicAge, // Override age with dynamic age
           taux_mortalite: lot.taux_mortalite || 0, // Include the calculated mortality rate
           trackingInfo,
+          // --- CORRECTION FINALE : S'assurer que la date est correctement formatée ou nulle ---
+          targetSaleDate: lot.target_sale_date ? new Date(lot.target_sale_date).toISOString().split('T')[0] : null,
+          entryDate: lot.entry_date ? new Date(lot.entry_date).toISOString().split('T')[0] : null,
         };
       }) || [];
-      
+
+      // --- LOG DE VÉRIFICATION ---
+      // Affiche les données transformées pour le premier lot afin de vérifier les calculs.
+      console.log('📊 [1/2] [lots.tsx] Données du premier lot après calculs (âge, dates) :', JSON.stringify(lotsWithDynamicAge[0], null, 2));
+
       setLots(lotsWithDynamicAge);
-      // --- SOLUTION : Propager les données nettoyées à toute l'application ---
-      // En appelant une fonction de mise à jour globale, on s'assure que useData() distribuera les bonnes données.
-      setGlobalLots(lotsWithDynamicAge);
     } catch (error) {
       console.log('⚠️ Error loading lots:', error);
       Alert.alert('Erreur', 'Impossible de charger les lots');
@@ -414,13 +633,20 @@ export default function LotsScreen() {
   const handleAddLot = async (lotData: any) => {
     try {
       console.log('Adding lot to database:', lotData);
-      
+
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
         Alert.alert('Erreur', 'Vous devez être connecté pour ajouter un lot');
         return;
       }
+
+      // --- CORRECTION : Assurer le bon format de date pour Supabase ---
+      // Convertit la date de sortie prévue en format ISO 8601 (UTC) si elle existe.
+      // Cela évite les problèmes de fuseau horaire qui peuvent causer des dates incorrectes.
+      const targetSaleDateUTC = lotData.target_sale_date
+        ? new Date(lotData.target_sale_date).toISOString()
+        : null;
 
       const { data, error } = await supabase
         .from('lots')
@@ -433,7 +659,7 @@ export default function LotsScreen() {
           initial_quantity: lotData.initial_quantity,
           age: lotData.age,
           entry_date: lotData.entry_date,
-          target_sale_date: lotData.target_sale_date || null,
+          target_sale_date: targetSaleDateUTC,
           target_weight: lotData.target_weight || null,
           status: 'active'
         }])
@@ -442,13 +668,23 @@ export default function LotsScreen() {
 
       if (error) throw error;
 
+      // Le Trigger Supabase s'occupe de la création des vaccinations.
+      // On ne fait plus d'appel RPC manuel ici pour éviter les doublons.
+      console.log(`✅ Lot ajouté avec succès. ID: ${data.id}.`);
+
       console.log('Lot added successfully:', data);
       setShowAddLot(false);
       Alert.alert('Succès! 🎉', 'Le lot a été ajouté avec succès');
       loadLots();
     } catch (error: any) {
       console.log('⚠️ Error adding lot:', error);
-      Alert.alert('Erreur', error.message || 'Impossible d\'ajouter le lot');
+
+      // Détection spécifique de l'erreur du Trigger Supabase
+      if (error.code === '23505' && error.message?.includes('vaccinations')) {
+        Alert.alert('Erreur Configuration DB', 'Le système automatique (Trigger) de la base de données tente de créer des doublons de vaccins. Veuillez vérifier votre fonction SQL dans Supabase.');
+      } else {
+        Alert.alert('Erreur', error.message || 'Impossible d\'ajouter le lot');
+      }
     }
   };
 
@@ -482,13 +718,63 @@ export default function LotsScreen() {
     );
   };
 
+  // --- NOUVEAU : Gérer la suppression directement depuis la liste ---
+  const handleDeleteLot = (lot: any) => {
+    Alert.alert(
+      "Confirmer la suppression",
+      `Êtes-vous sûr de vouloir supprimer définitivement le lot "${lot.name}" ? Cette action est irréversible.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase.from('lots').delete().eq('id', lot.id);
+              if (error) throw error;
+              Alert.alert("Succès", `Le lot "${lot.name}" a été supprimé.`);
+              loadLots(); // Rafraîchir la liste
+            } catch (error: any) {
+              Alert.alert("Erreur", "Impossible de supprimer le lot.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // --- NOUVEAU : Gérer la modification directement depuis la liste ---
+  const handleEditLot = (lot: any) => {
+    setLotToEdit(lot);
+  };
+
+  // --- NOUVEAU : Gérer la réussite de la mise à jour ---
+  const handleUpdateSuccess = () => {
+    setLotToEdit(null);
+    loadLots();
+  };
+
+  // --- NOUVEAU : Fonction pour traduire le type de volaille pour la base de données ---
+  const getBirdTypeForDB = (birdType: string): 'broilers' | 'layers' | 'local' => {
+    switch (birdType) {
+      case 'Poulets de chair':
+        return 'broilers';
+      case 'Pondeuses':
+        return 'layers';
+      case 'Race locale':
+        return 'local';
+      default:
+        return 'broilers'; // Fallback par défaut
+    }
+  };
+
   const getStageFromAge = (birdType: string, age: number): 'starter' | 'grower' | 'finisher' | 'layer' | 'pre-layer' => {
     // Protocole pour les races commerciales à croissance rapide (Broilers)
     if (birdType === 'broilers') {
       if (age <= 21) return 'starter';   // J1 à J21
       if (age <= 32) return 'grower';     // J22 à J32
       return 'finisher';
-    } 
+    }
     // Protocole pour les races locales et pondeuses (cycle long)
     else if (birdType === 'layers') {
       if (age <= 42) return 'starter';   // J1 à J42 (6 semaines)
@@ -511,8 +797,8 @@ export default function LotsScreen() {
   const analytics = {
     totalBirds: lots.filter(l => l.status === 'active').reduce((sum, l) => sum + l.quantity, 0),
     activeLots: lots.filter(l => l.status === 'active').length,
-    averageAge: lots.filter(l => l.status === 'active').length > 0 
-      ? Math.round(lots.filter(l => l.status === 'active').reduce((sum, l) => sum + l.age, 0) / lots.filter(l => l.status === 'active').length) 
+    averageAge: lots.filter(l => l.status === 'active').length > 0
+      ? Math.round(lots.filter(l => l.status === 'active').reduce((sum, l) => sum + l.age, 0) / lots.filter(l => l.status === 'active').length)
       : 0,
     healthScore: (() => {
       const activeLots = lots.filter(l => l.status === 'active');
@@ -706,11 +992,12 @@ export default function LotsScreen() {
             insight.type === 'critical' && styles.insightCritical,
             insight.type === 'success' && styles.insightSuccess,
             insight.type === 'info' && styles.insightInfo,
+            insight.category === 'feed_stock' && styles.insightWarning, // --- NOUVEAU ---
           ]}>
             <View style={styles.insightHeader}>
               <Icon name={insight.icon as any} size={22} color={
                 insight.type === 'critical' ? '#ef4444' :
-                insight.type === 'success' ? '#10b981' : '#3b82f6'
+                  insight.type === 'success' ? '#10b981' : '#3b82f6'
               } />
               <View style={styles.insightContent}>
                 <Text style={styles.insightTitle}>{insight.title}</Text>
@@ -764,8 +1051,6 @@ export default function LotsScreen() {
         }
       >
         <View style={styles.content}>
-          {renderAnalyticsCards()}
-          {renderAIInsights()}
 
           <View style={styles.filterContainer}>
             {[
@@ -814,38 +1099,52 @@ export default function LotsScreen() {
               ) : filteredLots.length > 0 ? (
                 filteredLots.map(lot => (
                   <View key={lot.id} style={styles.lotCardWrapper}>
+                    {/* --- CORRECTION : Icônes d'action positionnées correctement --- */}
                     {lot.user_id === currentUserId && lot.status === 'active' && (
-                      <TouchableOpacity style={styles.archiveButton} onPress={() => handleArchiveLot(lot.id)}>
-                        <Icon name="archive" size={20} color={colors.white} />
-                      </TouchableOpacity>
+                      <View style={styles.actionIconsContainer}>
+                        <TouchableOpacity style={[styles.actionIcon, { backgroundColor: colors.accent }]} onPress={() => handleEditLot(lot)}>
+                          {/* --- CORRECTION : Nom de l'icône corrigé --- */}
+                          <Icon name="create" size={18} color={colors.white} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.actionIcon, { backgroundColor: colors.warning }]} onPress={() => handleArchiveLot(lot.id)}>
+                          <Icon name="archive" size={18} color={colors.white} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.actionIcon, { backgroundColor: colors.error }]} onPress={() => handleDeleteLot(lot)}>
+                          {/* --- CORRECTION : Nom de l'icône corrigé --- */}
+                          <Icon name="trash" size={18} color={colors.white} />
+                        </TouchableOpacity>
+                      </View>
                     )}
                     <LotCard
                       lot={{
+                        // --- CORRECTION : Utiliser directement l'objet 'lot' qui a déjà été traité ---
+                        // Cela garantit que chaque carte reçoit les données uniques et correctes
+                        // qui ont été calculées et vérifiées par le log.
                         id: lot.id,
                         name: lot.name,
-                        race: lot.breed,
-                        birdType: lot.bird_type,
                         breed: lot.breed,
+                        birdType: lot.bird_type,
                         quantity: lot.quantity,
                         age: lot.age,
-                        entryDate: lot.entry_date || lot.created_at,
+                        entryDate: lot.entryDate,
                         dateCreated: lot.created_at,
                         status: lot.status,
-                        healthStatus: getHealthStatusFromMortality(lot.mortality || 0),
+                        healthStatus: getHealthStatusFromMortality(lot.taux_mortalite),
                         feedConsumption: lot.feed_consumption || 0,
                         mortality: lot.mortality || 0,
-                        sickCount: lot.sick_count || 0,
-                        quarantinedCount: lot.quarantined_count || 0,
                         averageWeight: lot.poids_moyen || 0,
                         sellingPrice: lot.selling_price || 0,
-                        stage: getStageFromAge(lot.bird_type, lot.age) as any,
-                        treatmentsDone: [],
-                        treatmentsPending: [],
-                        targetSaleDate: lot.target_sale_date,
+                        stage: getStageFromAge(lot.bird_type, lot.age),
+                        targetSaleDate: lot.targetSaleDate,
                         targetWeight: lot.target_weight,
-                        user_id: lot.user_id,
+                        treatmentsDone: [], // Données simplifiées pour la carte
+                        treatmentsPending: [], // Données simplifiées pour la carte
+                        user_id: lot.user_id
                       }}
-                      onPress={() => { setSelectedLotId(lot.id); setShowIntelligence(true); }}
+                      onPress={() => {
+                        setSelectedLotForDetail(lot); // Utiliser un état séparé pour les détails
+                        setShowIntelligence(true);
+                      }}
                     />
                   </View>
                 ))
@@ -862,8 +1161,8 @@ export default function LotsScreen() {
                     {filter === 'all'
                       ? 'Commencez par ajouter votre premier lot!'
                       : filter === 'active'
-                      ? 'Aucun lot actif pour le moment'
-                      : 'Aucun lot archivé'
+                        ? 'Aucun lot actif pour le moment'
+                        : 'Aucun lot archivé'
                     }
                   </Text>
                   <TouchableOpacity onPress={() => setShowAddLot(true)}>
@@ -887,6 +1186,7 @@ export default function LotsScreen() {
       <BottomNavigation />
 
       <FloatingActionButton
+        // Le nouveau FAB en mode simple utilise la prop "onPress" et "icon"
         icon="add"
         onPress={() => setShowAddLot(true)}
       />
@@ -906,16 +1206,28 @@ export default function LotsScreen() {
         isVisible={showIntelligence}
         onClose={() => {
           setShowIntelligence(false);
-          setSelectedLotId(null);
+          setSelectedLotForDetail(null);
         }}
       >
-        {selectedLotId && (
+        {selectedLotForDetail && (
           <LotIntelligenceDashboard
-            lotId={selectedLotId}
+            useLotIntelligenceHook={() => useLotIntelligenceWithLogging(selectedLotForDetail)} // --- CORRECTION : Passer l'objet lot complet ---
+            lotId={selectedLotForDetail.id}
             onClose={() => {
               setShowIntelligence(false);
-              setSelectedLotId(null);
+              setSelectedLotForDetail(null);
             }}
+          />
+        )}
+      </SimpleBottomSheet>
+
+      {/* --- NOUVEAU : Modale pour l'édition rapide --- */}
+      <SimpleBottomSheet isVisible={!!lotToEdit} onClose={() => setLotToEdit(null)}>
+        {lotToEdit && (
+          <EditLotForm
+            lot={lotToEdit}
+            onClose={() => setLotToEdit(null)}
+            onUpdateSuccess={handleUpdateSuccess}
           />
         )}
       </SimpleBottomSheet>

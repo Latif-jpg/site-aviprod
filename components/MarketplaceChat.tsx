@@ -1,10 +1,11 @@
-
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors } from '../styles/commonStyles';
 import Icon from './Icon';
 import Button from './Button';
 import { supabase } from '../config'; // Import supabase directly
+import { useProfile } from '../contexts/ProfileContext'; // Importer le hook de profil
+import { containsContactInfo, sanitizeText } from '../utils/validators';
 
 interface Message {
   id: string;
@@ -34,10 +35,16 @@ export default function MarketplaceChat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // État de chargement initial
   const [interlocutorName, setInterlocutorName] = useState(sellerName);
   const scrollViewRef = useRef<ScrollView>(null);
+  const initializedProductIdRef = useRef<string | null>(null); // Ref pour éviter la double exécution et suivre le produit
+  const { profile, refreshProfile, loading: profileLoading } = useProfile(); // Utiliser le contexte de profil
 
-  const loadMessages = useCallback(async () => {
+  // Déterminer si l'utilisateur actuel est le vendeur
+  const isCurrentUserSeller = useMemo(() => currentUserId === sellerId, [currentUserId, sellerId]);
+
+  const checkAndChargeForNewChat = useCallback(async () => {
     try { // Supabase est déjà importé depuis config
 
       const { data, error } = await supabase
@@ -50,85 +57,147 @@ export default function MarketplaceChat({
 
       if (error) throw error;
 
-      // Transform data to match our Message interface
-      const transformedMessages: Message[] = (data || []).map(msg => ({
-        id: msg.id.toString(),
-        senderId: msg.sender_id,
-        text: msg.message,
-        timestamp: msg.created_at,
-        isBlocked: msg.is_blocked || false,
-      }));
+      // Si c'est une nouvelle conversation ET que l'utilisateur n'est pas le vendeur
+      if (data.length === 0 && !isCurrentUserSeller) {
+        console.log("Nouvelle conversation, vérification du solde d'avicoins...");
 
-      setMessages(transformedMessages);
+        // 1. Vérifier le solde de l'utilisateur depuis le contexte
+        const userAvicoins = profile?.avicoins_balance ?? 0;
+        if (!profile) throw new Error("Impossible de récupérer le profil utilisateur.");
 
-      // Scroll to bottom after loading
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+        // 2. Vérifier si le solde est suffisant
+        if (userAvicoins < 20) {
+          Alert.alert(
+            "Solde Insuffisant",
+            `Vous avez besoin de 20 avicoins pour contacter ce vendeur. Votre solde est de ${userAvicoins} avicoins.`,
+            [{ text: 'OK', onPress: onClose }]
+          );
+          return false; // Indique que le chat ne doit pas continuer
+        }
+
+        // 3. Déduire les avicoins
+        const { error: updateError } = await supabase
+          .from('user_avicoins')
+          .update({ balance: userAvicoins - 20 })
+          .eq('user_id', currentUserId);
+
+        if (updateError) throw new Error("Erreur lors de la déduction des avicoins.");
+
+        // Rafraîchir le profil dans le contexte pour que le solde soit à jour partout
+        await refreshProfile();
+
+        // --- AJOUT : Émettre un événement pour rafraîchir le solde dans le drawer ---
+        const { DeviceEventEmitter } = require('react-native');
+        DeviceEventEmitter.emit('refreshAvicoins');
+
+        Alert.alert(
+          "Conversation Débloquée",
+          "20 avicoins ont été déduits de votre compte pour démarrer cette conversation."
+        );
+      }
+
+      // Charger les messages existants (s'il y en a)
+      if (data.length > 0) {
+        const transformedMessages: Message[] = (data || []).map(msg => ({
+          id: msg.id.toString(),
+          senderId: msg.sender_id,
+          text: msg.message,
+          timestamp: msg.created_at,
+          isBlocked: msg.is_blocked || false,
+        }));
+        setMessages(transformedMessages);
+      }
+      return true; // Indique que le chat peut continuer
     } catch (error: any) {
-      console.error('Error loading messages:', error);
+      console.error('Erreur lors du démarrage du chat:', error);
+      Alert.alert('Erreur', error.message || "Une erreur est survenue.", [{ text: 'OK', onPress: onClose }]);
+      return false;
     }
-  }, [productId, sellerId, currentUserId]);
+  }, [productId, sellerId, currentUserId, isCurrentUserSeller, onClose, profile, refreshProfile, profileLoading]);
 
   useEffect(() => {
-    // Load messages from Supabase
-    console.log('Loading chat messages for product:', productId);
-    loadMessages();
-
-    // --- AJOUT : S'abonner aux nouveaux messages en temps réel ---
-    const setupSubscription = async () => {
-      // Supabase est déjà importé depuis config
-
-      const channel = supabase.channel(`chat:${productId}:${currentUserId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'marketplace_messages',
-            // Écouter uniquement les messages pour cette conversation et destinés à l'utilisateur actuel
-            filter: `product_id=eq.${productId} and receiver_id=eq.${currentUserId} and sender_id=eq.${sellerId}`
-          },
-          (payload) => {
-            console.log('💌 Nouveau message reçu en temps réel!', payload.new);
-            const newMessage: Message = {
-              id: payload.new.id.toString(),
-              senderId: payload.new.sender_id,
-              text: payload.new.message,
-              timestamp: payload.new.created_at,
-              isBlocked: payload.new.is_blocked || false,
-            };
-            setMessages(prevMessages => [...prevMessages, newMessage]);
-            markMessagesAsRead(); // <-- CORRECTION : Marquer comme lu dès la réception
-          }
-        )
-        .subscribe();
-
-      // Nettoyer l'abonnement quand le composant est démonté
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    };
-
-    // Fetch seller name if it's generic
-    if (sellerName === 'Vendeur' || sellerName === 'Utilisateur' || !sellerName) {
-      const fetchSellerName = async () => {
-        try { // Supabase est déjà importé depuis config
-          const { data, error } = await supabase.from('profiles').select('full_name').eq('user_id', sellerId).single();
-          if (error) throw error;
-          if (data?.full_name) {
-            setInterlocutorName(data.full_name);
-          }
-        } catch (error) {
-          console.error('Could not fetch seller name', error);
-        }
-      };
-      fetchSellerName();
+    // Ce `useEffect` gère l'initialisation complète du chat.
+    // Il attend que le profil de l'utilisateur soit chargé avant de faire quoi que ce soit.
+    if (profileLoading || !profile) {
+      // console.log("Initialisation du chat en attente: le profil n'est pas encore chargé.");
+      return; // On attend que le profil soit disponible
     }
 
-    // Mark messages as read when chat opens
-    markMessagesAsRead();
-  }, [loadMessages]);
+    // Utilisation d'une ref pour garantir que l'initialisation ne se lance qu'une seule fois pour ce produit
+    if (initializedProductIdRef.current === productId) {
+      return;
+    }
+    initializedProductIdRef.current = productId;
+
+    let channel: any = null;
+
+    const initializeChat = async () => {
+      // 1. Vérifier si l'utilisateur peut démarrer le chat et déduire les avicoins si nécessaire.
+      // Cette fonction utilise maintenant le `profile` qui est garanti d'être chargé.
+      const canProceed = await checkAndChargeForNewChat();
+
+      // Si l'utilisateur ne peut pas continuer (solde insuffisant), on arrête tout ici.
+      if (!canProceed) {
+        setIsLoading(false);
+        return;
+      }
+
+      // --- L'utilisateur est autorisé, on continue l'initialisation ---
+
+      // 2. Marquer les messages existants comme lus
+      await markMessagesAsRead();
+
+      // 3. S'abonner aux nouveaux messages en temps réel
+      channel = supabase.channel(`chat:${productId}:${currentUserId}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'marketplace_messages',
+          filter: `product_id=eq.${productId} AND receiver_id=eq.${currentUserId}`
+        }, (payload) => {
+          console.log('💌 Nouveau message reçu en temps réel!', payload.new);
+          const newMessage: Message = {
+            id: payload.new.id.toString(),
+            senderId: payload.new.sender_id,
+            text: payload.new.message,
+            timestamp: payload.new.created_at,
+            isBlocked: payload.new.is_blocked || false,
+          };
+          setMessages(prevMessages => [...prevMessages, newMessage]);
+          markMessagesAsRead(); // Marquer comme lu dès la réception
+        })
+        .subscribe();
+
+      // 4. Récupérer le nom du vendeur si nécessaire
+      if (sellerName === 'Vendeur' || sellerName === 'Utilisateur' || !sellerName) {
+        const fetchSellerName = async () => {
+          try { // Supabase est déjà importé depuis config
+            const { data, error } = await supabase.from('profiles').select('full_name').eq('user_id', sellerId).single();
+            if (error) throw error;
+            if (data?.full_name) {
+              setInterlocutorName(data.full_name);
+            }
+          } catch (error) {
+            console.error('Could not fetch seller name', error);
+          }
+        };
+        fetchSellerName();
+      }
+
+      // 5. Le chargement est terminé, on peut afficher le chat
+      setIsLoading(false);
+      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+    };
+
+    initializeChat();
+
+    // La fonction de nettoyage sera appelée lorsque le composant est démonté
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [profile, profileLoading, checkAndChargeForNewChat, markMessagesAsRead, productId, currentUserId, sellerId, sellerName]);
 
   const markMessagesAsRead = useCallback(async () => {
     try { // Supabase est déjà importé depuis config
@@ -152,33 +221,6 @@ export default function MarketplaceChat({
     }
   }, [productId, sellerId, currentUserId]);
 
-  const containsSpam = (text: string): boolean => {
-    const spamPatterns = [
-      /\d{10,}/,  // Phone numbers (10+ digits)
-      /\d{2,}[-.\s]\d{2,}[-.\s]\d{2,}/,  // Formatted phone numbers
-      /@/,  // Email addresses
-      /whatsapp/i,
-      /telegram/i,
-      /facebook/i,
-      /instagram/i,
-      /appel/i,
-      /contact/i,
-    ];
-
-    return spamPatterns.some(pattern => pattern.test(text));
-  };
-
-  const sanitizeMessage = (text: string): string => {
-    // Remove phone numbers
-    let sanitized = text.replace(/\d{10,}/g, '[NUMÉRO MASQUÉ]');
-    sanitized = sanitized.replace(/\d{2,}[-.\s]\d{2,}[-.\s]\d{2,}/g, '[NUMÉRO MASQUÉ]');
-    
-    // Remove email addresses
-    sanitized = sanitized.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL MASQUÉ]');
-    
-    return sanitized;
-  };
-
   const handleSendMessage = async () => {
     const trimmedText = inputText.trim();
 
@@ -197,7 +239,7 @@ export default function MarketplaceChat({
       return;
     }
 
-    const isSpam = containsSpam(trimmedText);
+    const isSpam = containsContactInfo(trimmedText);
 
     if (isSpam) {
       Alert.alert(
@@ -208,7 +250,7 @@ export default function MarketplaceChat({
           {
             text: 'Envoyer Quand Même',
             onPress: () => {
-              const sanitized = sanitizeMessage(trimmedText);
+              const sanitized = sanitizeText(trimmedText);
               sendMessage(sanitized, true);
             }
           }
@@ -368,6 +410,14 @@ export default function MarketplaceChat({
     );
   };
 
+  // Affiche un écran de chargement pendant la vérification initiale
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>Vérification en cours...</Text>
+      </View>
+    );
+  }
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -454,6 +504,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',

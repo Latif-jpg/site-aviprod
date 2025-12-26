@@ -6,7 +6,10 @@ import Icon from './Icon';
 import { router } from 'expo-router'; // Importation correcte
 import * as ImagePicker from 'expo-image-picker'; // Importation correcte
 import * as ImageManipulator from 'expo-image-manipulator'; // Importation correcte
-import { supabase } from '../config'; // Import supabase directly
+import { supabase, ensureSupabaseInitialized } from '../config'; // Import supabase directly
+import { useProfile } from '../contexts/ProfileContext';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 
 const { width } = Dimensions.get('window');
 
@@ -73,6 +76,7 @@ const PAYMENT_METHODS = [
 ];
 
 export default function DriverRegistrationForm() {
+  const { profile } = useProfile();
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<DriverFormData>({
@@ -136,7 +140,7 @@ export default function DriverRegistrationForm() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'] as any,
+
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.6, // Reduced quality for better compression
@@ -196,9 +200,7 @@ export default function DriverRegistrationForm() {
 
     setIsSubmitting(true);
     try {
-      const supabase = await ensureSupabaseInitialized();
-
-      if (!user) {
+      if (!profile) {
         Alert.alert('Erreur', 'Vous devez être connecté');
         return;
       }
@@ -209,30 +211,32 @@ export default function DriverRegistrationForm() {
 
       for (const field of imageFields) {
         const imageUri = formData[field as keyof DriverFormData];
-        if (imageUri) {
-          const fileName = `${user.id}/${field}_${Date.now()}.jpg`;
-
-          // Correction: Utiliser FormData pour la compatibilité avec React Native
-          const formDataForUpload = new FormData();
-          formDataForUpload.append('file', {
-            uri: imageUri,
-            name: fileName,
-            type: 'image/jpeg',
-          } as any);
+        if (imageUri && typeof imageUri === 'string') {
+          const fileName = `${profile.id}/${field}_${Date.now()}.jpg`;
 
           uploadPromises.push(
-            supabase.storage
-              .from('deliver_kyc')
-              .upload(fileName, formDataForUpload, { upsert: false })
-              .then(({ data, error }) => {
+            (async () => {
+              try {
+                const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
+                const arrayBuffer = decode(base64);
+
+                const { data, error } = await supabase.storage
+                  .from('deliver_kyc')
+                  .upload(fileName, arrayBuffer, {
+                    contentType: 'image/jpeg',
+                    upsert: false
+                  });
+
                 if (error) {
                   console.error(`Error uploading ${field}:`, error);
-                  // Don't throw, just return null to allow other uploads to continue
                   return { field, url: null };
                 }
-                // Return the path, not the full public URL yet
                 return { field, url: data?.path ?? null };
-              })
+              } catch (err) {
+                console.error(`Exception uploading ${field}:`, err);
+                return { field, url: null };
+              }
+            })()
           );
         }
       }
@@ -240,15 +244,28 @@ export default function DriverRegistrationForm() {
       const uploadResults = await Promise.all(uploadPromises);
 
       // Create KYC verification record for admin review (same as sellers)
-      // Convertir la date de naissance au format ISO
-      const dateOfBirth = formData.dateOfBirth ? new Date(formData.dateOfBirth.split('/').reverse().join('-')).toISOString().split('T')[0] : null;
+      // Convertir la date de naissance au format ISO de manière sécurisée
+      let dateOfBirth = null;
+      if (formData.dateOfBirth) {
+        const parts = formData.dateOfBirth.split('/');
+        if (parts.length === 3) {
+          const day = parts[0].padStart(2, '0');
+          const month = parts[1].padStart(2, '0');
+          const year = parts[2];
+          const isoDate = `${year}-${month}-${day}`;
+          const d = new Date(isoDate);
+          if (!isNaN(d.getTime())) {
+            dateOfBirth = isoDate;
+          }
+        }
+      }
 
       // Create KYC verification record in livreur_verifications
       const { error } = await supabase
         .from('livreur_verifications')
         .insert({
-          user_id: user.id,
-          full_name: formData.fullName, 
+          user_id: profile.id,
+          full_name: formData.fullName,
           date_of_birth: dateOfBirth,
           phone_number: formData.phoneNumber,
           email: formData.email,

@@ -1,7 +1,7 @@
 -- Nouvelles tables Supabase pour Intelligence Avancée
 
 -- Historique toutes actions (pour ML)
-CREATE TABLE activity_logs (
+CREATE TABLE IF NOT EXISTS activity_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   farm_id UUID, -- Peut être NULL pour utilisateurs sans ferme
@@ -15,12 +15,13 @@ CREATE TABLE activity_logs (
 );
 
 -- Index pour optimiser les requêtes ML
+ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS "timestamp" TIMESTAMPTZ DEFAULT NOW();
 CREATE INDEX idx_activity_logs_user_timestamp ON activity_logs(user_id, timestamp DESC);
 CREATE INDEX idx_activity_logs_action_type ON activity_logs(action_type);
 CREATE INDEX idx_activity_logs_outcome ON activity_logs(outcome);
 
 -- Prédictions et résultats (feedback loop)
-CREATE TABLE predictions (
+CREATE TABLE IF NOT EXISTS predictions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   type VARCHAR(100) NOT NULL, -- 'health_risk', 'growth_prediction', 'stock_alert', etc.
   target_entity UUID NOT NULL, -- ID du lot, produit, etc.
@@ -42,7 +43,7 @@ CREATE INDEX idx_predictions_accuracy ON predictions(accuracy);
 CREATE INDEX idx_predictions_created_at ON predictions(created_at DESC);
 
 -- Alertes et actions (mesure efficacité)
-CREATE TABLE alerts_effectiveness (
+CREATE TABLE IF NOT EXISTS alerts_effectiveness (
   alert_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   alert_type VARCHAR(100) NOT NULL,
@@ -63,7 +64,7 @@ CREATE INDEX idx_alerts_effectiveness_type ON alerts_effectiveness(alert_type);
 CREATE INDEX idx_alerts_effectiveness_action ON alerts_effectiveness(action_taken);
 
 -- Modèles ML versionnés
-CREATE TABLE ml_models (
+CREATE TABLE IF NOT EXISTS ml_models (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   model_type VARCHAR(100) NOT NULL, -- 'health_predictor', 'growth_forecaster', etc.
   version INTEGER NOT NULL,
@@ -82,7 +83,7 @@ CREATE INDEX idx_ml_models_type_active ON ml_models(model_type, active);
 CREATE INDEX idx_ml_models_version ON ml_models(version DESC);
 
 -- Table pour les métriques d'engagement utilisateur
-CREATE TABLE user_engagement_metrics (
+CREATE TABLE IF NOT EXISTS user_engagement_metrics (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   metric_type VARCHAR(100) NOT NULL, -- 'session_duration', 'feature_usage', 'conversion_rate', etc.

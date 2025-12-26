@@ -223,20 +223,25 @@ export default function OrderTracking({ mode }: OrderTrackingProps) {
       // Vue pour l'historique du livreur
       return (
         <TouchableOpacity key={order.delivery_id} style={styles.orderCard} onPress={() => setSelectedOrder(order)}>
-          <View style={styles.cardContent}>
-            <View style={styles.cardTextContainer}>
-              <View style={styles.orderHeader}>
-                <View style={styles.orderInfo}>
-                  <Text style={styles.orderId}>Livraison #{order.delivery_id.slice(-8)}</Text>
-                  <Text style={styles.orderDate}>{new Date(order.delivery_created_at).toLocaleDateString('fr-FR')}</Text>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>{getStatusText(order.status)}</Text>
-                </View>
-              </View>
-              <View style={styles.orderDetails}>
-                <Text style={styles.orderAmount}>Gains: {order.driver_earnings?.toLocaleString() || '0'} CFA</Text>
-                <Text style={styles.orderItems}>Client: {order.buyer_name || 'Inconnu'}</Text>
+          <View style={styles.driverCardHeader}>
+            <View>
+              <Text style={styles.orderId}>Livraison #{order.delivery_id.slice(-8)}</Text>
+              <Text style={styles.orderDate}>{new Date(order.delivery_created_at).toLocaleDateString('fr-FR')}</Text>
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
+              <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>{getStatusText(order.status)}</Text>
+            </View>
+          </View>
+          <View style={styles.driverCardBody}>
+            <View style={styles.driverInfo}>
+              <Icon name="person-outline" size={16} color={colors.textSecondary} />
+              <Text style={styles.driverInfoText}>Client: {order.buyer_name || 'Inconnu'}</Text>
+            </View>
+            <View style={styles.driverCommission}>
+              <Text style={styles.driverCommissionLabel}>Vos Gains</Text>
+              <View style={styles.commissionValueContainer}>
+                <Icon name="cash-outline" size={20} color={colors.success} />
+                <Text style={styles.driverCommissionValue}>{order.driver_earnings?.toLocaleString() || '0'} CFA</Text>
               </View>
             </View>
           </View>
@@ -247,9 +252,7 @@ export default function OrderTracking({ mode }: OrderTrackingProps) {
     return (
       <TouchableOpacity key={order.id} style={styles.orderCard} onPress={() => setSelectedOrder(order)}>
         <View style={styles.cardContent}>
-          {order.marketplace_products?.image && supabase && (
-            <Image source={{ uri: getMarketplaceImageUrl(order.marketplace_products.image) }} style={styles.productImage} />
-          )}
+          {order.marketplace_products?.image && supabase && <Image source={{ uri: getMarketplaceImageUrl(order.marketplace_products.image) }} style={styles.productImage} />}
           <View style={styles.cardTextContainer}>
             <View style={styles.orderHeader}>
               <View style={styles.orderInfo}>
@@ -260,6 +263,16 @@ export default function OrderTracking({ mode }: OrderTrackingProps) {
                 <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>{getStatusText(order.status)}</Text>
               </View>
             </View>
+            {/* --- AJOUT : Logique de rattrapage pour le paiement --- */}
+            {/* Si la commande est confirmée, on affiche un bouton pour payer, au cas où la notification aurait été manquée. */}
+            {isCurrent && order.status === 'pending_payment' && (
+              <TouchableOpacity 
+                style={styles.payButton}
+                onPress={() => router.push({ pathname: '/order-payment', params: { orderId: order.id } })}
+              >
+                <Text style={styles.payButtonText}>Payer cette commande</Text>
+              </TouchableOpacity>
+            )}
             <View style={styles.orderDetails}>
               <Text style={styles.orderAmount}>{order.total_price?.toLocaleString() || '0'} CFA</Text>
               <Text style={styles.orderItems}>{order.quantity || 1} article{order.quantity > 1 ? 's' : ''}</Text>
@@ -362,7 +375,7 @@ export default function OrderTracking({ mode }: OrderTrackingProps) {
           <Text style={styles.sectionTitle}>Article commandé</Text>
           {selectedOrder.marketplace_products ? (
             <View style={styles.itemRow}>
-              {selectedOrder.marketplace_products.image && supabase && <Image source={{ uri: getMarketplaceImageUrl(selectedOrder.marketplace_products.image)}} style={styles.productImage} />}
+              {selectedOrder.marketplace_products.image && supabase && <Image source={{ uri: getMarketplaceImageUrl(selectedOrder.marketplace_products.image) }} style={styles.productImage} />}
               <View style={styles.itemInfo}><Text style={styles.itemName}>{selectedOrder.marketplace_products.name}</Text><Text style={styles.itemQuantity}>Quantité : {selectedOrder.quantity}</Text></View>
               <Text style={styles.itemPrice}>{selectedOrder.total_price?.toLocaleString() || '0'} CFA</Text>
             </View>

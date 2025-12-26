@@ -1,19 +1,6 @@
 // src/intelligence/agents/FinancialAdvisor.ts
-// Import dynamique pour éviter les problèmes d'initialisation
-let supabaseClient: any = null;
-
-const getSupabaseClient = async () => {
-  if (!supabaseClient) {
-    try {
-      const { ensureSupabaseInitialized } = await import('../../../app/integrations/supabase/client');
-      supabaseClient = await ensureSupabaseInitialized();
-    } catch (error) {
-      console.error('[FinancialAdvisor] Erreur chargement Supabase:', error);
-      return null;
-    }
-  }
-  return supabaseClient;
-};
+// --- CORRECTION : Utiliser une seule instance de Supabase ---
+import { supabase } from '../../../config';
 
 import { smartAlertSystem } from '../core/SmartAlertSystem';
 import { dataCollector } from '../core/DataCollector';
@@ -129,6 +116,16 @@ interface HeuristicData {
   timestamp: number;
 }
 
+interface ComprehensiveAnalysisData {
+  period: { start_date: string; end_date: string; };
+  current_period: { revenue: number; expenses: number; profit: number; profit_margin: number; expenses_by_category: Record<string, number>; };
+  previous_period: { revenue: number; expenses: number; profit: number; };
+  transactions: Transaction[];
+  user_financial_profile: UserFinancialProfile;
+  current_balance: number; // CORRECTION : Ajout du champ manquant pour la balance actuelle.
+}
+
+
 // ==================== V2: SYSTÈME D'APPRENTISSAGE HEURISTIQUE ====================
 
 class HeuristicMemory {
@@ -186,17 +183,47 @@ class FinancialAdvisor {
     investments: InvestmentRecommendations;
   } | null> {
     try {
-      // V2: Charger le profil de l'utilisateur
-      this.userProfile = await this.getOrcreateUserProfile(userId);
+      console.log(`[FinancialAdvisorV2] Appel de la RPC unifiée 'get_comprehensive_financial_analysis' pour l'utilisateur ${userId}`);
 
-      const transactions = await this.getTransactions(userId, period);
+      // Définir les dates de la période en fonction de la sélection de l'utilisateur
+      const endDate = new Date();
+      let daysBack = 30; // Par défaut : 'month'
+      if (period === 'week') daysBack = 7;
+      if (period === 'quarter') daysBack = 90;
+      if (period === 'year') daysBack = 365;
+      const startDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+      
+      // --- LOG DE DÉBOGAGE 1 : Vérifier les paramètres envoyés ---
+      const rpcParams = {
+        p_user_id: userId,
+        p_start_date: startDate.toISOString().split('T')[0],
+        p_end_date: endDate.toISOString().split('T')[0],
+      };
+      console.log("🔍 [FinancialAdvisorV2] Paramètres envoyés à la RPC 'get_comprehensive_financial_analysis':", JSON.stringify(rpcParams, null, 2));
+
+      // =================================================================
+      // ÉTAPE 1: APPEL UNIQUE À LA FONCTION RPC
+      // =================================================================
+      const { data: analysisData, error: rpcError } = await supabase.rpc(
+        'get_comprehensive_financial_analysis',
+        rpcParams
+      ) as { data: ComprehensiveAnalysisData, error: any };
+
+      if (rpcError) throw rpcError;
+
+      // --- LOG DE DÉBOGAGE 2 : Afficher les données brutes reçues ---
+      console.log("✅ [FinancialAdvisorV2] Données brutes reçues de la RPC:", JSON.stringify(analysisData, null, 2));
+
+      if (!analysisData) throw new Error("Aucune donnée d'analyse financière retournée par la RPC.");
+
+      this.userProfile = analysisData.user_financial_profile;
 
       const [profitability, anomalies, cashFlow, taxOptimization, investments] = await Promise.all([
-        this.analyzeProfitability(transactions, userId),
-        this.detectAnomalies(transactions, userId),
-        this.forecastCashFlow(transactions, userId),
-        this.optimizeTax(transactions),
-        this.recommendInvestments(transactions, userId), // V2: Maintenant influencé par le profil
+        this.analyzeProfitability(analysisData),
+        this.detectAnomalies(analysisData),
+        this.forecastCashFlow(analysisData),
+        this.optimizeTax(analysisData.transactions),
+        this.recommendInvestments(analysisData), // V2: Maintenant influencé par le profil
       ]);
 
       // Générer alertes si nécessaire
@@ -211,7 +238,7 @@ class FinancialAdvisor {
       });
 
       // V2: Mettre à jour la mémoire et le profil
-      await this.updateLearnings(userId, { profitability, anomalies });
+      this.updateLearnings(userId, { profitability, anomalies });
 
       return { profitability, anomalies, cashFlow, taxOptimization, investments };
     } catch (error) {
@@ -225,9 +252,9 @@ class FinancialAdvisor {
    * V2: Applique le feedback de l'utilisateur pour ajuster les poids des recommandations.
    */
   public async applyUserFeedback(
-    userId: string,
-    recommendationType: string,
-    feedback: 'positive' | 'negative'
+    userId: string, // L'ID de l'utilisateur
+    recommendationType: string, // Le type de recommandation (ex: 'financial_optimization')
+    feedback: 'positive' | 'negative' // Le feedback de l'utilisateur
   ) {
     if (!this.userProfile) {
       this.userProfile = await this.getOrcreateUserProfile(userId);
@@ -238,9 +265,6 @@ class FinancialAdvisor {
     const newWeight = Math.max(0.1, Math.min(2.0, currentWeight + adjustment));
 
     this.userProfile.recommendation_weights[recommendationType] = newWeight;
-
-    const supabase = await getSupabaseClient();
-    if (!supabase || !this.userProfile) return;
 
     await supabase
       .from('user_financial_profiles')
@@ -253,27 +277,25 @@ class FinancialAdvisor {
   // ==================== MÉTHODES D'ANALYSE (inchangées ou légèrement modifiées) ====================
 
   private async analyzeProfitability(
-    transactions: Transaction[],
-    userId: string
+    analysisData: ComprehensiveAnalysisData
   ): Promise<ProfitabilityAnalysis> {
-    const revenues = transactions.filter(t => t.type === 'revenue');
-    const expenses = transactions.filter(t => t.type === 'expense');
+    const { revenue: totalRevenue, expenses: totalExpenses, profit: netProfit, profit_margin: profitMargin } = analysisData.current_period;
 
-    const totalRevenue = revenues.reduce((sum, t) => sum + t.montant, 0);
-    const totalExpenses = expenses.reduce((sum, t) => sum + t.montant, 0);
-    const netProfit = totalRevenue - totalExpenses;
-    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+    const investmentBase = await this.getInitialInvestment(this.userProfile?.user_id || '');
+    const roi = investmentBase > 0 && netProfit > 0 ? (netProfit / investmentBase) * 100 : 0;
 
-    const investmentBase = await this.getInitialInvestment(userId);
-    const roi = investmentBase > 0 ? (netProfit / investmentBase) * 100 : 0;
-
-    const trend = await this.calculateFinancialTrend(userId, netProfit);
+    const trend = this.calculateFinancialTrend(netProfit, analysisData.previous_period.profit);
     const profitabilityScore = this.calculateProfitabilityScore(profitMargin, roi, trend);
 
-    const breakdownByCategory: Record<string, number> = {};
-    expenses.forEach(t => {
-      breakdownByCategory[t.category] = (breakdownByCategory[t.category] || 0) + t.montant;
-    });
+    const breakdownByCategory = analysisData.current_period.expenses_by_category || {};
+
+    // Si expenses_by_category est null, on le calcule à partir des transactions
+    if (!breakdownByCategory || Object.keys(breakdownByCategory).length === 0) {
+      // CORRECTION : S'assurer que 'transactions' n'est pas null avant de le filtrer.
+      (analysisData.transactions || []).filter(t => t.type === 'expense').forEach(t => { 
+        breakdownByCategory[t.category] = (breakdownByCategory[t.category] || 0) + t.montant; 
+      });
+    }
 
     return {
       total_revenue: totalRevenue,
@@ -288,51 +310,31 @@ class FinancialAdvisor {
   }
 
   private async detectAnomalies(
-    transactions: Transaction[],
-    userId: string
+    analysisData: ComprehensiveAnalysisData
   ): Promise<AnomalyDetection> {
     const anomalies: AnomalyDetection['detected_anomalies'] = [];
-    const expenseTransactionsByCategory = transactions
-      .filter(t => t.type === 'expense')
-      .reduce((acc, t) => {
-        if (!acc[t.category]) acc[t.category] = [];
-        acc[t.category].push(t);
-        return acc;
-      }, {} as Record<string, Transaction[]>);
+    const currentExpensesByCategory = analysisData.current_period.expenses_by_category || {};
+    const previousExpensesTotal = analysisData.previous_period.expenses;
 
-    for (const [category, transactionsForCategory] of Object.entries(expenseTransactionsByCategory)) {
-      const amount = transactionsForCategory.reduce((sum, t) => sum + t.montant, 0);
-      const actualCount = transactionsForCategory.length;
+    // Pour cette démo, on compare la dépense totale à celle de la période précédente
+    // Une version plus avancée comparerait catégorie par catégorie.
+    if (previousExpensesTotal > 0) {
+      const deviation = (analysisData.current_period.expenses - previousExpensesTotal) / previousExpensesTotal;
 
-      const expectedAmount = await this.getExpectedAmount(userId, category);
-      const deviation = Math.abs(amount - expectedAmount) / expectedAmount;
-
-      if (deviation > ANOMALY_THRESHOLD) {
-        const severity = deviation > 0.5 ? 'high' : deviation > 0.4 ? 'medium' : 'low';
+      if (Math.abs(deviation) > ANOMALY_THRESHOLD) {
+        const severity = Math.abs(deviation) > 0.5 ? 'high' : 'medium';
         anomalies.push({
           type: 'expense_spike',
-          category,
-          amount,
-          expected_amount: expectedAmount,
+          category: 'Toutes',
+          amount: analysisData.current_period.expenses,
+          expected_amount: previousExpensesTotal,
           deviation_percent: deviation * 100,
           severity,
-          explanation: `Dépenses en ${category} supérieures de ${(deviation * 100).toFixed(0)}% à la normale`,
-        });
-      }
-
-      const expectedCount = await this.getExpectedTransactionCount(userId, category);
-      if (expectedCount > 1 && actualCount > expectedCount * FREQUENCY_ANOMALY_THRESHOLD) {
-        anomalies.push({
-          type: 'unusual_frequency',
-          category,
-          amount: actualCount,
-          expected_amount: expectedCount,
-          deviation_percent: ((actualCount - expectedCount) / expectedCount) * 100,
-          severity: actualCount > expectedCount * 2 ? 'medium' : 'low',
-          explanation: `Fréquence d'achats inhabituelle: ${actualCount} transactions contre une moyenne de ${expectedCount.toFixed(0)}.`,
+          explanation: `Les dépenses totales sont de ${(deviation * 100).toFixed(0)}% ${deviation > 0 ? 'supérieures' : 'inférieures'} à la période précédente.`,
         });
       }
     }
+
     return {
       detected_anomalies: anomalies,
       total_anomalies: anomalies.length,
@@ -340,18 +342,23 @@ class FinancialAdvisor {
   }
   
   private async forecastCashFlow(
-    transactions: Transaction[],
-    userId: string
+    analysisData: ComprehensiveAnalysisData
   ): Promise<CashFlowForecast> {
-    const currentBalance = await this.getCurrentBalance(userId);
-    const avgMonthlyRevenue = await this.getAverageMonthlyRevenue(userId);
-    const avgMonthlyExpenses = await this.getAverageMonthlyExpenses(userId);
+    // --- CORRECTION DÉFINITIVE : Utiliser la balance réelle fournie par la RPC. ---
+    // Le nom du champ dans la RPC est 'current_balance'.
+    const currentBalance = analysisData.current_balance || 0;
+    
+    // --- CORRECTION : Utiliser les données de la période ACTUELLE pour les prévisions ---
+    // Les prévisions se basent sur la performance récente, pas sur une période antérieure qui peut être vide.
+    const monthlyProfit = analysisData.current_period.profit;
+    const monthlyRevenue = analysisData.current_period.revenue;
+    const monthlyExpenses = analysisData.current_period.expenses;
 
-    const forecast30 = currentBalance + (avgMonthlyRevenue - avgMonthlyExpenses);
-    const forecast60 = currentBalance + 2 * (avgMonthlyRevenue - avgMonthlyExpenses);
-    const forecast90 = currentBalance + 3 * (avgMonthlyRevenue - avgMonthlyExpenses);
+    const forecast30 = currentBalance + monthlyProfit;
+    const forecast60 = currentBalance + (2 * monthlyProfit);
+    const forecast90 = currentBalance + (3 * monthlyProfit);
 
-    const riskLevel = this.assessCashFlowRisk(forecast30, forecast60, avgMonthlyExpenses);
+    const riskLevel = this.assessCashFlowRisk(forecast30, forecast60, monthlyExpenses);
     const recommendations = this.generateCashFlowRecommendations(riskLevel);
 
     return {
@@ -360,16 +367,18 @@ class FinancialAdvisor {
       forecast_60_days: forecast60,
       forecast_90_days: forecast90,
       risk_level: riskLevel,
-      expected_inflows: avgMonthlyRevenue,
-      expected_outflows: avgMonthlyExpenses,
+      expected_inflows: monthlyRevenue,
+      expected_outflows: monthlyExpenses,
       recommendations,
     };
   }
 
-  private async optimizeTax(transactions: Transaction[]): Promise<TaxOptimization> {
-    // La logique reste la même, car elle est basée sur des règles fixes
-    const totalRevenue = transactions.filter(t => t.type === 'revenue').reduce((sum, t) => sum + t.montant, 0);
-    const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.montant, 0);
+  private async optimizeTax(transactions: Transaction[] | null): Promise<TaxOptimization> {
+    // CORRECTION : S'assurer que 'transactions' n'est jamais null.
+    // Si la RPC retourne null, on le traite comme un tableau vide.
+    const safeTransactions = transactions || [];
+    const totalRevenue = safeTransactions.filter(t => t.type === 'revenue').reduce((sum, t) => sum + t.montant, 0);
+    const totalExpenses = safeTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.montant, 0);
     const taxableIncome = Math.max(0, totalRevenue - totalExpenses);
     
     return {
@@ -384,16 +393,23 @@ class FinancialAdvisor {
    * V2: RECOMMANDATIONS D'INVESTISSEMENT BASÉES SUR LE PROFIL DE RISQUE
    */
   private async recommendInvestments(
-    transactions: Transaction[],
-    userId: string
+    analysisData: ComprehensiveAnalysisData
   ): Promise<InvestmentRecommendations> {
-    const profitability = await this.analyzeProfitability(transactions, userId);
-    const budgetAvailable = Math.max(0, profitability.net_profit * 0.3);
+    // --- AMÉLIORATION : L'IA prend maintenant en compte plus de contexte ---
+    const profitability = await this.analyzeProfitability(analysisData);
+    const budgetAvailable = Math.max(0, analysisData.current_period.profit * 0.3);
+    const farmAgeInDays = this.userProfile?.created_at ? (new Date().getTime() - new Date(this.userProfile.created_at).getTime()) / (1000 * 60 * 60 * 24) : 90;
+    const isNewFarm = farmAgeInDays < 180; // Considérer une ferme comme "nouvelle" si elle a moins de 6 mois
 
     const allPossibleInvestments: InvestmentRecommendations['priority_investments'] = [];
 
-    // Recommandation 1: Alimentation (priorité haute, risque faible)
-    if (profitability.breakdown_by_category['alimentation'] > profitability.total_expenses * 0.65) {
+    // --- NOUVELLE LOGIQUE 1 : Analyse des dépenses par catégorie ---
+    // L'IA vérifie si une catégorie de dépense est anormalement élevée.
+    const topExpenseCategory = Object.entries(profitability.breakdown_by_category)
+      .sort(([, a], [, b]) => b - a)[0];
+
+    if (topExpenseCategory && topExpenseCategory[0].toLowerCase().includes('aliment') && (topExpenseCategory[1] / profitability.total_expenses) > 0.60) {
+      // Si l'alimentation représente plus de 60% des dépenses, c'est une priorité.
       allPossibleInvestments.push({
         category: 'Optimisation alimentation',
         estimated_cost: 5000, expected_roi: 25, payback_period_months: 4, priority_score: 90,
@@ -401,8 +417,9 @@ class FinancialAdvisor {
       });
     }
 
-    // Recommandation 2: Sanitaire (priorité haute, risque faible)
-    const avgMortality = await this.getAverageMortality(userId);
+    // --- NOUVELLE LOGIQUE 2 : Analyse de la santé des lots ---
+    // L'IA se base sur la mortalité moyenne pour suggérer des améliorations sanitaires.
+    const avgMortality = await this.getAverageMortality(this.userProfile?.user_id || ''); // Cette fonction est un placeholder, mais la logique est là.
     if (avgMortality > 6) {
       allPossibleInvestments.push({
         category: 'Système de désinfection',
@@ -411,8 +428,11 @@ class FinancialAdvisor {
       });
     }
 
-    // Recommandation 3: Expansion (priorité moyenne, risque moyen/haut)
-    if (profitability.profit_margin_percent > 20 && budgetAvailable > 10000) {
+    // --- NOUVELLE LOGIQUE 3 : Recommandation d'expansion intelligente ---
+    // L'IA ne propose l'expansion que si la ferme est mature et rentable.
+    // Elle évite de suggérer des investissements risqués à une nouvelle ferme.
+    const isProfitableEnough = profitability.profit_margin_percent > 20;
+    if (!isNewFarm && isProfitableEnough && budgetAvailable > 10000) {
       allPossibleInvestments.push({
         category: 'Expansion capacité (+20%)',
         estimated_cost: 15000, expected_roi: 35, payback_period_months: 12, priority_score: 75,
@@ -420,13 +440,16 @@ class FinancialAdvisor {
       });
     }
 
-    // V2: Filtrer les investissements selon le profil de risque de l'utilisateur
+    // --- AMÉLIORATION : Le filtrage par profil de risque est plus fin ---
     const riskTolerance = this.userProfile?.risk_tolerance || 'medium';
     let filteredInvestments = allPossibleInvestments;
 
     if (riskTolerance === 'low') {
-      // Exclure les investissements à haut risque comme l'expansion
-      filteredInvestments = allPossibleInvestments.filter(inv => inv.category !== 'Expansion capacité (+20%)');
+      // Pour un profil prudent, on ne garde que les investissements à faible risque et à retour rapide.
+      filteredInvestments = allPossibleInvestments.filter(inv => inv.payback_period_months <= 6);
+    } else if (isNewFarm && riskTolerance === 'medium') {
+      // Pour une nouvelle ferme avec un profil de risque moyen, on évite quand même l'expansion.
+      filteredInvestments = allPossibleInvestments.filter(inv => !inv.category.includes('Expansion'));
     } else if (riskTolerance === 'high') {
       // Augmenter la priorité des investissements de croissance
       filteredInvestments.forEach(inv => {
@@ -458,15 +481,16 @@ class FinancialAdvisor {
       investments: InvestmentRecommendations;
     }
   ) {
-    const supabase = await getSupabaseClient();
-    if (!supabase || !this.userProfile) return;
-
     const recommendations: any[] = [];
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
+    // Si le profil n'est pas déjà chargé, on le récupère avant de continuer.
+    if (!this.userProfile) {
+      this.userProfile = await this.getOrcreateUserProfile(userId);
+    }
     // V2: Obtenir les poids des recommandations depuis le profil
-    const weights = this.userProfile.recommendation_weights;
+    const weights = this.userProfile?.recommendation_weights || {}; // Utiliser un objet vide comme fallback
 
     // Reco 1: Optimisation des marges (si nécessaire)
     const optiWeight = weights['financial_optimization'] || 1.0;
@@ -514,7 +538,7 @@ class FinancialAdvisor {
   /**
    * V2: Met à jour la mémoire heuristique et le profil utilisateur
    */
-  private async updateLearnings(
+  private updateLearnings(
     userId: string,
     analysis: { profitability: ProfitabilityAnalysis; anomalies: AnomalyDetection }
   ) {
@@ -525,89 +549,26 @@ class FinancialAdvisor {
       total_expenses: analysis.profitability.total_expenses,
       alert_count: analysis.anomalies.total_anomalies,
     });
-
-    // 2. Mettre à jour le profil utilisateur dans Supabase (pour persistance)
-    // Cette partie peut être étendue pour stocker les tendances moyennes, etc.
-    // Pour l'instant, on met juste à jour la date de dernière analyse.
-    const supabase = await getSupabaseClient();
-    if (!supabase) return;
-    await supabase.from('user_financial_profiles').update({ updated_at: new Date() }).eq('user_id', userId);
   }
 
 
   // ==================== MÉTHODES UTILITAIRES ET PROFILS (V2) ====================
 
   private async getOrcreateUserProfile(userId: string): Promise<UserFinancialProfile> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) throw new Error("Supabase client non initialisé");
-
-    // Étape 1: Assurer l'existence du profil avec UPSERT.
-    // Tente d'insérer un profil. Si un profil avec le même user_id existe déjà,
-    // il ne fait rien et ne retourne rien (à cause de ignoreDuplicates: true).
-    const { error: upsertError } = await supabase
-      .from('user_financial_profiles')
-      .upsert({
+    // Le profil est maintenant fourni par la RPC. Si pour une raison quelconque il est null,
+    // on retourne un profil par défaut sécurisé pour éviter tout plantage.
+    if (!this.userProfile || !this.userProfile.user_id) {
+      console.warn(`[FinancialAdvisorV2] Profil financier non trouvé ou invalide pour ${userId}. Utilisation d'un profil par défaut.`);
+      return {
         user_id: userId,
         risk_tolerance: 'medium',
         preferred_strategies: [],
         recommendation_weights: {},
-      }, {
-        onConflict: 'user_id',
-        ignoreDuplicates: true,
-      });
-
-    if (upsertError) {
-      console.error('[FinancialAdvisorV2] Erreur lors de l\'upsert du profil financier:', upsertError);
-      throw upsertError;
+      };
     }
-
-    // Étape 2: Récupérer le profil qui existe maintenant à coup sûr.
-    const { data: profileData, error: selectError } = await supabase
-      .from('user_financial_profiles')
-      .select()
-      .eq('user_id', userId)
-      .single();
-
-    if (selectError) {
-      console.error('[FinancialAdvisorV2] Erreur lors de la récupération du profil financier après upsert:', selectError);
-      throw selectError;
-    }
-
-    return profileData as UserFinancialProfile;
+    return this.userProfile as UserFinancialProfile;
   }
 
-  private async getTransactions(userId: string, period: string): Promise<Transaction[]> {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return [];
-
-    let daysBack = 30;
-    if (period === 'week') daysBack = 7;
-    if (period === 'quarter') daysBack = 90;
-    if (period === 'year') daysBack = 365;
-
-    const startDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
-
-    const { data } = await supabase
-      .from('financial_records')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('record_date', startDate.toISOString())
-      .order('record_date', { ascending: false });
-
-    return data?.map((record: any) => ({
-      id: record.id,
-      type: record.type === 'income' ? 'revenue' : 'expense',
-      category: record.category || 'autres',
-      montant: record.amount,
-      description: record.description || '',
-      date: record.record_date,
-      farm_id: record.user_id,
-    })) || [];
-  }
-
-  // ... Les autres méthodes utilitaires (getExpectedAmount, getCurrentBalance, etc.) restent globalement les mêmes ...
-  // Elles sont appelées par les méthodes d'analyse principales.
-  
   private async generateFinancialAlerts(
     userId: string,
     analysis: {
@@ -662,18 +623,17 @@ class FinancialAdvisor {
     return Math.min(score, 100);
   }
   
-  private async calculateFinancialTrend(userId: string, currentProfit: number): Promise<ProfitabilityAnalysis['trend']> {
-    // Implémentation simplifiée pour l'exemple
+  private calculateFinancialTrend(currentProfit: number, previousProfit: number): ProfitabilityAnalysis['trend'] {
+    if (currentProfit > previousProfit * 1.1) return 'improving';
+    if (currentProfit < previousProfit * 0.9) return 'declining';
     return 'stable';
   }
   
   // Fonctions de récupération de données (stubs pour l'exemple)
-  private async getInitialInvestment(userId: string): Promise<number> { return 50000; }
-  private async getExpectedAmount(userId: string, category: string): Promise<number> { return 1000; }
-  private async getExpectedTransactionCount(userId: string, category: string): Promise<number> { return 5; }
-  private async getCurrentBalance(userId: string): Promise<number> { return 20000; }
-  private async getAverageMonthlyRevenue(userId: string): Promise<number> { return 5000; }
-  private async getAverageMonthlyExpenses(userId: string): Promise<number> { return 3000; }
+  private async getInitialInvestment(userId: string): Promise<number> {
+    // TODO: Remplacer par une lecture réelle de la base de données
+    return 50000;
+  }
   private async getAverageMortality(userId: string): Promise<number> { return 5; }
 }
 
@@ -724,9 +684,15 @@ export const financialAdvisorWrapper = new FinancialAdvisorWrapper();
 
 // Hook React pour une utilisation facile dans les composants
 export const useFinancialAdvisor = () => {
+  const hasAccess = (feature: string): boolean => {
+    // Vérification de l'abonnement (à remplacer par votre logique réelle)
+    // Pour l'instant, on autorise tout le monde à accéder à l'analyse financière
+    return feature === 'finance';
+  };
+
   return {
-    analyzeFinances: (userId: string, period?: 'week' | 'month' | 'quarter' | 'year') =>
-      financialAdvisor.analyzeFinances(userId, period),
+    analyzeFinances: hasAccess('finance') ? (userId: string, period?: 'week' | 'month' | 'quarter' | 'year') =>
+      financialAdvisor.analyzeFinances(userId, period) : null,
     // V2: Exposer la méthode de feedback à l'UI
     applyUserFeedback: (userId: string, recommendationType: string, feedback: 'positive' | 'negative') =>
       financialAdvisor.applyUserFeedback(userId, recommendationType, feedback),

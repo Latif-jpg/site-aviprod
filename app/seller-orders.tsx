@@ -3,26 +3,29 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from '../components/Icon'; // Importation correcte
-import { supabase } from '../config'; // Import supabase directly
+import { supabase, ensureSupabaseInitialized, getMarketplaceImageUrl } from '../config'; // Import supabase directly et la nouvelle fonction
 import { router } from 'expo-router';
 import Toast from 'react-native-toast-message';
+import { useNotifications } from '../components/NotificationContext';
 
 interface SellerOrder {
   order_id: string;
   status: string;
   created_at: string;
-  items_total: number;
+  total_price: number;
   delivery_fee: number;
   grand_total: number;
   buyer_name: string;
   buyer_avatar_url?: string;
   items_summary: {
-    product_name: string;
+    product_name: string; // Le nom du produit
     image?: string;
+    quantity: number;
   }[];
 }
 
 export default function SellerOrders() {
+  const { unreadCount, fetchUnreadCount } = useNotifications(); // Utiliser le hook
   const [orders, setOrders] = useState<SellerOrder[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<SellerOrder | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,13 +44,36 @@ export default function SellerOrders() {
 
   useEffect(() => {
     loadSellerOrders();
+
+    // Marquer les notifications comme lues et rafraîchir le compteur
+    const markNotificationsAsRead = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { error } = await supabase
+          .from('notifications')
+          .update({ read: true })
+          .eq('user_id', user.id)
+          .eq('read', false);
+
+        if (error) throw error;
+
+        // Rafraîchir le compteur global
+        fetchUnreadCount();
+      } catch (error) {
+        console.error("Erreur lors de la mise à jour des notifications:", error);
+      }
+    };
+
+    markNotificationsAsRead();
   }, []);
 
   // Debugging useEffect
   useEffect(() => {
-      console.log('📦 Current orders:', orders);
-      console.log('🎯 Selected order for confirmation:', selectedOrder);
-      console.log('🆔 Selected order ID:', selectedOrder?.order_id); // Note: changed to order_id as per SellerOrder interface
+    console.log('📦 Current orders:', orders);
+    console.log('🎯 Selected order for confirmation:', selectedOrder);
+    console.log('🆔 Selected order ID:', selectedOrder?.order_id); // Note: changed to order_id as per SellerOrder interface
   }, [orders, selectedOrder]);
 
   const loadSellerOrders = async () => {
@@ -60,15 +86,42 @@ export default function SellerOrders() {
         return;
       }
 
-      // Utilise la nouvelle vue 'seller_orders_view'
+      // Utilise les jointures Supabase pour récupérer les détails en une seule fois
       const { data, error } = await supabase
-        .from('seller_orders_view')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .from('orders')
+        .select(`
+          *,
+          buyer_profile:profiles!orders_buyer_id_fkey (full_name),
+          order_items (
+            quantity,
+            product:marketplace_products (name, image)
+          )
+        `)
+        .eq('seller_id', user.id);
 
       if (error) throw error;
 
-      setOrders(data as SellerOrder[]);
+      // Transformer les données pour correspondre à l'interface SellerOrder
+      const formattedOrders = (data || []).map((o: any) => ({
+        order_id: o.id,
+        created_at: o.created_at,
+        status: o.status,
+        total_price: o.total_price,
+        delivery_fee: o.delivery_fee,
+        buyer_name: o.buyer_profile?.full_name || 'Client inconnu',
+        grand_total: (o.total_price || 0) + (o.delivery_fee || 0),
+        items_summary: (o.order_items || []).map((item: any) => ({
+          product_name: item.product?.name || 'Produit inconnu',
+          image: item.product?.image,
+          quantity: item.quantity || 1,
+        })),
+      }));
+
+      formattedOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      console.log('Formatted Orders:', JSON.stringify(formattedOrders, null, 2));
+
+      setOrders(formattedOrders as SellerOrder[] || []);
     } catch (error: any) {
       console.error('❌ Error loading seller orders:', error);
       Toast.show({ type: 'error', text1: 'Erreur', text2: 'Impossible de charger les commandes' });
@@ -82,51 +135,118 @@ export default function SellerOrders() {
     setIsConfirmModalVisible(true);
   };
 
-const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
+  const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
     const supabase = await ensureSupabaseInitialized(); // Ensure supabase is initialized here
     console.log('🔍 DEBUG - confirmOrderWithPickupInfo called with:');
     console.log('orderId:', orderId, 'type:', typeof orderId);
-    
+
     // --- CORRECTION : Validation renforcée de l'ID de la commande ---
     if (!orderId || typeof orderId !== 'string') {
-        console.error('❌ ERREUR CRITIQUE: orderId est undefined ou invalide:', orderId);
-        throw new Error('ID de commande manquant. Veuillez réessayer ou contacter le support.');
+      console.error('❌ ERREUR CRITIQUE: orderId est undefined ou invalide:', orderId);
+      throw new Error('ID de commande manquant. Veuillez réessayer ou contacter le support.');
     }
 
     // --- CORRECTION : Validation que c'est un UUID valide ---
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(orderId)) {
-        console.error('❌ ERREUR: orderId nest pas un UUID valide:', orderId);
-        throw new Error('Format de commande invalide.');
+      console.error('❌ ERREUR: orderId nest pas un UUID valide:', orderId);
+      throw new Error('Format de commande invalide.');
     }
-    
+
     try {
-        console.log('✅ OrderId valide, confirmation en cours...');
-        
-        const { data, error } = await supabase
-            .rpc('confirm_order_with_pickup_info', {
-                p_order_id: orderId,
-                p_pickup_address: pickupInfo?.address ? {
-                    address: pickupInfo.address,
-                    city: pickupInfo.city,
-                    notes: pickupInfo.notes
-                } : null,
-                p_pickup_phone: pickupInfo?.phone || null
-            });
-            
-        if (error) {
-            console.error('❌ Erreur Supabase:', error);
-            throw error;
-        }
-        
-        console.log('✅ Commande confirmée avec succès:', data);
-        return data;
-        
-    } catch (error) {
-        console.error('❌ Erreur critique lors de la confirmation:', error);
+      console.log('✅ OrderId valide, confirmation en cours...');
+
+      const { data, error } = await supabase
+        .rpc('confirm_order_with_pickup_info', {
+          p_order_id: orderId,
+          p_pickup_address: pickupInfo?.address ? {
+            address: pickupInfo.address,
+            city: pickupInfo.city,
+            notes: pickupInfo.notes
+          } : null,
+          p_pickup_phone: pickupInfo?.phone || null
+        });
+
+      if (error) {
+        console.error('❌ Erreur Supabase:', error);
         throw error;
+      }
+
+      console.log('✅ Commande confirmée avec succès:', data);
+      return data;
+
+    } catch (error) {
+      console.error('❌ Erreur critique lors de la confirmation:', error);
+      throw error;
     }
-};
+  };
+
+  const handleConfirmSubmit = async () => {
+    if (!pickupInfo.orderToConfirm || !pickupInfo.address.trim() || !pickupInfo.phone.trim()) {
+      Toast.show({ type: 'error', text1: 'Champs requis', text2: 'Veuillez saisir une adresse et un téléphone.' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // User's logging
+      console.log('🔄 Avant confirmation - order:', pickupInfo.orderToConfirm);
+      console.log('🔄 order.id:', pickupInfo.orderToConfirm?.order_id);
+      console.log('🔄 order.id type:', typeof pickupInfo.orderToConfirm?.order_id);
+
+      await confirmOrderWithPickupInfo(pickupInfo.orderToConfirm.order_id, {
+        address: pickupInfo.address,
+        phone: pickupInfo.phone,
+        city: null, // Pass null for now, as it's not in the current state
+        notes: null // Pass null for now, as it's not in the current state
+      });
+
+      // Envoyer la notification à l'acheteur
+      await sendOrderConfirmationNotification(pickupInfo.orderToConfirm.order_id);
+
+      Toast.show({ type: 'success', text1: 'Succès', text2: 'Commande confirmée avec succès!' });
+      setIsConfirmModalVisible(false);
+      loadSellerOrders();
+      setSelectedOrder(null);
+    } catch (error: any) {
+      console.error('❌ Error confirming order with pickup info:', error);
+      Toast.show({ type: 'error', text1: 'Erreur', text2: error.message || 'Impossible de confirmer la commande.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const sendOrderConfirmationNotification = async (orderId: string) => {
+    try {
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('buyer_id')
+        .eq('id', orderId)
+        .single();
+
+      if (orderError || !orderData) throw new Error("Commande non trouvée pour la notification.");
+
+      // 1. Insérer une notification dans la table 'notifications' pour l'acheteur
+      const { error: insertNotificationError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: orderData.buyer_id,
+          type: 'order_confirmed', // Type de notification pour la confirmation de commande
+          title: 'Commande confirmée ! 🎉',
+          message: `Votre commande #${orderId.slice(-6)} a été confirmée par le vendeur.`,
+          data: { order_id: orderId, action: 'pay_order' }, // CORRECTION : Rediriger vers le paiement
+        });
+
+      if (insertNotificationError) {
+        console.error('❌ Erreur lors de l\'insertion de la notification pour l\'acheteur:', insertNotificationError);
+        // Continuer même si l'insertion échoue, la notification push peut toujours fonctionner.
+      }
+
+    } catch (error) {
+      console.error('❌ Erreur critique lors de la confirmation:', error);
+      throw error;
+    }
+  };
 
   const handleRejectOrderClick = (order: SellerOrder) => {
     setRejectionInfo({
@@ -205,29 +325,43 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
   };
 
   const renderOrderCard = (order: SellerOrder) => (
-    <TouchableOpacity key={order.order_id || Math.random()} style={styles.orderCard} onPress={() => setSelectedOrder(order)}>
+    <TouchableOpacity
+      key={order.order_id || String(Math.random())}
+      style={styles.orderCard}
+      onPress={() => setSelectedOrder(order)}
+    >
       <View style={styles.orderHeader}>
-        {order.items_summary?.[0]?.image && (
-          <Image source={{ uri: order.items_summary[0].image }} style={styles.productImage} />
-        )}
+        {order.items_summary?.[0]?.image ? (
+          <Image
+            source={{ uri: getMarketplaceImageUrl(order.items_summary[0].image) }}
+            style={styles.productImage}
+            onError={(e) => console.error('Image loading error in order card:', e.nativeEvent.error)}
+          />
+        ) : null}
         <View style={styles.orderInfo}>
-          <Text style={styles.orderId}>Commande #{order.order_id ? order.order_id.slice(-8) : 'N/A'}</Text>
+          <Text style={styles.orderId}>{`Commande #${order.order_id?.slice(-8) || 'N/A'}`}</Text>
           <Text style={styles.buyerName}>{order.buyer_name || 'Client inconnu'}</Text>
           <Text style={styles.orderDate}>{new Date(order.created_at).toLocaleDateString('fr-FR')}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>{getStatusText(order.status)}</Text>
+          <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
+            {getStatusText(order.status)}
+          </Text>
         </View>
       </View>
-  
+
       <View style={styles.orderDetails}>
-        <View>
-          <Text style={styles.orderAmount}>{order.grand_total?.toLocaleString() || '0'} CFA</Text>
-          <Text style={styles.priceBreakdown}>Produits: {order.items_total?.toLocaleString()} + Livraison: {order.delivery_fee?.toLocaleString()}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.orderAmount}>{`${(order.grand_total || 0).toLocaleString()} CFA`}</Text>
+          <Text style={styles.priceBreakdown}>
+            {`Produits: ${(order.total_price || 0).toLocaleString()} + Livraison: ${(order.delivery_fee || 0).toLocaleString()}`}
+          </Text>
         </View>
-        {order.items_summary?.length > 0 && (
-            <Text style={styles.orderItems}>{order.items_summary.length} article{order.items_summary.length > 1 ? 's' : ''}</Text>
-        )}
+        {(order.items_summary?.length || 0) > 0 ? (
+          <Text style={styles.orderItems}>
+            {`${order.items_summary.length} article${order.items_summary.length > 1 ? 's' : ''}`}
+          </Text>
+        ) : null}
       </View>
     </TouchableOpacity>
   );
@@ -247,21 +381,43 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
         <ScrollView>
           <View style={styles.detailSection}>
             <Text style={styles.sectionTitle}>Récapitulatif</Text>
-            <View style={styles.detailRow}><Text style={styles.detailLabel}>Client</Text><Text style={styles.detailValue}>{selectedOrder.buyer_name || 'Client inconnu'}</Text></View>
-            <View style={styles.detailRow}><Text style={styles.detailLabel}>Date</Text><Text style={styles.detailValue}>{new Date(selectedOrder.created_at).toLocaleString('fr-FR')}</Text></View>
-            <View style={styles.detailRow}><Text style={styles.detailLabel}>Total produits</Text><Text style={styles.detailValue}>{selectedOrder.items_total?.toLocaleString() || '0'} CFA</Text></View>
-            <View style={styles.detailRow}><Text style={styles.detailLabel}>Frais de livraison</Text><Text style={styles.detailValue}>{selectedOrder.delivery_fee?.toLocaleString() || '0'} CFA</Text></View>
-            <View style={[styles.detailRow, styles.totalRow]}><Text style={[styles.detailLabel, styles.totalLabel]}>Total Général</Text><Text style={[styles.detailValue, styles.totalValue]}>{selectedOrder.grand_total?.toLocaleString() || '0'} CFA</Text></View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Client</Text>
+              <Text style={styles.detailValue}>{selectedOrder.buyer_name}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Date</Text>
+              <Text style={styles.detailValue}>{new Date(selectedOrder.created_at).toLocaleString('fr-FR')}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Total produits</Text>
+              <Text style={styles.detailValue}>{selectedOrder.total_price?.toLocaleString() || '0'} CFA</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Frais de livraison</Text>
+              <Text style={styles.detailValue}>{selectedOrder.delivery_fee?.toLocaleString() || '0'} CFA</Text>
+            </View>
+            <View style={[styles.detailRow, styles.totalRow]}>
+              <Text style={[styles.detailLabel, styles.totalLabel]}>Total Général</Text>
+              <Text style={[styles.detailValue, styles.totalValue]}>{selectedOrder.grand_total?.toLocaleString() || '0'} CFA</Text>
+            </View>
           </View>
 
           <View style={styles.detailSection}>
             <Text style={styles.sectionTitle}>Articles commandés</Text>
-            {selectedOrder.items_summary?.length > 0 ? (
-              selectedOrder.items_summary.map((item: any, index: number) => (
-                <View key={index} style={styles.itemRow}>
-                  {item.image && <Image source={{ uri: item.image}} style={styles.productImage} />}
+            {(selectedOrder.items_summary?.length || 0) > 0 ? (
+              selectedOrder.items_summary.map((item, index) => (
+                <View key={`${item.product_name}-${index}`} style={styles.itemRow}>
+                  {item.image ? (
+                    <Image
+                      source={{ uri: getMarketplaceImageUrl(item.image) }}
+                      style={styles.productImage}
+                      onError={(e) => console.error('Image loading error:', e.nativeEvent.error)}
+                    />
+                  ) : null}
                   <View style={styles.itemInfo}>
                     <Text style={styles.itemName}>{item.product_name}</Text>
+                    <Text style={styles.itemQuantity}>{`Quantité : ${item.quantity}`}</Text>
                   </View>
                 </View>
               ))
@@ -293,13 +449,13 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
               </View>
             )}
             {selectedOrder.status === 'confirmed' && (
-              <TouchableOpacity style={[styles.actionButton, {backgroundColor: colors.warning}]} onPress={() => updateOrderStatus(selectedOrder.order_id, 'preparing')} >
+              <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.warning }]} onPress={() => updateOrderStatus(selectedOrder.order_id, 'preparing')} >
                 <Icon name="cube" size={20} color={colors.white} />
                 <Text style={styles.actionButtonText}>Commencer la préparation</Text>
               </TouchableOpacity>
             )}
             {selectedOrder.status === 'preparing' && (
-              <TouchableOpacity style={[styles.actionButton, {backgroundColor: colors.success}]} onPress={() => updateOrderStatus(selectedOrder.order_id, 'ready')} >
+              <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.success }]} onPress={() => updateOrderStatus(selectedOrder.order_id, 'ready')} >
                 <Icon name="checkmark-circle" size={20} color={colors.white} />
                 <Text style={styles.actionButtonText}>Marquer comme prête</Text>
               </TouchableOpacity>
@@ -309,38 +465,6 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
       </View>
     );
   };
-
-  const handleConfirmSubmit = async () => {
-    if (!pickupInfo.orderToConfirm || !pickupInfo.address.trim() || !pickupInfo.phone.trim()) {
-        Toast.show({ type: 'error', text1: 'Champs requis', text2: 'Veuillez saisir une adresse et un téléphone.' });
-        return;
-    }
-
-    setIsSubmitting(true);
-    try {
-        // User's logging
-        console.log('🔄 Avant confirmation - order:', pickupInfo.orderToConfirm);
-        console.log('🔄 order.id:', pickupInfo.orderToConfirm?.order_id);
-        console.log('🔄 order.id type:', typeof pickupInfo.orderToConfirm?.order_id);
-
-        await confirmOrderWithPickupInfo(pickupInfo.orderToConfirm.order_id, {
-            address: pickupInfo.address,
-            phone: pickupInfo.phone,
-            city: null, // Pass null for now, as it's not in the current state
-            notes: null // Pass null for now, as it's not in the current state
-        });
-
-        Toast.show({ type: 'success', text1: 'Succès', text2: 'Commande confirmée avec succès!' });
-        setIsConfirmModalVisible(false);
-        loadSellerOrders();
-        setSelectedOrder(null);
-    } catch (error: any) {
-        console.error('❌ Error confirming order with pickup info:', error);
-        Toast.show({ type: 'error', text1: 'Erreur', text2: error.message || 'Impossible de confirmer la commande.' });
-    } finally {
-        setIsSubmitting(false);
-    }
-};
 
   const renderConfirmModal = () => (
     <Modal
@@ -373,7 +497,9 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
             onPress={handleConfirmSubmit}
             disabled={isSubmitting}
           >
-            <Text style={styles.actionButtonText}>{isSubmitting ? 'Confirmation...' : 'Confirmer et Envoyer'}</Text>
+            <Text style={styles.actionButtonText}>
+              {isSubmitting ? 'Confirmation...' : 'Confirmer et Envoyer'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelButton} onPress={() => setIsConfirmModalVisible(false)}>
             <Text style={styles.cancelButtonText}>Annuler</Text>
@@ -408,7 +534,9 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
             onPress={rejectOrderWithReason}
             disabled={isSubmitting}
           >
-            <Text style={styles.actionButtonText}>{isSubmitting ? 'Annulation...' : 'Confirmer le Rejet'}</Text>
+            <Text style={styles.actionButtonText}>
+              {isSubmitting ? 'Annulation...' : 'Confirmer le Rejet'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelButton} onPress={() => setIsRejectModalVisible(false)}>
             <Text style={styles.cancelButtonText}>Retour</Text>
@@ -419,13 +547,27 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
   );
 
   if (isLoading) {
-    return <SafeAreaView style={commonStyles.container}><View style={styles.loadingContainer}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Chargement des ventes...</Text></View></SafeAreaView>;
+    return (
+      <SafeAreaView style={commonStyles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Chargement des ventes...</Text>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
     <SafeAreaView style={commonStyles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}><Icon name="arrow-back" size={24} color={colors.text} /></TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Icon name="arrow-back" size={24} color={colors.text} />
+          {unreadCount > 0 ? (
+            <View style={styles.badgeContainer}>
+              <Text style={styles.badgeText}>{String(unreadCount)}</Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Mes Ventes</Text>
       </View>
 
@@ -438,12 +580,12 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
               <Text style={styles.emptyStateSubtext}>Vos ventes apparaîtront ici.</Text>
             </View>
           ) : (
-            orders.map(renderOrderCard)
+            orders.map((o) => renderOrderCard(o))
           )}
         </View>
       </ScrollView>
 
-      {selectedOrder && renderOrderDetail()}
+      {selectedOrder ? renderOrderDetail() : null}
       {renderConfirmModal()}
       {renderRejectModal()}
     </SafeAreaView>
@@ -452,7 +594,27 @@ const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
-  backButton: { marginRight: 16 },
+  backButton: {
+    marginRight: 16,
+    position: 'relative', // Permet de positionner le badge par-dessus
+  },
+  badgeContainer: {
+    position: 'absolute',
+    top: -5,
+    right: -10,
+    backgroundColor: colors.error,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  badgeText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   headerTitle: { fontSize: 24, fontWeight: '700', color: colors.text },
   scrollView: { flex: 1 },
   content: { padding: 20 },

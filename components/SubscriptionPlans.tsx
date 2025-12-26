@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../styles/commonStyles';
-import Icon from './Icon'; // Importation correcte
-import { supabase } from '../config'; // Import supabase directly
+import Icon from './Icon';
+import { supabase } from '../config';
 import { router } from 'expo-router';
-import { usePayments } from '../hooks/usePayments';
-import PaymentModal from './PaymentModal';
-
-// --- NOUVEAU : Import du hook d'abonnement ---
 import { useSubscription } from '../contexts/SubscriptionContext';
+// import { usePayments } from '../hooks/usePayments';
+// import PaymentModal from './PaymentModal';
 
 interface SubscriptionPlan {
   id: string;
@@ -34,77 +32,96 @@ interface SubscriptionPlan {
     product_discount?: number;
     priority_support?: boolean;
     dedicated_support?: boolean;
+    avicoins_amount?: number;
+    ai_analysis_cost?: number;
+    auto_feeding_cost?: number;
+    premium_feature_cost?: number;
+    pro_feature_cost?: number;
+    avicoins_allowed?: boolean; // Ajout de la clé pour les packs Avicoins
   };
 }
 
 export default function SubscriptionPlans() {
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
-  const { processSubscriptionPayment, isProcessing } = usePayments();
+  // --- CORRECTION : Utiliser directement les données du contexte ---
+  // Plus besoin de charger les plans localement, le contexte s'en charge.
+  // 'allPlans' contient tous les plans, 'subscription' l'abonnement actif.
+  const { subscription: currentSubscription, allPlans: plans, loading: subscriptionLoading } = useSubscription();
 
-  // --- NOUVEAU : Utilisation du hook pour gérer l'état de l'abonnement ---
-  const { subscription: currentSubscription, loading: subscriptionLoading, refreshSubscription } = useSubscription();
+  // MODE PAIEMENT ACTUEL : MANUEL (avec validation admin)
+  // Pour basculer vers PayDunya automatique : remplacer handleSubscribe par handleSubscribePayDunya
+  const handleSubscribe = (plan: SubscriptionPlan) => {
+    if (plan.name === 'freemium' || currentSubscription?.plan?.id === plan.id) {
+      return;
+    }
 
-  useEffect(() => {
-    const initialLoad = async () => {
-      try {
-        setIsLoading(true);
-        await loadPlans();
-      } catch (error: any) {
-        console.error('❌ Error loading subscription data:', error);
-        Alert.alert('Erreur', 'Impossible de charger les données d\'abonnement');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    initialLoad();
-  }, []);
-  
-  const loadPlans = async () => {
+    const itemType = plan.name.startsWith('avicoins_') ? 'avicoin' : 'abonnement';
+
+    router.push({
+      pathname: '/order-payment',
+      params: {
+        itemType,
+        itemId: plan.id,
+        amount: plan.price_monthly,
+        planName: plan.display_name,
+      },
+    });
+  };
+
+  /*
+  // CONFIGURATION PAYDUNYA (COMMENTÉE - Peut être réactivée si nécessaire)
+  const handleSubscribePayDunya = async (plan: SubscriptionPlan) => {
+    if (plan.name === 'freemium' || currentSubscription?.plan?.id === plan.id) {
+      return;
+    }
+
     try {
-      const { data, error } = await supabase
-        .from('subscription_plans')
-        .select('*')
-        .eq('is_active', true)
-        .order('price_monthly', { ascending: true });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Erreur', 'Vous devez être connecté pour souscrire à un abonnement.');
+        return;
+      }
 
-      if (error) throw error;
-      setPlans(data || []);
+      // Appeler la fonction PayDunya pour créer le paiement
+      const { data, error } = await supabase.functions.invoke('create-payment', {
+        body: {
+          amount: plan.price_monthly,
+          paymentMethod: 'paydunya',
+          paymentType: plan.name.startsWith('avicoins_') ? 'avicoins_purchase' : 'subscription',
+          referenceType: 'subscription_plan',
+          referenceId: plan.id,
+          description: `${plan.display_name} - ${plan.price_monthly} CFA`,
+          userId: user.id
+        }
+      });
+
+      if (error) {
+        console.error('Erreur PayDunya:', error);
+        Alert.alert('Erreur', 'Impossible de créer le paiement. Veuillez réessayer.');
+        return;
+      }
+
+      if (data?.payment_url) {
+        // Ouvrir PayDunya dans le navigateur
+        await Linking.openURL(data.payment_url);
+      } else {
+        Alert.alert('Erreur', 'URL de paiement non reçue.');
+      }
+
     } catch (error: any) {
-      console.error('❌ Error loading plans:', error);
+      console.error('Erreur lors de la souscription:', error);
+      Alert.alert('Erreur', 'Impossible de traiter votre demande. Veuillez réessayer.');
     }
   };
+  */
 
-  const handleSubscribe = async (plan: SubscriptionPlan) => {
-    if (plan.name === 'freemium') {
-      Alert.alert('Freemium', 'Le plan Freemium est gratuit et activé par défaut.');
-      return;
-    }
-
-    // Handle Avicoins purchases differently
-    if (plan.name.startsWith('avicoins_')) {
-      setSelectedPlan(plan);
-      setShowPaymentModal(true);
-      return;
-    }
-
-    // Open payment modal instead of confirmation alert
-    setSelectedPlan(plan);
-    setShowPaymentModal(true);
-  };
-
+  /*
   const handlePaymentSuccess = async () => {
-    // --- NOUVEAU : Rafraîchir l'état de l'abonnement après un paiement réussi ---
     await refreshSubscription();
 
-    // Show success message for Avicoins purchase
     if (selectedPlan?.name.startsWith('avicoins_')) {
       const avicoinsAmount = selectedPlan.features.avicoins_amount;
       Alert.alert('Succès', `Vous avez reçu ${avicoinsAmount} Avicoins !`);
 
-      // Rafraîchir le solde Avicoins sur le dashboard
       const { DeviceEventEmitter } = require('react-native');
       DeviceEventEmitter.emit('refreshAvicoins');
     }
@@ -118,15 +135,16 @@ export default function SubscriptionPlans() {
     setShowPaymentModal(false);
     setSelectedPlan(null);
   };
+  */
 
   const getPlanIcon = (planName: string) => {
     switch (planName) {
-      case 'freemium': return 'gift';
-      case 'premium': return 'rocket';
-      case 'pro': return 'diamond';
+      case 'freemium': return 'card-outline';
+      case 'premium': return 'flash-outline';
+      case 'pro': return 'diamond-outline';
       case 'avicoins_25':
       case 'avicoins_50':
-      case 'avicoins_100': return 'cash';
+      case 'avicoins_100': return 'cash-outline';
       default: return 'help-circle';
     }
   };
@@ -145,86 +163,49 @@ export default function SubscriptionPlans() {
 
   const renderFeature = (feature: string, value: any, plan: SubscriptionPlan) => {
     let displayValue = '';
-    let icon = 'checkmark-circle';
+    let icon = 'checkmark-circle-outline';
     let iconColor = colors.success;
 
+    // Si la fonctionnalité n'est pas définie ou est fausse (et n'est pas un quota 0), on ne l'affiche pas
+    if (value === undefined || value === false) {
+        return null;
+    }
+
     switch (feature) {
+      // --- GESTION DES QUOTAS ---
       case 'ai_analyses_per_month':
         if (value === -1) displayValue = 'Analyses IA illimitées';
-        else if (value === 0) displayValue = 'Analyses IA non incluses';
+        else if (value === 0) return null;
         else displayValue = `${value} analyses IA/mois`;
         break;
       case 'max_lots':
         if (value === -1) displayValue = 'Lots illimités';
         else displayValue = `Jusqu'à ${value} lot${value > 1 ? 's' : ''}`;
         break;
-      case 'auto_feeding':
-        displayValue = 'Rations automatiques';
-        break;
-      case 'advanced_feeding':
-        displayValue = 'Rations avancées';
-        break;
-      case 'optimized_feeding':
-        displayValue = 'Rations optimisées';
-        break;
-      case 'product_recommendations':
-        if (value === -1) displayValue = 'Recommandations illimitées';
-        else if (value === 0) displayValue = 'Recommandations non incluses';
-        else displayValue = `${value} recommandation${value > 1 ? 's' : ''}/mois`;
-        break;
-      case 'full_history':
-        displayValue = 'Historique complet';
-        break;
-      case 'sell_on_marketplace':
-        if (value === -1) displayValue = 'Ventes illimitées';
-        else if (value === 0) displayValue = 'Ventes non autorisées';
-        else displayValue = `${value} vente${value > 1 ? 's' : ''}/mois`;
-        break;
-      case 'export_reports':
-        displayValue = 'Export de rapports';
-        break;
-      case 'advanced_alerts':
-        displayValue = 'Alertes avancées';
-        break;
-      case 'delivery_discount':
-        displayValue = `-${value * 100}% livraison`;
-        break;
-      case 'delivery_free':
-        displayValue = 'Livraison gratuite';
-        break;
-      case 'product_discount':
-        displayValue = `-${value * 100}% produits`;
-        break;
-      case 'priority_support':
-        displayValue = 'Support prioritaire';
-        break;
-      case 'dedicated_support':
-        displayValue = 'Support dédié';
-        break;
-      case 'avicoins_amount':
-        displayValue = `${value} Avicoins`;
-        break;
-      case 'ai_analysis_cost':
-        displayValue = `${value} Avicoins par analyse IA`;
-        break;
-      case 'auto_feeding_cost':
-        displayValue = `${value} Avicoins par ration auto`;
-        break;
-      case 'premium_feature_cost':
-        displayValue = `${value} Avicoins par fonction premium`;
-        break;
-      case 'pro_feature_cost':
-        displayValue = `${value} Avicoins par fonction pro`;
-        break;
-      default:
-        return null;
-    }
+      
+      // --- GESTION DES FONCTIONNALITÉS PREMIUM/PRO ---
+      case 'auto_feeding': displayValue = 'Rations automatiques IA'; break;
+      case 'advanced_feeding': displayValue = 'Analyses IA (Stock & Finance)'; break;
+      case 'optimized_feeding': displayValue = 'Optimisation des coûts IA'; break;
+      case 'product_recommendations': displayValue = 'Recommandations de produits'; break;
+      case 'prophylaxy': displayValue = 'Accès à la prophylaxie médicale'; break;
+      case 'full_history': displayValue = 'Historique complet'; break;
+      case 'sell_on_marketplace': displayValue = 'Vendre sur la marketplace'; break;
+      case 'export_reports': displayValue = 'Export de rapports'; break;
+      case 'advanced_alerts': displayValue = 'Alertes avancées'; break;
+      case 'delivery_discount': displayValue = `Réduction sur la livraison`; break;
+      case 'delivery_free': displayValue = 'Livraison gratuite'; break;
+      case 'product_discount': displayValue = `Réduction sur les produits`; break;
+      case 'priority_support': displayValue = 'Support prioritaire'; break;
+      case 'dedicated_support': displayValue = 'Support dédié'; break;
 
-    // Vérifier si la fonctionnalité est disponible dans ce plan
-    if (!plan.features[feature as keyof typeof plan.features]) {
-      icon = 'close-circle';
-      iconColor = colors.error;
-      displayValue += ' (non inclus)';
+      // --- GESTION DES AVICOINS ---
+      case 'avicoins_amount': displayValue = `${value} Avicoins`; break;
+      case 'avicoins_allowed': displayValue = 'Paiement à l\'usage avec Avicoins'; break;
+
+      // Les coûts ne sont pas des "features" à afficher, donc on les ignore
+      case 'ai_analysis_cost':
+      default: return null; // Ignorer les clés inconnues ou non destinées à l'affichage
     }
 
     return (
@@ -240,7 +221,7 @@ export default function SubscriptionPlans() {
     const planColor = getPlanColor(plan.name);
 
     return (
-      <View key={plan.id} style={[styles.planCard, isCurrentPlan && styles.currentPlanCard]}>
+      <View key={plan.id} style={[styles.planCard, isCurrentPlan && { borderColor: planColor, borderWidth: 2 }]}>
         {isCurrentPlan && (
           <View style={[styles.currentPlanBadge, { backgroundColor: planColor }]}>
             <Text style={styles.currentPlanText}>ACTIF</Text>
@@ -260,19 +241,12 @@ export default function SubscriptionPlans() {
         <View style={styles.planPricing}>
           {plan.price_monthly === 0 ? (
             <Text style={[styles.planPrice, { color: planColor }]}>GRATUIT</Text>
-          ) : plan.name.startsWith('avicoins_') ? (
-            <>
-              <Text style={[styles.planPrice, { color: planColor }]}>
-                {plan.price_monthly.toLocaleString()} CFA
-              </Text>
-              <Text style={styles.planPeriod}>unique</Text>
-            </>
           ) : (
             <>
               <Text style={[styles.planPrice, { color: planColor }]}>
                 {plan.price_monthly.toLocaleString()} CFA
               </Text>
-              <Text style={styles.planPeriod}>/mois</Text>
+              <Text style={styles.planPeriod}>{plan.name.startsWith('avicoins_') ? 'unique' : '/mois'}</Text>
             </>
           )}
         </View>
@@ -286,23 +260,19 @@ export default function SubscriptionPlans() {
         <TouchableOpacity
           style={[styles.subscribeButton, { backgroundColor: planColor }, isCurrentPlan && styles.currentPlanButton]}
           onPress={() => handleSubscribe(plan)}
-          disabled={isCurrentPlan || isProcessing}
+          disabled={isCurrentPlan}
         >
-          {isProcessing ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <Text style={styles.subscribeButtonText}>
-              {isCurrentPlan ? 'Plan Actif' :
-               plan.price_monthly === 0 ? 'Activé' :
-               plan.name.startsWith('avicoins_') ? 'Acheter' : 'Souscrire'}
-            </Text>
-          )}
+          <Text style={styles.subscribeButtonText}>
+            {isCurrentPlan ? 'Plan Actif' :
+             plan.price_monthly === 0 ? 'Activé' :
+             plan.name.startsWith('avicoins_') ? 'Acheter' : 'Souscrire'}
+          </Text>
         </TouchableOpacity>
       </View>
     );
   };
 
-  if (isLoading || subscriptionLoading) {
+  if (subscriptionLoading) {
     return (
       <SafeAreaView style={commonStyles.container}>
         <View style={styles.loadingContainer}>
@@ -317,35 +287,41 @@ export default function SubscriptionPlans() {
     <SafeAreaView style={commonStyles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Icon name="arrow-back" size={24} color={colors.text} />
+          <Icon name="arrow-back-outline" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Abonnements</Text>
+        <Text style={styles.headerTitle}>Abonnements & Avicoins</Text>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
           <Text style={styles.title}>Choisissez votre plan</Text>
           <Text style={styles.subtitle}>
-            Débloquez tout le potentiel d'Aviprod avec nos offres adaptées à vos besoins
+            Débloquez tout le potentiel d'Aviprod avec nos offres adaptées.
           </Text>
-
           <View style={styles.plansContainer}>
-            {plans.map(renderPlanCard)}
+            {plans.filter(p => !p.name.startsWith('avicoins_')).map(renderPlanCard)}
+          </View>
+
+          <Text style={styles.title}>Acheter des Avicoins</Text>
+          <Text style={styles.subtitle}>
+            Utilisez les Avicoins pour accéder aux fonctionnalités premium à la carte.
+          </Text>
+          <View style={styles.plansContainer}>
+            {plans.filter(p => p.name.startsWith('avicoins_')).map(renderPlanCard)}
           </View>
 
           <View style={styles.infoSection}>
             <Text style={styles.infoTitle}>💡 Informations importantes</Text>
             <Text style={styles.infoText}>
-              • Les abonnements sont renouvelés automatiquement chaque mois{'\n'}
-              • Vous pouvez changer de plan à tout moment{'\n'}
-              • Annulation possible à tout moment{'\n'}
-              • Support technique inclus selon le plan
+              • Les abonnements sont renouvelés automatiquement chaque mois.{'\n'}
+              • Vous pouvez changer ou annuler votre plan à tout moment.{'\n'}
+              • Les Avicoins achetés ne sont pas remboursables.
             </Text>
           </View>
         </View>
       </ScrollView>
-
-      {/* Payment Modal */}
+      
+      {/*
       {selectedPlan && (
         <PaymentModal
           isVisible={showPaymentModal}
@@ -362,6 +338,7 @@ export default function SubscriptionPlans() {
           onError={handlePaymentError}
         />
       )}
+      */}
     </SafeAreaView>
   );
 }
@@ -395,6 +372,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
     marginBottom: 8,
+    marginTop: 16,
   },
   subtitle: {
     fontSize: 16,
@@ -414,10 +392,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     position: 'relative',
-  },
-  currentPlanCard: {
-    borderColor: colors.primary,
-    borderWidth: 2,
   },
   currentPlanBadge: {
     position: 'absolute',

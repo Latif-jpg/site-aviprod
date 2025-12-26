@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, TextInput, Switch, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
@@ -9,22 +9,22 @@ import Icon from '../components/Icon';
 import SimpleBottomSheet from '../components/BottomSheet';
 import FloatingActionButton from '../components/FloatingActionButton'; // Importer le bouton flottant
 import AddStockItemForm from '../components/AddStockItemForm';
-import { useLotIntelligence } from '../src/intelligence/agents/LotIntelligenceAgent'; // Importer l'agent
-import { useStockPrediction } from '../src/intelligence/agents/StockPredictionAgent'; // Importer l'agent de prédiction
 import { useDataCollector } from '../src/hooks/useDataCollector'; // Importer le collecteur
 import { supabase } from '../config'; // Import supabase directly
 import { StockItem } from '../types';
+import { useAuth } from '../hooks/useAuth';
 
-const StockItemCard = ({ item, dailyConsumption, prediction }: { item: StockItem, dailyConsumption: any, prediction: any }) => {
+const StockItemCard = ({ item, onEdit }: { item: StockItem, onEdit: (item: StockItem) => void }) => {
   const quantity = item.quantity || 0;
-  const minThreshold = item.min_threshold || 0; // Assurez-vous que ce champ est bien récupéré
-  const maxThreshold = item.max_threshold || minThreshold * 4 || quantity * 1.2;
+  const minThreshold = item.min_threshold || 0;
+  const initialQuantity = item.initial_quantity || 0;
 
-  const stockPercentage = maxThreshold > 0 ? (quantity / maxThreshold) * 100 : 0;
+  // Le pourcentage est basé sur la quantité initiale. S'il n'y en a pas, on considère 0 pour ne pas montrer de barre erronée.
+  const stockPercentage = initialQuantity > 0 ? (quantity / initialQuantity) * 100 : 0;
   const totalDailyConsumption = dailyConsumption?.total || 0;
   const daysRemaining = totalDailyConsumption > 0 ? Math.floor(quantity / totalDailyConsumption) : Infinity;
-
-  let status: 'ok' | 'low' | 'out' = 'ok';
+  const dailyConsumption = { total: item.daily_consumption, lots: item.consuming_lots };
+  let status: 'ok' | 'low' | 'out' | 'unassigned' = 'ok';
   let statusColor = colors.success;
   if (quantity <= 0) {
     status = 'out';
@@ -32,6 +32,10 @@ const StockItemCard = ({ item, dailyConsumption, prediction }: { item: StockItem
   } else if (quantity <= minThreshold) {
     status = 'low';
     statusColor = colors.warning;
+  }
+  if (item.category === 'feed' && (!dailyConsumption.lots || dailyConsumption.lots.length === 0)) {
+    status = 'unassigned';
+    statusColor = colors.textSecondary;
   }
 
   return (
@@ -41,7 +45,7 @@ const StockItemCard = ({ item, dailyConsumption, prediction }: { item: StockItem
         <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
           <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
           <Text style={[styles.statusText, { color: statusColor }]}>
-            {status === 'ok' ? 'OK' : status === 'low' ? 'Stock Bas' : 'Rupture'}
+            {status === 'ok' ? 'OK' : status === 'low' ? 'Stock Bas' : status === 'out' ? 'Rupture' : 'Non Assigné'}
           </Text>
         </View>
       </View>
@@ -49,11 +53,11 @@ const StockItemCard = ({ item, dailyConsumption, prediction }: { item: StockItem
 
       <View style={styles.quantityContainer}>
         <Text style={styles.quantityText}>{quantity.toLocaleString()} <Text style={styles.unitText}>{item.unit}</Text></Text>
-        {item.category === 'feed' && isFinite(daysRemaining) && totalDailyConsumption > 0 && (
+        {item.category === 'feed' && isFinite(item.days_remaining) && item.days_remaining !== null && (
           <View style={styles.daysRemainingContainer}>
             <Icon name="time-outline" size={14} color={colors.textSecondary} />
             <Text style={styles.daysRemainingText}>
-              ~{daysRemaining} jour{daysRemaining > 1 ? 's' : ''} restant{daysRemaining > 1 ? 's' : ''}
+              ~{item.days_remaining} jour{item.days_remaining > 1 ? 's' : ''} restant{item.days_remaining > 1 ? 's' : ''}
             </Text>
           </View>
         )}
@@ -78,212 +82,221 @@ const StockItemCard = ({ item, dailyConsumption, prediction }: { item: StockItem
         </View>
       )}
 
-      {/* --- NOUVEAU : Affichage des prédictions IA --- */}
-      {prediction && (
-        <View style={styles.predictionContainer}>
-          <View style={styles.predictionHeader}>
-            <Icon name="bulb" size={16} color={colors.primary} />
-            <Text style={styles.predictionTitle}>Prédiction IA</Text>
-          </View>
-          <View style={styles.predictionRow}>
-            <Text style={styles.predictionLabel}>Date de réapprovisionnement suggérée :</Text>
-            <Text style={styles.predictionValue}>{prediction.reorderDate.toLocaleDateString('fr-FR')}</Text>
-          </View>
-        </View>
-      )}
-
       {/* --- NOUVEAU : Bouton d'action pour le réapprovisionnement --- */}
-      {status === 'low' && (
+      {/* CORRECTION : La condition est maintenant correcte et gère les deux cas (stock bas et rupture) */}
+      {(status === 'low' || status === 'out') && item.category === 'feed' && (
         <TouchableOpacity
-          style={styles.reorderButton}
+          style={[
+            styles.reorderButton,
+            // CORRECTION : La syntaxe pour la couleur du bouton est corrigée.
+            { backgroundColor: status === 'out' ? colors.error : colors.orange }
+          ]}
           onPress={() => router.push(`/marketplace?search=${encodeURIComponent(item.name)}`)}
         >
-          <Icon name="cart" size={16} color={colors.white} />
+          <Icon name="cart-outline" size={16} color={colors.white} />
           <Text style={styles.reorderButtonText}>Acheter sur le Marketplace</Text>
         </TouchableOpacity>
       )}
+
+      {/* --- NOUVEAU : Bouton Modifier --- */}
+      <TouchableOpacity style={styles.editButton} onPress={() => onEdit(item)}>
+        <Icon name="create-outline" size={16} color={colors.primary} />
+        <Text style={styles.editButtonText}>Modifier & Assigner</Text>
+      </TouchableOpacity>
     </View>
   );
 };
 
+// --- NOUVEAU : Formulaire d'édition ---
+const EditStockItemForm = ({ item, onClose, onUpdateSuccess }: { item: StockItem, onClose: () => void, onUpdateSuccess: () => void }) => {
+  const { user } = useAuth();
+  const [name, setName] = useState(item.name);
+  const [quantity, setQuantity] = useState(item.quantity?.toString() || '0');
+  const [minThreshold, setMinThreshold] = useState(item.min_threshold?.toString() || '0');
+  const [cost, setCost] = useState(item.cost?.toString() || '0');
+  const [assignments, setAssignments] = useState<any>({});
+  const [activeLots, setActiveLots] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchFormData = async () => {
+      if (!user) return;
+      setIsLoading(true);
+      try {
+        // 1. Récupérer les lots actifs
+        const { data: lotsData, error: lotsError } = await supabase
+          .from('lots')
+          .select('id, name')
+          .eq('user_id', user.id)
+          .eq('status', 'active');
+        if (lotsError) throw lotsError;
+        setActiveLots(lotsData || []);
+
+        // 2. Récupérer les assignations existantes pour cet article
+        const { data: assignmentsData, error: assignmentsError } = await supabase
+          .from('lot_stock_assignments')
+          .select('lot_id, daily_quantity_per_bird, is_active')
+          .eq('stock_item_id', item.id);
+        if (assignmentsError) throw assignmentsError;
+
+        // 3. Pré-remplir le formulaire
+        const initialAssignments: any = {};
+        (lotsData || []).forEach(lot => {
+          const existingAssignment = (assignmentsData || []).find(a => a.lot_id === lot.id);
+          initialAssignments[lot.id] = {
+            isActive: existingAssignment ? existingAssignment.is_active : false,
+            // CORRECTION : Gérer le cas où daily_quantity_per_bird est null
+            quantity: existingAssignment && existingAssignment.daily_quantity_per_bird != null ? existingAssignment.daily_quantity_per_bird.toString() : '0.05'
+          };
+        });
+        setAssignments(initialAssignments);
+
+      } catch (error) {
+        console.error("Erreur chargement données du formulaire d'édition:", error);
+        Alert.alert("Erreur", "Impossible de charger les données pour l'édition.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchFormData();
+  }, [item, user]);
+
+  const handleAssignmentChange = (lotId: string, field: 'isActive' | 'quantity', value: any) => {
+    setAssignments((prev: any) => ({
+      ...prev,
+      [lotId]: {
+        ...prev[lotId],
+        [field]: value
+      }
+    }));
+  };
+
+  const handleSave = async () => {
+    if (!user) return;
+    setIsLoading(true);
+    try {
+      // 1. Mettre à jour l'article de stock
+      const { error: stockUpdateError } = await supabase
+        .from('stock')
+        .update({
+          name,
+          quantity: parseFloat(quantity) || 0,
+          min_threshold: parseFloat(minThreshold) || 0,
+          cost: parseFloat(cost) || 0,
+        })
+        .eq('id', item.id);
+      if (stockUpdateError) throw stockUpdateError;
+
+      // 2. Mettre à jour les assignations
+      const assignmentPromises = Object.keys(assignments).map(lotId => {
+        const assignment = assignments[lotId];
+        return supabase.from('lot_stock_assignments').upsert({
+          user_id: user.id,
+          lot_id: lotId,
+          stock_item_id: item.id,
+          daily_quantity_per_bird: parseFloat(assignment.quantity) || 0,
+          is_active: assignment.isActive,
+        }, { onConflict: 'lot_id,stock_item_id' });
+      });
+
+      await Promise.all(assignmentPromises);
+
+      Alert.alert("Succès", "L'article et ses assignations ont été mis à jour.");
+      onUpdateSuccess();
+      onClose();
+
+    } catch (error: any) {
+      console.error("Erreur sauvegarde article:", error);
+      Alert.alert("Erreur", "Impossible de sauvegarder les modifications.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    // --- CORRECTION DÉFINITIVE : Le ScrollView est maintenant le conteneur principal ---
+    <ScrollView
+      style={styles.formContainer}
+      contentContainerStyle={{ paddingBottom: 40 }} // Ajoute un espace en bas
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.formTitle}>Modifier l'article</Text>
+      <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nom de l'article" />
+      <TextInput style={styles.input} value={quantity} onChangeText={setQuantity} placeholder="Quantité en stock" keyboardType="numeric" />
+      <TextInput style={styles.input} value={minThreshold} onChangeText={setMinThreshold} placeholder="Seuil minimum" keyboardType="numeric" />
+      <TextInput style={styles.input} value={cost} onChangeText={setCost} placeholder="Coût unitaire" keyboardType="numeric" />
+
+      <Text style={styles.formSubtitle}>Assignations aux lots</Text>
+      {isLoading ? <ActivityIndicator /> : activeLots.map(lot => (
+        <View key={lot.id} style={styles.assignmentRow}>
+          <Text style={styles.assignmentLotName}>{lot.name}</Text>
+          <Switch value={assignments[lot.id]?.isActive || false} onValueChange={val => handleAssignmentChange(lot.id, 'isActive', val)} />
+          {assignments[lot.id]?.isActive && <TextInput style={styles.assignmentInput} value={assignments[lot.id]?.quantity || '0'} onChangeText={val => handleAssignmentChange(lot.id, 'quantity', val)} keyboardType="numeric" />}
+        </View>
+      ))}
+
+      <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={isLoading}>
+        <Text style={styles.saveButtonText}>{isLoading ? "Sauvegarde..." : "Sauvegarder"}</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+};
+
 export default function StockScreen() {
-   // --- MODIFICATION : Ajout de la fonction de consommation autonome ---
-   const { stock, lots, loadStock, loadLots, isLoading, runDailyStockConsumption } = useData();
+   const { user } = useAuth();
    const [isRefreshing, setIsRefreshing] = useState(false);
    const [isAddFormVisible, setIsAddFormVisible] = useState(false);
-   const { generateUpcomingFeedAlerts } = useLotIntelligence();
-   const [feedChangeAlerts, setFeedChangeAlerts] = useState<any[]>([]);
-   const { trackAction } = useDataCollector();
-   const { predictStockLevels } = useStockPrediction();
-   const [predictions, setPredictions] = useState<Map<string, any>>(new Map());
-   const [consumptionData, setConsumptionData] = useState<{
-     total: number;
-     byItem: Map<string, { total: number; lots: { name: string; consumption: number }[] }>;
-   }>({ total: 0, byItem: new Map() });
+   const [stockData, setStockData] = useState<{ kpis: any, items: any[] } | null>(null);
+   const [isLoading, setIsLoading] = useState(true);
+   const [itemToEdit, setItemToEdit] = useState<StockItem | null>(null);
+
+  const loadStockOverview = useCallback(async () => {
+    if (!user) return;
+    setIsLoading(true);
+    try {
+      console.log('📦 Calling RPC get_stock_overview...');
+      const { data, error } = await supabase.rpc('get_stock_overview', { p_user_id: user.id });
+      if (error) throw error;
+      
+      console.log('✅ Received stock overview from RPC:', data);
+      setStockData(data);
+
+    } catch (error) {
+      console.error('❌ Error loading stock overview:', error);
+      setStockData(null);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [user]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    Promise.all([loadStock(), loadLots()]).finally(() => setIsRefreshing(false));
-  }, [loadStock, loadLots]);
+    loadStockOverview();
+  }, [loadStockOverview]);
+
+  const handleEditItem = (item: StockItem) => {
+    setItemToEdit(item);
+  };
 
   useFocusEffect(
      useCallback(() => {
-       loadStock();
-       loadLots();
-     }, [loadStock, loadLots])
+       loadStockOverview();
+     }, [loadStockOverview])
    );
 
-  // --- NOUVEAU : Générer les alertes quand les données sont prêtes ---
-  useEffect(() => {
-    if (lots.length > 0) {
-      const alerts = generateUpcomingFeedAlerts(lots);
-      // --- NOUVEAU : Suivi de l'agent d'alertes de ration ---
-      trackAction('ai_ration_alert_generated', {
-        alertCount: alerts.length,
-        lotCount: lots.length,
-      });
-      setFeedChangeAlerts(alerts);
-    }
-  }, [lots]);
+  const analytics = useMemo(() => stockData?.kpis || {
+    total_items: 0,
+    low_stock_items: 0,
+    out_of_stock_items: 0,
+    total_stock_value: 0,
+    total_feed_consumption: 0,
+  }, [stockData]);
 
-  // --- CORRECTION : Calculer la consommation totale uniquement lorsque les données sont prêtes ---
-  useEffect(() => {
-    const calculateConsumption = async () => {
-      console.log('--- LANCEMENT DU CALCUL DE CONSOMMATION ---');
 
-      if (!lots.length || !stock.length) {
-        console.log('🔴 CALCUL ARRÊTÉ : Les lots ou le stock ne sont pas encore chargés.');
-        console.log(`   - Lots chargés: ${lots.length > 0 ? '✅' : '❌'}`);
-        console.log(`   - Stock chargé: ${stock.length > 0 ? '✅' : '❌'}`);
-        return;
-      }
-
-      console.log(`🔍 Données initiales: ${lots.length} lot(s) et ${stock.length} article(s) en stock.`);
-
-      // --- CORRECTION : Utiliser la table d'assignation directe ---
-      const { data: assignments, error: assignmentError } = await supabase
-        .from('lot_stock_assignments')
-        .select('lot_id, stock_item_id, daily_quantity_per_bird')
-        .eq('is_active', true);
-
-      // --- NOUVEAU : Charger les rations personnalisées comme solution de repli ---
-      const { data: rations, error: rationsError } = await supabase
-        .from('custom_feed_rations')
-        .select('lot_id, daily_consumption_per_bird_grams');
-
-      if (rationsError) {
-        console.warn("🟡 Avertissement: Impossible de charger les rations personnalisées pour le repli.", rationsError);
-      }
-
-      if (assignmentError) {
-        console.error("🔴 ERREUR CRITIQUE lors du chargement des assignations:", assignmentError);
-        return;
-      }
-      if (!assignments || assignments.length === 0) {
-        console.log('🔴 CALCUL ARRÊTÉ : Aucune assignation active trouvée dans `lot_stock_assignments`.');
-        return;
-      }
-
-      console.log(`✅ ${assignments.length} assignation(s) active(s) trouvée(s).`);
-
-      let totalConsumption = 0;
-      const consumptionByItem = new Map<string, {
-        total: number;
-        lots: { name: string; consumption: number }[];
-      }>();
-
-      for (const lot of lots.filter(l => l.status === 'active')) {
-        console.log(`\n--- Traitement du lot: "${lot.name}" (ID: ${lot.id}) ---`);
-        const assignment = assignments.find(a => a.lot_id === lot.id);
-        
-        if (!assignment || !assignment.stock_item_id) {
-          console.log(`   🟡 Pas d'assignation de stock active pour ce lot.`);
-          continue;
-        }
-
-        console.log(`   ✅ Assignation trouvée: lie le lot à stock_item_id "${assignment.stock_item_id}".`);
-
-        let stockItem = null;
-        stockItem = stock.find(s => s.id === assignment.stock_item_id);
-
-        if (!stockItem) {
-          console.log(`   🔴 ERREUR: L'article de stock avec l'ID "${assignment.stock_item_id}" n'a pas été trouvé dans les données de stock chargées.`);
-          continue;
-        }
-
-        // --- LOGIQUE AMÉLIORÉE : Utiliser une valeur de repli ---
-        let consumptionPerBirdKg = assignment.daily_quantity_per_bird;
-
-        if (!consumptionPerBirdKg || consumptionPerBirdKg <= 0) {
-          const fallbackRation = rations?.find(r => r.lot_id === lot.id);
-          if (fallbackRation && fallbackRation.daily_consumption_per_bird_grams > 0) {
-            consumptionPerBirdKg = fallbackRation.daily_consumption_per_bird_grams / 1000; // Convertir g en kg
-            console.log(`   🟡 Repli utilisé: ${fallbackRation.daily_consumption_per_bird_grams}g/jour trouvé dans custom_feed_rations.`);
-          }
-        }
-
-        if (consumptionPerBirdKg && consumptionPerBirdKg > 0) {
-          const dailyConsumptionForLot = (consumptionPerBirdKg * lot.quantity);
-          console.log(`      ➡️ Calcul: ${consumptionPerBirdKg.toFixed(3)} kg/oiseau * ${lot.quantity} oiseaux = ${dailyConsumptionForLot.toFixed(2)} kg/jour.`);
-          totalConsumption += dailyConsumptionForLot;
-
-          // --- LOGIQUE AMÉLIORÉE : Stocker les détails par lot ---
-          const currentItemData = consumptionByItem.get(stockItem.id) || { total: 0, lots: [] };
-          currentItemData.total += dailyConsumptionForLot;
-          currentItemData.lots.push({
-            name: lot.name,
-            consumption: dailyConsumptionForLot,
-          });
-          consumptionByItem.set(stockItem.id, currentItemData);
-
-        } else {
-          console.log(`   🟡 L'assignation pour l'article "${stockItem.name}" a une consommation journalière de 0 ou non définie.`);
-        }
-      }
-      console.log('\n--- RÉSULTAT FINAL ---');
-      console.log(`   - Consommation totale calculée: ${totalConsumption.toFixed(2)} kg.`);
-
-      // --- NOUVEAU : Générer les prédictions ---
-      const newPredictions = new Map<string, any>();
-      for (const item of stock) {
-        const consumptionInfo = consumptionByItem.get(item.id);
-        if (consumptionInfo && consumptionInfo.total > 0) {
-          const prediction = predictStockLevels({ item, dailyConsumption: consumptionInfo.total });
-          // --- NOUVEAU : Suivi de l'agent de prédiction de stock ---
-          trackAction('ai_stock_prediction_generated', {
-            itemId: item.id,
-            daysRemaining: prediction?.daysRemaining,
-            reorderDate: prediction?.reorderDate?.toISOString(),
-          });
-          if (prediction) {
-            newPredictions.set(item.id, prediction);
-          }
-        }
-      }
-      setConsumptionData({ total: totalConsumption, byItem: consumptionByItem });
-      setPredictions(newPredictions);
-    };
-    calculateConsumption();
-
-    // --- NOUVEAU : Déclencheur de la consommation quotidienne autonome.
-    // Ceci s'assure que la logique est exécutée une fois par jour, seulement quand les données sont prêtes.
-    if (lots.length > 0 && stock.length > 0) {
-      runDailyStockConsumption();
-    }
-
-  }, [lots, stock]); // Ce hook se redéclenchera à chaque fois que `lots` ou `stock` changent.
-
-  const analytics = useMemo(() => {
-    const totalItems = stock.length;
-    const lowStockItems = stock.filter(item => item.quantity <= item.min_threshold).length;
-    const outOfStockItems = stock.filter(item => item.quantity === 0).length;
-    const stockValue = stock.reduce((sum, item) => sum + (item.quantity * (item.cost || 0)), 0);
-
-    return { totalItems, lowStockItems, outOfStockItems, stockValue };
-  }, [stock]);
 
   // --- NOUVEAU : Affichage de l'écran de chargement ---
-  if (isLoading && stock.length === 0) {
+  if (isLoading && !stockData) {
     return (
       <SafeAreaView style={styles.loadingSafeArea}>
         <View style={styles.loadingContainer}>
@@ -304,7 +317,7 @@ export default function StockScreen() {
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.replace('/dashboard')}
-          >
+          > 
             <Icon name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View>
@@ -316,9 +329,10 @@ export default function StockScreen() {
           <View style={styles.mainMetricCard}>
             <Text style={styles.mainMetricLabel}>Consommation Journalière (Aliments)</Text>
             <Text style={[styles.mainMetricValue, { color: colors.success }]}>
-              {consumptionData.total.toFixed(2)} <Text style={{ fontSize: 24 }}>kg</Text>
+              {(analytics.total_feed_consumption || 0).toFixed(2)} <Text style={{ fontSize: 18 }}>kg</Text>
             </Text>
           </View>
+
         </View>
       </LinearGradient>
 
@@ -331,57 +345,38 @@ export default function StockScreen() {
         {/* KPI Grid */}
         <View style={styles.kpiGrid}>
           <View style={[styles.kpiCard, styles.kpiCardFull]}>
-            <Icon name="archive" size={24} color={analytics.lowStockItems > 0 ? colors.error : colors.success} />
-            <Text style={[styles.kpiValue, { color: analytics.lowStockItems > 0 ? colors.error : colors.success }]}>
-              {analytics.lowStockItems}
+            <Icon name="cash-outline" size={24} color={colors.primary} />
+            <Text style={[styles.kpiValue, { color: colors.primary }]}>
+              {(analytics.total_stock_value || 0).toLocaleString()} CFA
             </Text>
+            <Text style={styles.kpiLabel}>Valeur totale du stock</Text>
+          </View>
+          <View style={[styles.kpiCard, styles.kpiCardHalf]}>
+            <Icon name="archive-outline" size={24} color={analytics.low_stock_items > 0 ? colors.warning : colors.success} />
+            <Text style={[styles.kpiValue, { color: analytics.low_stock_items > 0 ? colors.warning : colors.success }]}>{analytics.low_stock_items || 0}</Text>
             <Text style={styles.kpiLabel}>Stock bas</Text>
           </View>
           <View style={[styles.kpiCard, styles.kpiCardHalf]}>
-            <Icon name="cash" size={24} color={colors.primary} />
-            <Text style={styles.kpiValue}>{analytics.stockValue.toLocaleString()} CFA</Text>
-            <Text style={styles.kpiLabel}>Valeur totale</Text>
-          </View>
-          <View style={[styles.kpiCard, styles.kpiCardHalf]}>
-            <Icon name="time" size={24} color={colors.warning} />
-            <Text style={styles.kpiValue}>{analytics.outOfStockItems}</Text>
+            <Icon name="close-circle-outline" size={24} color={analytics.out_of_stock_items > 0 ? colors.error : colors.success} />
+            <Text style={[styles.kpiValue, { color: analytics.out_of_stock_items > 0 ? colors.error : colors.success }]}>{analytics.out_of_stock_items || 0}</Text>
             <Text style={styles.kpiLabel}>Rupture</Text>
           </View>
         </View>
 
-        {/* --- NOUVEAU : Section d'alertes proactives --- */}
-        {feedChangeAlerts.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🔔 Alertes Proactives</Text>
-            {feedChangeAlerts.map(alert => (
-              <View key={alert.id} style={styles.proactiveAlertCard}>
-                <Icon name="warning" size={24} color="#F59E0B" />
-                <View style={styles.proactiveAlertContent}>
-                  <Text style={styles.proactiveAlertTitle}>{alert.title}</Text>
-                  <Text style={styles.proactiveAlertMessage}>{alert.message}</Text>
-                  <TouchableOpacity style={styles.proactiveAlertAction} onPress={() => router.push('/feeding')}>
-                    <Text style={styles.proactiveAlertActionText}>Gérer les rations</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
         {/* Stock List */}
         <View style={styles.historySection}>
           <Text style={styles.sectionTitle}>Inventaire Détaillé</Text>
-          {stock.length > 0 ? (
-            stock.map(item => (
+          {stockData && stockData.items.length > 0 ? (
+            stockData.items.map(item => (
               <StockItemCard
                 key={item.id}
                 item={item}
-                dailyConsumption={consumptionData.byItem.get(item.id) || 0}
+                onEdit={handleEditItem}
               />
             ))
           ) : (
             <View style={styles.emptyState}>
-              <Icon name="archive" size={48} color={colors.textSecondary} />
+              <Icon name="archive-outline" size={48} color={colors.textSecondary} />
               <Text style={styles.emptyStateText}>Aucun article en stock</Text>
               <Text style={styles.emptyStateText}>Commencez par ajouter votre premier article</Text>
             </View>
@@ -399,9 +394,19 @@ export default function StockScreen() {
         />
       </SimpleBottomSheet>
 
+      {/* --- NOUVEAU : Modale pour l'édition --- */}
+      <SimpleBottomSheet isVisible={!!itemToEdit} onClose={() => setItemToEdit(null)}>
+        {itemToEdit && <EditStockItemForm
+          item={itemToEdit}
+          onClose={() => setItemToEdit(null)}
+          onUpdateSuccess={handleRefresh}
+        />}
+      </SimpleBottomSheet>
+
       {/* --- NOUVEAU : Bouton flottant pour ajouter un article --- */}
       <FloatingActionButton
         icon="add"
+        // Le nouveau FAB en mode simple utilise la prop "onPress"
         onPress={() => setIsAddFormVisible(true)}
       />
     </SafeAreaView>
@@ -452,22 +457,23 @@ const styles = StyleSheet.create({
   },
   headerMetrics: {
     paddingHorizontal: 20,
-    marginTop: 16, // Réduction de la marge
+    marginTop: 16,
+    gap: 12, // Retrait de flexDirection: 'row'
   },
   mainMetricCard: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     alignItems: 'center',
   },
   mainMetricLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#cbd5e1',
     fontWeight: '600',
     marginBottom: 8,
   },
   mainMetricValue: {
-    fontSize: 48,
+    fontSize: 36,
     fontWeight: '900',
     color: '#fff',
   },
@@ -698,6 +704,74 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.white,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary + '20',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 16,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+  },
+  editButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  // Styles pour le formulaire d'édition
+  formContainer: {
+    padding: 20,
+    flex: 1, // --- CORRECTION : Permet au ScrollView de prendre l'espace nécessaire ---
+  },
+  formTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  formSubtitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 20,
+    marginBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 10,
+  },
+  input: {
+    backgroundColor: colors.background,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  assignmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  assignmentLotName: { flex: 1, fontSize: 16, color: colors.text },
+  assignmentInput: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 6, padding: 8, width: 80, textAlign: 'center'
+  },
+  // --- CORRECTION : Styles pour le bouton de sauvegarde ---
+  saveButton: {
+    backgroundColor: colors.primary,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 24, // Remonte le bouton
+    marginBottom: 20, // Ajoute de l'espace en bas pour éviter d'être caché
+  },
+  saveButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
   },
   emptyStateText: { marginTop: 16, fontSize: 16, color: colors.textSecondary },
   // --- NOUVEAU : Styles pour le chargement ---

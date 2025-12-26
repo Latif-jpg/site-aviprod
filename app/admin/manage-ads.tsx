@@ -8,6 +8,8 @@ import { colors } from '../../styles/commonStyles';
 import Button from '../../components/Button';
 import { router } from 'expo-router'; // Import router for navigation
 import Icon from '../../components/Icon'; // Assuming Icon component exists
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 
 // Simplified type for this screen
 interface Ad {
@@ -100,7 +102,7 @@ export default function ManageAdsScreen() {
         }
 
         let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: MediaTypeOptions.Images,
+
             allowsEditing: false,
             quality: 0.8,
         });
@@ -121,17 +123,15 @@ export default function ManageAdsScreen() {
             const fileName = `${Date.now()}.${fileExt}`;
             const filePath = `${fileName}`;
 
-            // Correction pour l'upload: utiliser le blob directement au lieu de FormData
-            const response = await fetch(uri);
-            const blob = await response.blob();
-
-            // Créer un FormData correct pour le téléversement
-            const formData = new FormData();
-            formData.append('file', blob, fileName);
+            const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+            const arrayBuffer = decode(base64);
 
             let { error: uploadError } = await supabase.storage
                 .from('advertisements')
-                .upload(filePath, formData);
+                .upload(filePath, arrayBuffer, {
+                    contentType: contentType,
+                    upsert: false
+                });
 
             if (uploadError) {
                 throw uploadError;

@@ -1,426 +1,376 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Dimensions } from 'react-native';
-import { router } from 'expo-router';
+import React, { useState, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// import { PieChart } from 'react-native-svg-charts'; // Retiré pour cause d'incompatibilité
+import { useFocusEffect, router } from 'expo-router';
+import { colors } from '../styles/commonStyles';
+import { supabase } from '../config';
+import { useAuth } from '../hooks/useAuth';
+import { useProfile } from '../contexts/ProfileContext'; // --- NOUVEAU : Pour obtenir l'ID de la ferme ---
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, commonStyles } from '../styles/commonStyles';
-import Icon from '../components/Icon';
+import FinancialAdvisorDashboard from '../src/intelligence/ui/FinancialAdvisorDashboard'; // --- NOUVEAU : Importer le bon tableau de bord IA ---
+import FinancialRecordCard from './FinancialRecordCard'; // CORRECTION : Le fichier est dans le même dossier 'app'
 import SimpleBottomSheet from '../components/BottomSheet';
 import AddFinancialRecordForm from '../components/AddFinancialRecordForm';
-import { useFinance } from '../hooks/useFinance'; // Assurez-vous que ce chemin est correct
-import { supabase } from '../config'; // Utiliser le client Supabase consolidé
-import FinancialAdvisorDashboard from '../src/intelligence/ui/FinancialAdvisorDashboard';
-import { useAuth } from '../hooks/useAuth';
+import EditFinancialRecordForm from './EditFinancialRecordForm'; // CORRECTION : Le fichier est dans le même dossier 'app'
+import FloatingActionButton from '../components/FloatingActionButton';
+import { FinancialRecord } from '../types';
+import Icon from '../components/Icon';
 
-import { useDataCollector } from '../src/hooks/useDataCollector'; // Importer le collecteur
-const { width } = Dimensions.get('window');
+// --- NOUVEAU : Fonction pour obtenir l'icône de catégorie ---
+// Cette fonction centralise la logique pour choisir la bonne icône en fonction de la catégorie.
+const getCategoryIcon = (category: string): string => {
+  const cat = category.toLowerCase();
+  if (cat.includes('vente')) return 'cash-outline';
+  if (cat.includes('aliment')) return 'fast-food-outline';
+  if (cat.includes('médicament')) return 'medkit-outline';
+  if (cat.includes('équipement')) return 'build-outline';
+  if (cat.includes('main d\'œuvre') || cat.includes('salaire')) return 'people-outline';
+  if (cat.includes('transport')) return 'car-outline';
+  if (cat.includes('facture') || cat.includes('électricité') || cat.includes('eau')) return 'receipt-outline';
+  if (cat.includes('service')) return 'construct-outline';
+  if (cat.includes('partenariat') || cat.includes('investissement')) return 'business-outline';
+  if (cat.includes('autre')) return 'apps-outline';
+
+  // Icône par défaut si aucune correspondance n'est trouvée
+  return 'help-circle-outline';
+};
 
 export default function FinanceScreen() {
-  const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter'>('month');
-  const { financialRecords, financialSummary, loading, loadFinancialRecords } = useFinance(selectedPeriod);
-  const [isAddRecordVisible, setIsAddRecordVisible] = useState(false);
-  const [recordType, setRecordType] = useState<'income' | 'expense'>('income');
-  const [isSaving, setIsSaving] = useState(false);
-  const [showAdvisor, setShowAdvisor] = useState(false);
+  // --- NOUVEAU : État pour le résumé financier ---
+  const { profile } = useProfile(); // --- NOUVEAU ---
   const { user } = useAuth();
-  const { trackAction } = useDataCollector(); // Utiliser le collecteur
+  const [records, setRecords] = useState<FinancialRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [recordToEdit, setRecordToEdit] = useState<FinancialRecord | null>(null);
+  const [showAdvisor, setShowAdvisor] = useState(false); // --- NOUVEAU : État pour la modale IA ---
+  const [addRecordType, setAddRecordType] = useState<'income' | 'expense'>('expense');
+  const [activeTab, setActiveTab] = useState<'all' | 'income' | 'expense'>('all');
+  const [period, setPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
+  const [summary, setSummary] = useState({ revenue: 0, expenses: 0, profit: 0, profitMargin: 0 }); // CORRECTION : Ajout de profitMargin
 
+  const fetchRecords = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      // --- CORRECTION : La fonction RPC gère déjà les périodes (mois/semaine).
+      // On simplifie donc la logique ici. On garde le filtre pour la liste des transactions.
+      const fromDate = new Date();
+      if (period === 'week') {
+        fromDate.setDate(fromDate.getDate() - 7);
+      } else if (period === 'month') {
+        // La RPC calcule déjà le mois, mais on garde un filtre d'un mois pour la liste.
+        // Pour une meilleure cohérence, on pourrait même aller chercher plus loin (ex: 3 mois)
+        // et laisser les onglets filtrer l'affichage.
+        // Pour l'instant, on garde un filtre d'un mois pour la liste.
+        const now = new Date();
+        // On prend le premier jour du mois précédent pour être sûr de tout avoir.
+        fromDate.setMonth(now.getMonth() - 1, 1);
+        fromDate.setHours(0, 0, 0, 0);
+      } else if (period === 'quarter') { // --- NOUVEAU : Gestion du trimestre ---
+        fromDate.setMonth(fromDate.getMonth() - 3);
 
+      } else if (period === 'year') {
+        fromDate.setFullYear(fromDate.getFullYear() - 1);
+      }
 
-  const getAIInsights = () => {
-    if (!financialSummary) return [];
+      // --- MODIFICATION : Utiliser une seule requête RPC pour tout récupérer ---
+      let query = supabase
+          .from('financial_records')
+          .select('*')
+          .eq('user_id', user.id)
+          // --- CORRECTION : La logique de date est maintenant gérée par la RPC,
+          // mais on garde un filtre large côté client pour la liste.
+          .gte('record_date', fromDate.toISOString())
+          .order('record_date', { ascending: false });
 
-    const insights = [];
-    const { totalIncome, totalExpenses, profitMargin } = financialSummary;
+      // --- NOUVEAU : Appeler la fonction RPC. Elle calcule déjà toutes les périodes.
+      const rpcParams = { p_user_id: user.id };
+      const { data: summaryData, error: summaryError } = await supabase.rpc('get_dashboard_financial_summary', rpcParams);
 
-    // Insight 1: Cost optimization
-    if (totalIncome > 0 && totalExpenses > totalIncome * 0.7) {
-      insights.push({
-        type: 'warning',
-        title: 'Optimisation des coûts recommandée',
-        description: `Vos dépenses représentent ${((totalExpenses / totalIncome) * 100).toFixed(0)}% de vos revenus`,
-        impact: `Réduire de 10% = +${(totalExpenses * 0.1).toLocaleString()} FCFA`,
-        confidence: 92,
-        icon: 'alert-circle'
-      });
-      trackAction('ai_financial_insight_generated', {
-        insight_type: 'cost_optimization',
-        expense_ratio: (totalExpenses / totalIncome),
-        impact: `Réduire de 10% = +${(totalExpenses * 0.1).toLocaleString()} FCFA`,
-        confidence: 92,
-        icon: 'alert-circle'
-      });
+      if (activeTab !== 'all') {
+        query = query.eq('type', activeTab);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      if (summaryError) throw summaryError;
+
+      // --- LOG DE DÉBOGAGE : Affiche les données brutes du résumé reçues de la RPC ---
+      console.log('📊 [FinanceScreen] Données brutes du résumé reçues de la RPC:', JSON.stringify(summaryData, null, 2));
+
+      setRecords(data || []);
+
+      // On met à jour l'état du résumé avec les données de la RPC.
+      // On choisit les données à afficher (mensuelles ou hebdomadaires) en fonction de la période sélectionnée.
+      if (summaryData) {
+        let revenue = 0, expenses = 0, profit = 0, profitMargin = 0;
+
+        // --- CORRECTION : La logique est maintenant unifiée et pilotée par la RPC ---
+        // On utilise directement les valeurs retournées, car la RPC gère maintenant tous les cas.
+        if (period === 'week') {
+          revenue = summaryData.weeklyrevenue;
+          expenses = summaryData.weeklyexpenses;
+          profit = summaryData.weeklyprofit;
+          profitMargin = summaryData.weeklyprofitmargin;
+        } else if (period === 'quarter') {
+          revenue = summaryData.quarterlyrevenue;
+          expenses = summaryData.quarterlyexpenses;
+          profit = summaryData.quarterlyprofit;
+          profitMargin = summaryData.quarterlyprofitmargin;
+        } else if (period === 'year') {
+          revenue = summaryData.yearlyrevenue;
+          expenses = summaryData.yearlyexpenses;
+          profit = summaryData.yearlyprofit;
+          profitMargin = summaryData.yearlyprofitmargin;
+        } else { // Par défaut, on utilise les données mensuelles (qui sont maintenant sur 30 jours glissants)
+          revenue = summaryData.monthlyrevenue;
+          expenses = summaryData.monthlyexpenses;
+          profit = summaryData.monthlyprofit;
+          profitMargin = summaryData.monthlyprofitmargin;
+        }
+
+        setSummary({
+          revenue, expenses, profit, profitMargin
+        });
+      }
+    } catch (error: any) {
+      console.error("Erreur chargement transactions:", error);
+      // Gérer l'erreur, par exemple avec une alerte
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
     }
+  }, [user, activeTab, period]); // --- NOUVEAU : Ajouter 'period' aux dépendances ---
 
-    // Insight 2: Growth opportunity
-    if (profitMargin > 30) {
-      insights.push({
-        type: 'success',
-        title: 'Excellente performance',
-        description: `Votre marge de ${profitMargin.toFixed(1)}% dépasse les standards`,
-        impact: 'Capacité d\'expansion détectée',
-        confidence: 95,
-        icon: 'trending-up'
-      });
-      trackAction('ai_financial_insight_generated', {
-        insight_type: 'growth_opportunity',
-        profit_margin: profitMargin,
-        impact: 'Capacité d\'expansion détectée',
-        confidence: 95,
-        icon: 'trending-up'
-      });
-    }
-
-    // Insight 3: Revenue trend
-    const incomeRecords = financialRecords.filter(r => r.type === 'income');
-    const avgRevenue = incomeRecords.length > 0 ? totalIncome / incomeRecords.length : 0;
-    if (avgRevenue > 0) {
-      insights.push({
-        type: 'info',
-        title: 'Revenu moyen par transaction',
-        description: `${avgRevenue.toLocaleString()} FCFA`,
-        impact: 'Analyser les sources les plus rentables',
-        confidence: 88,
-        icon: 'analytics'
-      });
-      trackAction('ai_financial_insight_generated', {
-        insight_type: 'average_revenue',
-        average_revenue: avgRevenue,
-        impact: 'Analyser les sources les plus rentables',
-        confidence: 88,
-        icon: 'analytics'
-      });
-    }
-
-    return insights;
-  };
-
-  // La logique de sauvegarde est maintenant dans AddFinancialRecordForm.
-  // Ce handler est appelé une fois que la sauvegarde a réussi.
-  const handleRecordAdded = () => {
-    setIsAddRecordVisible(false); // Fermer le formulaire
-    // Recharger les données pour mettre à jour l'écran
-    loadFinancialRecords(selectedPeriod); 
-  };
-
-  const renderPeriodSelector = () => (
-    <View style={styles.periodSelector}>
-      {(['week', 'month', 'quarter'] as const).map((period) => (
-        <TouchableOpacity
-          key={period}
-          style={[
-            styles.periodButton,
-            selectedPeriod === period && styles.periodButtonActive
-          ]}
-          onPress={() => setSelectedPeriod(period)}
-        >
-          <Text style={[
-            styles.periodButtonText,
-            selectedPeriod === period && styles.periodButtonTextActive
-          ]}>
-            {period === 'week' ? '7J' : period === 'month' ? '30J' : '90J'}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
+  useFocusEffect(
+    useCallback(() => {
+      fetchRecords();
+    }, [fetchRecords])
   );
 
-  const renderMetricCard = (
-    title: string,
-    amount: number,
-    icon: string,
-    gradient: string[]
-  ) => (
-    // Le paramètre 'trend' n'est plus utilisé, les données viennent de financialSummary
-    // La logique est maintenant directement dans le JSX ci-dessous
-
-    <LinearGradient
-      colors={gradient}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.metricCard}
-    >
-      <View style={styles.metricHeader}>
-        <View style={styles.metricIconContainer}>
-          <Icon name={icon as any} size={24} color="#fff" />
-        </View>
-      </View>
-      <Text style={styles.metricTitle}>{title}</Text>
-      <Text style={styles.metricAmount}>{amount.toLocaleString()} FCFA</Text>
-    </LinearGradient>
-  );
-
-  const renderProfitCard = () => {
-    if (!financialSummary) return null;
-    const { profit, profitMargin, isRentable } = financialSummary;
-
-    return (
-      <View style={styles.profitCard}>
-        <LinearGradient
-          colors={isRentable ? ['#10b981', '#059669'] : ['#ef4444', '#dc2626']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profitGradient}
-        >
-          <View style={styles.profitHeader}>
-            <View style={styles.profitIconContainer}>
-              <Icon name={isRentable ? 'checkmark-circle' : 'close-circle'} size={40} color="#fff" />
-            </View>
-            <View style={styles.profitInfo}>
-              <Text style={styles.profitStatus}>
-                {isRentable ? '✅ Rentable' : '⚠️ Non Rentable'}
-              </Text>
-              <Text style={styles.profitMargin}>Marge: {profitMargin.toFixed(1)}%</Text>
-            </View>
-          </View>
-          <Text style={styles.profitAmount}>{profit.toLocaleString()} FCFA</Text>
-        </LinearGradient>
-      </View>
-    );
+  const onRefresh = () => {
+    setIsRefreshing(true);
+    fetchRecords();
   };
 
-  const renderAIInsights = () => {
-    const insights = getAIInsights();
+  const handleEdit = (record: FinancialRecord) => {
+    setRecordToEdit(record);
+  };
 
-    return (
-      <View style={styles.aiInsightsContainer}>
-        <View style={styles.aiHeader}>
-          <View style={styles.aiIconContainer}>
-            <Icon name="bulb" size={20} color="#fff" />
-          </View>
-          <Text style={styles.aiTitle}>Insights IA</Text>
-          <View style={styles.liveIndicator}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>Live</Text>
-          </View>
-        </View>
+  const handleUpdateSuccess = () => {
+    setRecordToEdit(null);
+    onRefresh();
+  };
 
-        {insights.map((insight, index) => (
-          <View key={index} style={[
-            styles.insightCard,
-            insight.type === 'warning' && styles.insightWarning,
-            insight.type === 'success' && styles.insightSuccess,
-            insight.type === 'info' && styles.insightInfo,
-          ]}>
-            <View style={styles.insightHeader}>
-              <Icon name={insight.icon as any} size={24} color={
-                insight.type === 'warning' ? '#f59e0b' :
-                insight.type === 'success' ? '#10b981' : '#3b82f6'
-              } />
-              <View style={styles.insightTitleContainer}>
-                <Text style={styles.insightTitle}>{insight.title}</Text>
-                <Text style={styles.insightDescription}>{insight.description}</Text>
-              </View>
-            </View>
-            <View style={styles.insightFooter}>
-              <Text style={styles.insightImpact}>💡 {insight.impact}</Text>
-              <View style={styles.confidenceContainer}>
-                <View style={styles.confidenceBar}>
-                  <View style={[styles.confidenceFill, { width: `${insight.confidence}%` }]} />
-                </View>
-                <Text style={styles.confidenceText}>{insight.confidence}%</Text>
-              </View>
-            </View>
-          </View>
-        ))}
-      </View>
-    );
+  const handleAddRecord = (type: 'income' | 'expense') => {
+    setAddRecordType(type);
+    setIsAddModalVisible(true);
   };
 
 
-
-
-
-  if (loading) {
-    return (
-      <SafeAreaView style={commonStyles.container}>
-        <ActivityIndicator size="large" color={colors.primary} style={{ flex: 1 }} />
-      </SafeAreaView>
+  const handleDelete = async (recordId: string) => {
+    Alert.alert(
+      "Confirmer la suppression",
+      "Êtes-vous sûr de vouloir supprimer cette transaction ? Cette action est irréversible.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase.from('financial_records').delete().eq('id', recordId);
+              if (error) throw error;
+              Alert.alert("Succès", "La transaction a été supprimée.");
+              onRefresh(); // Rafraîchir la liste
+            } catch (error: any) {
+              Alert.alert("Erreur", "Impossible de supprimer la transaction.");
+            }
+          },
+        },
+      ]
     );
-  }
+  };
+  // --- NOUVEAU : Filtrer les enregistrements pour l'analyse ---
+  const filteredRecordsForBreakdown = useMemo(() => {
+    if (activeTab === 'all') {
+      // Pour l'analyse, il est souvent plus utile de voir les dépenses
+      return records.filter(r => r.type === 'expense');
+    }
+    return records.filter(r => r.type === activeTab);
+  }, [records, activeTab]);
+
+  const breakdownTitle = activeTab === 'income' ? "Répartition des Revenus" : "Répartition des Dépenses";
+
+  const renderContent = () => {
+    if (loading) {
+      return <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 50 }} />;
+    }
+    if (records.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Icon name="document-text-outline" size={48} color={colors.textSecondary} />
+          <Text style={styles.emptyText}>Aucune transaction pour le moment.</Text>
+        </View>
+      );
+    }
+    return records.map(record => (
+      <FinancialRecordCard 
+        key={record.id} 
+        record={record} 
+        onEdit={() => handleEdit(record)} 
+        onDelete={() => handleDelete(record.id)}
+      />
+    ));
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* --- NOUVEL EN-TÊTE --- */}
       <LinearGradient
-        colors={['#1e293b', '#0f172a']}
-        style={styles.header}
+        colors={['#1e3a8a', '#1e293b']}
+        style={styles.headerGradient}
       >
         <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/dashboard')}>
             <Icon name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
-          <View>
-            <Text style={styles.headerTitle}>Finance Intelligence</Text>
-            <Text style={styles.headerSubtitle}>Analyse avancée IA</Text>
+          <Text style={styles.headerTitle}>Finances</Text>
+        </View>
+        <View style={styles.summaryContainer}>
+          <Text style={styles.summaryLabel}>
+            Profit Net ({period === 'week' ? 'Semaine' : period === 'month' ? 'Mois' : period === 'quarter' ? 'Trimestre' : 'Année'})
+          </Text>
+          <Text style={styles.summaryProfitValue}>
+            {summary.profit >= 0 ? '+' : ''}{(summary.profit ?? 0).toLocaleString()} CFA
+          </Text>
+          <View style={styles.summaryDetails}>
+            <View style={styles.summaryDetailItem}>
+              <Icon name="arrow-down-outline" size={16} color={colors.success} />
+              <Text style={styles.summaryDetailText}>Revenus: {(summary.revenue ?? 0).toLocaleString()} CFA</Text>
+            </View>
+            <View style={styles.summaryDetailItem}>
+              <Icon name="arrow-up-outline" size={16} color={colors.error} />
+              <Text style={styles.summaryDetailText}>Dépenses: {(summary.expenses ?? 0).toLocaleString()} CFA</Text>
+            </View>
+            {/* CORRECTION : Le bloc pour afficher la marge bénéficiaire était manquant */}
+            <View style={styles.summaryDetailItem}>
+              <Icon name="pie-chart-outline" size={16} color={summary.profitMargin >= 15 ? colors.success : colors.warning} />
+              <Text style={styles.summaryDetailText}>Marge: {(summary.profitMargin ?? 0).toFixed(1)}%</Text>
+            </View>
           </View>
         </View>
-        {renderPeriodSelector()}
       </LinearGradient>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.metricsGrid}>
-          {renderMetricCard(
-            'Revenus',
-            financialSummary?.totalIncome || 0,
-            'trending-up',
-            ['#10b981', '#059669']
-          )}
-          {renderMetricCard(
-            'Dépenses',
-            financialSummary?.totalExpenses || 0,
-            'trending-down',
-            ['#ef4444', '#dc2626']
-          )}
-        </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
+        style={styles.scrollView}
+      >
+        <View style={styles.content}>
+          {/* --- NOUVEAU : Sélecteur de période --- */}
+          <View style={styles.periodSelector}>
+            {['week', 'month', 'quarter', 'year'].map((p) => (
+              <TouchableOpacity
+                key={p}
+                style={[styles.periodButton, period === p && styles.periodButtonActive]}
+                onPress={() => setPeriod(p as 'week' | 'month' | 'quarter' | 'year')}
+              >
+                <Text style={[styles.periodButtonText, period === p && styles.periodButtonTextActive]}>
+                  {p === 'week' ? '7j' : p === 'month' ? 'Mois' : p === 'quarter' ? '3M' : 'An'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-        {renderProfitCard()}
-        
-        {/* RESTAURATION DE L'ANCIENNE VUE DE RÉPARTITION DES DÉPENSES */}
-        <View style={styles.breakdownSection}>
-          <Text style={styles.sectionTitle}>Répartition des Dépenses</Text>
-          {Object.entries(financialRecords
-            .filter(record => record.type === 'expense')
-            .reduce((acc, record) => {
-              acc[record.category] = (acc[record.category] || 0) + record.amount;
-              return acc;
-            }, {} as Record<string, number>)).map(([category, amount]) => {
-            const totalExpenses = financialSummary?.totalExpenses || 1;
-            const percentage = totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0;
-            return (
-              <View key={category} style={styles.breakdownItem}>
-                <View style={styles.breakdownInfo}>
-                  <Text style={styles.breakdownCategory}>{category}</Text>
-                  <Text style={styles.breakdownAmount}>{amount.toLocaleString()} FCFA</Text>
-                </View>
-                <View style={styles.breakdownBarContainer}>
-                  <View style={[styles.breakdownBar, { width: `${percentage}%` }]} />
-                </View>
-                <Text style={styles.breakdownPercentage}>{percentage.toFixed(0)}%</Text>
+          {/* --- NOUVEAU : Bouton pour lancer le conseiller financier IA --- */}
+          <TouchableOpacity
+            style={styles.aiAdvisorButton}
+            onPress={() => setShowAdvisor(true)}
+          >
+            <LinearGradient
+              colors={['#3b82f6', '#1d4ed8']}
+              style={styles.aiAdvisorGradient}
+            >
+              <View style={styles.aiAdvisorContent}>
+                <Icon name="bulb" size={24} color="#fff" />
+                <Text style={styles.aiAdvisorTitle}>Conseiller Financier IA</Text>
+                <Icon name="chevron-forward" size={20} color="#fff" />
               </View>
-            );
-          })}
-        </View>
+            </LinearGradient>
+          </TouchableOpacity>
 
-        {renderAIInsights()}
-
-        <View style={styles.transactionsSection}>
+          {/* Le titre est maintenant plus discret */}
           <Text style={styles.sectionTitle}>Transactions Récentes</Text>
-          {financialRecords.slice(0, 5).map((record) => (
-            <View key={record.id} style={styles.transactionItem}>
-              <View style={styles.transactionLeft}>
-                <View style={[
-                  styles.transactionIcon,
-                  { backgroundColor: record.type === 'income' ? '#10b98120' : '#ef444420' }
-                ]}>
-                  <Icon
-                    name={record.type === 'income' ? 'arrow-down' : 'arrow-up'}
-                    size={20}
-                    color={record.type === 'income' ? '#10b981' : '#ef4444'}
-                  />
-                </View>
-                <View style={styles.transactionDetails}>
-                  <Text style={styles.transactionDescription}>{record.description}</Text>
-                  <Text style={styles.transactionCategory}>{record.category}</Text>
-                </View>
-              </View>
-              <Text style={[
-                styles.transactionAmount,
-                { color: record.type === 'income' ? '#10b981' : '#ef4444' }
-              ]}>
-                {record.type === 'income' ? '+' : '-'}{record.amount.toLocaleString()}
-              </Text>
-            </View>
-          ))}
+
+          {/* NOUVEAU : Onglets de filtre pour une navigation claire */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'all' && styles.activeTab]}
+              onPress={() => setActiveTab('all')}
+            >
+              <Text style={[styles.tabText, activeTab === 'all' && styles.activeTabText]}>Tout</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'income' && styles.activeTab]}
+              onPress={() => setActiveTab('income')}
+            >
+              <Text style={[styles.tabText, activeTab === 'income' && styles.activeTabText]}>Revenus</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'expense' && styles.activeTab]}
+              onPress={() => setActiveTab('expense')}
+            >
+              <Text style={[styles.tabText, activeTab === 'expense' && styles.activeTabText]}>Dépenses</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Le contenu (liste des transactions) s'affiche ici */}
+          {renderContent()}
         </View>
-
-        <View style={styles.actionButtons}>
-           <TouchableOpacity
-             style={styles.addIncomeButton}
-             onPress={() => {
-               setRecordType('income');
-               setIsAddRecordVisible(true);
-             }}
-           >
-             <LinearGradient
-               colors={['#10b981', '#059669']}
-               start={{ x: 0, y: 0 }}
-               end={{ x: 1, y: 1 }}
-               style={styles.buttonGradient}
-             >
-               <Icon name="add" size={22} color="#fff" />
-               <Text style={styles.buttonText}>Ajouter Revenu</Text>
-             </LinearGradient>
-           </TouchableOpacity>
-
-           <TouchableOpacity
-             style={styles.addExpenseButton}
-             onPress={() => {
-               setRecordType('expense');
-               setIsAddRecordVisible(true);
-             }}
-           >
-             <LinearGradient
-               colors={['#ef4444', '#dc2626']}
-               start={{ x: 0, y: 0 }}
-               end={{ x: 1, y: 1 }}
-               style={styles.buttonGradient}
-             >
-               <Icon name="remove" size={22} color="#fff" />
-               <Text style={styles.buttonText}>Ajouter Dépense</Text>
-             </LinearGradient>
-           </TouchableOpacity>
-         </View>
-
-         {/* Bouton Conseiller Financier IA */}
-         <View style={styles.aiAdvisorSection}>
-           <TouchableOpacity
-             style={styles.aiAdvisorButton}
-             onPress={() => setShowAdvisor(true)}
-           >
-             <LinearGradient
-               colors={['#3b82f6', '#1d4ed8']}
-               start={{ x: 0, y: 0 }}
-               end={{ x: 1, y: 1 }}
-               style={styles.aiAdvisorGradient}
-             >
-               <View style={styles.aiAdvisorContent}>
-                 <Icon name="analytics" size={24} color="#fff" />
-                 <View style={styles.aiAdvisorText}>
-                   <Text style={styles.aiAdvisorTitle}>Conseiller Financier IA</Text>
-                   <Text style={styles.aiAdvisorSubtitle}>
-                     Analyse prédictive, anomalies, optimisation fiscale
-                   </Text>
-                 </View>
-                 <Icon name="chevron-forward" size={20} color="#fff" />
-               </View>
-             </LinearGradient>
-           </TouchableOpacity>
-         </View>
-
-        <View style={styles.bottomPadding} />
       </ScrollView>
 
-      <SimpleBottomSheet
-        isVisible={isAddRecordVisible}
-        onClose={() => setIsAddRecordVisible(false)}
-      >
+      {/* Le bouton flottant pour ajouter une transaction */}
+      <FloatingActionButton 
+        onAddIncome={() => handleAddRecord('income')}
+        onAddExpense={() => handleAddRecord('expense')}
+      />
+
+      {/* Modale pour AJOUTER une transaction */}
+      <SimpleBottomSheet isVisible={isAddModalVisible} onClose={() => setIsAddModalVisible(false)}>
         <AddFinancialRecordForm
-          type={recordType}
-          onSubmitSuccess={handleRecordAdded} // Nouveau prop pour signaler le succès
-          onCancel={() => setIsAddRecordVisible(false)}
+          type={addRecordType}
+          onSubmitSuccess={() => {
+            setIsAddModalVisible(false);
+            onRefresh();
+          }}
+          onCancel={() => setIsAddModalVisible(false)}
         />
       </SimpleBottomSheet>
 
-      {/* Financial Advisor Dashboard */}
+      {/* Modale pour MODIFIER une transaction */}
+      <SimpleBottomSheet isVisible={!!recordToEdit} onClose={() => setRecordToEdit(null)}>
+        {recordToEdit && (
+          <EditFinancialRecordForm
+            record={recordToEdit}
+            onClose={() => setRecordToEdit(null)}
+            onUpdateSuccess={handleUpdateSuccess}
+          />
+        )}
+      </SimpleBottomSheet>
+
+      {/* --- NOUVEAU : Modale pour le conseiller financier --- */}
       <SimpleBottomSheet
         isVisible={showAdvisor}
         onClose={() => setShowAdvisor(false)}
+        snapPoints={['95%']} // La modale prendra 95% de l'écran
       >
-        {user?.id && (
+        {profile && (
           <FinancialAdvisorDashboard
-            farmId={user.id}
+            farmId={profile.id} // L'ID du profil est utilisé comme ID de ferme
             onClose={() => setShowAdvisor(false)}
           />
         )}
@@ -432,398 +382,86 @@ export default function FinanceScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f8fafc', // Fond plus clair
   },
-  header: {
+  // --- NOUVEAUX STYLES POUR L'EN-TÊTE ---
+  headerGradient: {
     paddingBottom: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 20,
   },
   backButton: {
     marginRight: 16,
   },
   headerTitle: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '900',
     color: '#fff',
   },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#94a3b8',
-    marginTop: 2,
-  },
-  periodSelector: {
-    flexDirection: 'row',
+  summaryContainer: {
+    marginTop: 20,
     paddingHorizontal: 20,
-    gap: 8,
-  },
-  periodButton: {
-    flex: 1,
-    paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: '#ffffff20',
   },
-  periodButtonActive: {
-    backgroundColor: '#fff',
-  },
-  periodButtonText: {
+  summaryLabel: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#94a3b8',
+    marginBottom: 8,
   },
-  periodButtonTextActive: {
-    color: '#1e293b',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-  },
-  metricCard: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 16,
-    minHeight: 140,
-  },
-  metricHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  metricIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#ffffff30',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  trendBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  trendText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  metricTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#ffffffdd',
-    marginBottom: 6,
-  },
-  metricAmount: {
-    fontSize: 22,
+  summaryProfitValue: {
+    fontSize: 36,
     fontWeight: '900',
     color: '#fff',
-  },
-  profitCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 20,
-    overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-  },
-  noDataText: {
-    textAlign: 'center',
-    color: colors.textSecondary,
-  },
-  profitGradient: {
-    padding: 24,
-  },
-  profitHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  profitIconContainer: {
-    marginRight: 16,
-  },
-  profitInfo: {
-    flex: 1,
-  },
-  profitStatus: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  profitMargin: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ffffffcc',
-  },
-  profitAmount: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  aiInsightsContainer: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: '#1e293b',
-    borderRadius: 20,
-    padding: 20,
-  },
-  aiHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 16,
   },
-  aiIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#3b82f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  summaryDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly', // CORRECTION: Assure une meilleure répartition
+    flexWrap: 'wrap',
+    gap: 16,
+    width: '100%',
   },
-  aiTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#fff',
-    flex: 1,
-  },
-  liveIndicator: {
+  summaryDetailItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#10b981',
-  },
-  liveText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#10b981',
-  },
-  insightCard: {
-    backgroundColor: '#ffffff15',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-  },
-  insightWarning: {
-    borderLeftColor: '#f59e0b',
-  },
-  insightSuccess: {
-    borderLeftColor: '#10b981',
-  },
-  insightInfo: {
-    borderLeftColor: '#3b82f6',
-  },
-  insightHeader: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  insightTitleContainer: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  insightTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  insightDescription: {
+  summaryDetailText: {
     fontSize: 13,
-    color: '#94a3b8',
-  },
-  insightFooter: {
-    marginTop: 8,
-  },
-  insightImpact: {
-    fontSize: 12,
     fontWeight: '600',
-    color: '#10b981',
-    marginBottom: 8,
+    color: '#cbd5e1',
   },
-  confidenceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  confidenceBar: {
+  scrollView: {
     flex: 1,
-    height: 6,
-    backgroundColor: '#ffffff20',
-    borderRadius: 3,
-    overflow: 'hidden',
+    marginTop: -10, // Le contenu passe légèrement sous l'en-tête
   },
-  confidenceFill: {
-    height: '100%',
-    backgroundColor: '#10b981',
-    borderRadius: 3,
-  },
-  confidenceText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#94a3b8',
-  },
-  transactionsSection: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
+  content: {
+    padding: 16,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '900',
-    color: '#1e293b',
+    fontWeight: '700',
+    color: colors.text,
     marginBottom: 16,
+    marginTop: 24, // Espace au-dessus du titre
   },
-  transactionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  transactionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  transactionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  transactionDetails: {
-    flex: 1,
-  },
-  transactionDescription: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1e293b',
-    marginBottom: 2,
-  },
-  transactionCategory: {
-    fontSize: 13,
-    color: '#64748b',
-  },
-  transactionAmount: {
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  breakdownSection: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-  },
-  breakdownItem: {
-    marginBottom: 16,
-  },
-  breakdownInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  breakdownCategory: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1e293b',
-    textTransform: 'capitalize',
-  },
-  breakdownAmount: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  breakdownBarContainer: {
-    height: 8,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  breakdownBar: {
-    height: '100%',
-    backgroundColor: '#ef4444',
-    borderRadius: 4,
-  },
-  breakdownPercentage: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
-    textAlign: 'right',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 12,
-    marginTop: 8,
-  },
-  addIncomeButton: {
-    flex: 1,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  addExpenseButton: {
-    flex: 1,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  buttonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 8,
-  },
-  buttonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  bottomPadding: {
-    height: 100,
-  },
-  aiAdvisorSection: {
-    marginHorizontal: 16,
-    marginBottom: 20,
-  },
+  // --- NOUVEAU : STYLES POUR LE BOUTON IA ---
   aiAdvisorButton: {
-    borderRadius: 16,
+    marginBottom: 24,
+    borderRadius: 20,
     overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   aiAdvisorGradient: {
     padding: 20,
@@ -833,18 +471,82 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  aiAdvisorText: {
-    flex: 1,
-  },
   aiAdvisorTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#fff',
+  },
+  // --- NOUVEAUX STYLES POUR LE SÉLECTEUR DE PÉRIODE ---
+  periodSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 24,
+  },
+  periodButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  periodButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  periodButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  periodButtonTextActive: {
+    color: '#fff',
+  },
+  sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#fff',
-    marginBottom: 4,
+    color: colors.text,
+    marginBottom: 16,
   },
-  aiAdvisorSubtitle: {
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginTop: 16,
+  },
+  // --- NOUVEAUX STYLES POUR LES ONGLETS ---
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  activeTab: {
+    backgroundColor: colors.primary,
+  },
+  tabText: {
     fontSize: 14,
-    color: '#ffffffcc',
-    lineHeight: 20,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  activeTabText: {
+    color: colors.white,
   },
 });

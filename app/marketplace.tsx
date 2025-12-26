@@ -1,18 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, TextInput, RefreshControl, Alert, Dimensions, ActivityIndicator } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from '../components/Icon';
 import SimpleBottomSheet from '../components/BottomSheet';
 import MarketplaceChat from '../components/MarketplaceChat'; // Assurez-vous que le chemin est correct
-import AddProductScreen from './AddProductScreen'; // CORRECTED PATH
-import ShoppingCart from '../components/ShoppingCart'; 
+import ShoppingCart from '../components/ShoppingCart';
 import { getMarketplaceImageUrl, supabase } from '../config'; // Corrigé pour utiliser la bonne fonction
 import { marketingAgent, UserProfile, Product } from '../lib/marketingAgent';
 import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
 import ProductCard from '../components/ProductCard'; // Importer le composant réutilisable
 import { useDataCollector } from '../src/hooks/useDataCollector';
+import { COUNTRIES, getRegionsForCountry } from '../data/locations';
 
 const getDefaultImageForCategory = (category: string | undefined) => {
   return 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&h=300&fit=crop';
@@ -26,7 +26,6 @@ export default function MarketplaceScreen() {
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [isProductDetailVisible, setIsProductDetailVisible] = useState(false);
   const [isChatVisible, setIsChatVisible] = useState(false);
-  const [isAddProductVisible, setIsAddProductVisible] = useState(false);
   const [isCartVisible, setIsCartVisible] = useState(false); // Keep
   const [isReviewsVisible, setIsReviewsVisible] = useState(false);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
@@ -38,8 +37,29 @@ export default function MarketplaceScreen() {
   const [currentUserId, setCurrentUserId] = useState('');
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [regionFilter, setRegionFilter] = useState('all'); // Keep
+  const [regionFilter, setRegionFilter] = useState('all');
+  const [selectedCountry, setSelectedCountry] = useState('all'); // Country filter
+  const [availableRegions, setAvailableRegions] = useState<{ id: string, name: string }[]>([]);
   const [sellerStats, setSellerStats] = useState<any>(null);
+  const [productImages, setProductImages] = useState<string[]>([]);
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
+  const [logoLoadError, setLogoLoadError] = useState(false);
+
+  useEffect(() => {
+    // Initialize regions based on selectedCountry
+    if (selectedCountry === 'all') {
+      // If All countries, strictly speaking regions don't make sense unless we show ALL regions or hide the filter. 
+      // Let's hide region filter or show empty.
+      setAvailableRegions([]);
+    } else {
+      const countryData = COUNTRIES.find(c => c.name === selectedCountry);
+      if (countryData) {
+        setAvailableRegions([{ id: 'all', name: 'Toutes' }, ...countryData.regions]);
+      }
+    }
+    setRegionFilter('all'); // Reset region when country changes
+  }, [selectedCountry]);
+
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null); // New state for user profile
   const [showKYCApprovedBanner, setShowKYCApprovedBanner] = useState(false);
@@ -47,7 +67,7 @@ export default function MarketplaceScreen() {
   const categories = [
     { id: 'all', name: 'Tout', icon: 'grid' },
     { id: 'feed', name: 'Alimentation', icon: 'bag' },
-    { id: 'medicine', name: 'Médicaments', icon: 'medical' },
+    { id: 'medicine', name: 'Médicaments', icon: 'medkit' },
     { id: 'equipment', name: 'Équipement', icon: 'construct' },
     { id: 'birds', name: 'Volailles', icon: 'egg' },
   ];
@@ -77,10 +97,12 @@ export default function MarketplaceScreen() {
     },
   ];
 
-  useEffect(() => {
-    console.log('📊 Marketplace: Component mounted, loading initial data...');
-    loadInitialData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📊 Marketplace: Screen focused, loading data...');
+      loadInitialData();
+    }, [])
+  );
 
 
   const loadInitialData = async () => {
@@ -88,27 +110,37 @@ export default function MarketplaceScreen() {
       console.log('📊 Marketplace: Starting initial data load...');
       setIsLoadingProducts(true);
       setLoadError(null);
-      
+
       const [currentUserProfileData, allProductsData, cartCountResult, sellerStatsResult] = await Promise.all([
         loadCurrentUser(),
         loadProducts(),
         loadCartCount(),
         loadSellerStats(),
       ]);
-      
+
       if (currentUserProfileData) {
         setUserProfile(currentUserProfileData);
       }
       if (allProductsData) {
         setProducts(allProductsData);
       }
-      
+
       // After products and userProfile are loaded, generate sponsored suggestions
       if (currentUserProfileData && allProductsData && allProductsData.length > 0) {
-        const recs = marketingAgent(currentUserProfileData, allProductsData, 4);
+        // --- CORRECTION : Construire l'objet context correctement ---
+        const agentContext = {
+          profile: currentUserProfileData,
+          // Les autres parties du contexte ne sont pas disponibles ici, on met des valeurs par défaut.
+          health: { score: 100, alerts: '' },
+          finance: { profitMargin: 0 }
+        };
+
+        // --- CORRECTION : Filtrer uniquement les produits sponsorisés ---
+        const sponsoredProducts = allProductsData.filter((p: any) => p.is_sponsored === true);
+        const recs = marketingAgent(agentContext, sponsoredProducts, 4);
         setSponsored(recs);
       }
-      
+
       console.log('✅ Marketplace: Initial data load complete');
     } catch (error: any) {
       console.error('❌ Marketplace: Error in loadInitialData:', error);
@@ -143,6 +175,7 @@ export default function MarketplaceScreen() {
         .eq('user_id', user.id)
         .single();
 
+
       if (profileError) {
       } else if (profile) {
         console.log('✅ Marketplace: User role loaded:', profile.role);
@@ -150,8 +183,37 @@ export default function MarketplaceScreen() {
           id: user.id,
           zone: profile.location || '',
           farmType: profile.farm_name || '',
+          farmType: profile.farm_name || '',
           // purchaseHistory: [] // TODO: Fetch purchase history
         });
+
+        // AUTO-SELECT USER COUNTRY
+        if (profile.location) {
+          // Try to map location/country if you had it. 
+          // Ideally we should have selected `country` from profile if we added it there.
+          // But since we just added the column, let's try to infer or check if the new column is available.
+          // For now let's default to Burkina Faso if not found or 'all'
+        }
+
+        // Query country from profile directly since we added the column
+        const { data: profileCountry } = await supabase
+          .from('profiles')
+          .select('country')
+          .eq('user_id', user.id)
+          .single();
+
+        if (profileCountry && profileCountry.country) {
+          // Check if it matches one of our supported countries
+          const supported = COUNTRIES.find(c => c.name === profileCountry.country);
+          if (supported) {
+            setSelectedCountry(supported.name);
+          } else {
+            setSelectedCountry('Burkina Faso'); // Default/Fallback
+          }
+        } else {
+          setSelectedCountry('Burkina Faso'); // Default for new users
+        }
+
         return {
           id: user.id,
           zone: profile.location || '',
@@ -172,9 +234,8 @@ export default function MarketplaceScreen() {
       console.log('📊 Marketplace: Fetching products...');
       const { data, error } = await supabase
         .from('marketplace_products') // Table principale
-        .select(`
-          *
-        `) // Sélectionne tout de marketplace_products
+        // --- CORRECTION : La requête select est maintenant valide et inclut toutes les colonnes. ---
+        .select('*, seller_id')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -190,24 +251,26 @@ export default function MarketplaceScreen() {
 
       console.log('✅ Marketplace: Loaded', data.length, 'products');
       console.log('📦 Marketplace: Products:', JSON.stringify(data.map(p => ({ id: p.id, name: p.name, seller_id: p.seller_id })), null, 2));
-      
+
       // Transformer les données pour ajouter le nom de ferme
       const transformedData = await Promise.all(data.map(async (p) => {
         try {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('farm_name')
+            .select('farm_name, avatar_url')
             .eq('user_id', p.seller_id)
             .single();
 
           return {
             ...p,
-            farm_name: profile?.farm_name || 'Vendeur Anonyme'
+            farm_name: profile?.farm_name || 'Vendeur Anonyme',
+            logo: profile?.avatar_url || null // Récupérer le logo depuis le profil
           };
         } catch (err) {
           return {
             ...p,
-            farm_name: 'Vendeur Anonyme'
+            farm_name: 'Vendeur Anonyme',
+            logo: null
           };
         }
       }));
@@ -259,7 +322,7 @@ export default function MarketplaceScreen() {
       console.log('🔄 Marketplace: Refreshing data...');
       setIsRefreshing(true);
       setLoadError(null);
-      
+
       const [productsData] = await Promise.all([
         loadProducts(),
         loadCartCount(),
@@ -267,8 +330,15 @@ export default function MarketplaceScreen() {
       ]);
 
       // After products and userProfile are loaded, generate sponsored suggestions
-      if (userProfile && products.length > 0) {
-        const recs = marketingAgent(userProfile, products, 4);
+      if (userProfile && productsData && productsData.length > 0) {
+        const agentContext = {
+          profile: userProfile,
+          health: { score: 100, alerts: '' },
+          finance: { profitMargin: 0 }
+        };
+        // --- CORRECTION : Filtrer uniquement les produits sponsorisés ---
+        const sponsoredProducts = productsData.filter((p: any) => p.is_sponsored === true);
+        const recs = marketingAgent(agentContext, sponsoredProducts, 4);
         setSponsored(recs);
       }
 
@@ -306,16 +376,6 @@ export default function MarketplaceScreen() {
     }
   };
 
-  const handleProductAdded = async () => {
-    console.log('🛒 Marketplace: Product added, refreshing list...');
-    setIsAddProductVisible(false);
-    setIsLoadingProducts(true);
-    // Wait a bit for the database to update
-    await new Promise(resolve => setTimeout(resolve, 500));
-    await loadProducts();
-    setIsLoadingProducts(false);
-  };
-
 
   const handleViewSellerReviews = async (sellerId: string) => {
     try {
@@ -345,7 +405,7 @@ export default function MarketplaceScreen() {
   const handleDeleteProduct = async (productId: string) => {
     try {
       console.log('🗑️ Marketplace: Deleting product:', productId);
-      
+
       Alert.alert(
         'Confirmer la suppression',
         'Êtes-vous sûr de vouloir supprimer ce produit ?',
@@ -389,7 +449,7 @@ export default function MarketplaceScreen() {
   const handleUpdateProduct = async (productId: string) => {
     try {
       console.log('✏️ Marketplace: Updating product:', productId);
-      
+
       Alert.alert(
         'Mettre à jour le produit',
         'Choisissez une action',
@@ -453,30 +513,31 @@ export default function MarketplaceScreen() {
     }
   };
 
-  const filteredProducts = Array.isArray(products) 
+  const filteredProducts = Array.isArray(products)
     ? products.filter(product => {
-        try {
-          if (!product) return false;
-          
-          const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
-          const productName = product.name || '';
-          const productDescription = product.description || '';
-          const productLocation = product.location || '';
-          const productCity = product.city || '';
-          const productRegion = product.region || '';
-          const query = (searchQuery || '').toLowerCase();
-          
-          const matchesSearch = productName.toLowerCase().includes(query) ||
-                               productDescription.toLowerCase().includes(query);
-          
-          const matchesRegion = regionFilter === 'all' || productRegion === regionFilter;
-          
-          return matchesCategory && matchesSearch && matchesRegion;
-        } catch (err: any) {
-          console.error('❌ Marketplace: Error filtering product:', err);
-          return false;
-        }
-      })
+      try {
+        if (!product) return false;
+
+        const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
+        const productName = product.name || '';
+        const productDescription = product.description || '';
+        const productLocation = product.location || '';
+        const productCity = product.city || '';
+        const productRegion = product.region || '';
+        const query = (searchQuery || '').toLowerCase();
+
+        const matchesSearch = productName.toLowerCase().includes(query) ||
+          productDescription.toLowerCase().includes(query);
+
+        const matchesRegion = regionFilter === 'all' || product.region === regionFilter;
+        const matchesCountry = selectedCountry === 'all' || (product.country === selectedCountry) || (!product.country && selectedCountry === 'Burkina Faso'); // Backward compatibility for null country
+
+        return matchesCategory && matchesSearch && matchesRegion && matchesCountry;
+      } catch (err: any) {
+        console.error('❌ Marketplace: Error filtering product:', err);
+        return false;
+      }
+    })
     : [];
 
   const handleProductPress = (product: any) => {
@@ -497,10 +558,38 @@ export default function MarketplaceScreen() {
         price: product.price
       });
 
+      setLogoLoadError(false); // Réinitialiser l'erreur de chargement du logo
       setSelectedProduct(product);
       setIsProductDetailVisible(true);
+      loadProductImages(product.id);
     } catch (error: any) {
       console.error('❌ Marketplace: Exception in handleProductPress:', error);
+    }
+  };
+
+  const loadProductImages = async (productId: string) => {
+    try {
+      setIsLoadingImages(true);
+      console.log('🖼️ Loading images for product:', productId);
+
+      const { data, error } = await supabase.storage
+        .from('marketplace-products')
+        .list(`products/${productId}`);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        // Map titles to full storage paths
+        const paths = data.map(file => `products/${productId}/${file.name}`);
+        setProductImages(paths);
+      } else {
+        setProductImages([]);
+      }
+    } catch (error) {
+      console.error('❌ Error listing product images:', error);
+      setProductImages([]);
+    } finally {
+      setIsLoadingImages(false);
     }
   };
 
@@ -533,15 +622,33 @@ export default function MarketplaceScreen() {
         return;
       }
 
-      const { error } = await supabase
+      // --- CORRECTION : Logique d'ajout au panier plus robuste ---
+      // 1. Vérifier si l'article existe déjà dans le panier
+      const { data: existingItem, error: fetchError } = await supabase
         .from('shopping_cart')
-        .upsert({
-          user_id: user.id,
-          product_id: selectedProduct.id,
-          quantity: 1,
-        }, {
-          onConflict: 'user_id,product_id'
-        });
+        .select('id, quantity')
+        .eq('user_id', user.id)
+        .eq('product_id', selectedProduct.id)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = 0 ligne trouvée, ce qui est normal
+        throw fetchError;
+      }
+
+      let error;
+      if (existingItem) {
+        // 2. Si l'article existe, incrémenter la quantité
+        const { error: updateError } = await supabase
+          .from('shopping_cart')
+          .update({ quantity: existingItem.quantity + 1 })
+          .eq('id', existingItem.id);
+        error = updateError;
+      } else {
+        // 3. Sinon, insérer un nouvel article
+        const { error } = await supabase
+          .from('shopping_cart')
+          .insert({ user_id: user.id, product_id: selectedProduct.id, quantity: 1 });
+      }
 
       if (error) {
         console.error('❌ Marketplace: Error adding to cart:', error);
@@ -565,29 +672,7 @@ export default function MarketplaceScreen() {
     }
   };
 
-  const renderStars = (rating: number) => {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
 
-    for (let i = 1; i <= 5; i++) {
-      if (i <= fullStars) {
-        stars.push(
-          <Icon key={i} name="star" size={16} color={colors.warning} />
-        );
-      } else if (i === fullStars + 1 && hasHalfStar) {
-        stars.push(
-          <Icon key={i} name="star" size={16} color={colors.warning} />
-        );
-      } else {
-        stars.push(
-          <Icon key={i} name="star" size={16} color={colors.textSecondary} />
-        );
-      }
-    }
-
-    return stars;
-  };
 
   const renderSellerReviews = () => {
     if (!selectedSellerId) return null;
@@ -625,8 +710,8 @@ export default function MarketplaceScreen() {
               <View style={styles.sellerBadge}>
                 <Text style={styles.sellerBadgeText}>
                   {sellerStat.average_rating >= 4.8 ? '🏆 Vendeur d\'Or' :
-                   sellerStat.average_rating >= 4.5 ? '🥈 Vendeur d\'Argent' :
-                   '🥉 Vendeur de Bronze'}
+                    sellerStat.average_rating >= 4.5 ? '🥈 Vendeur d\'Argent' :
+                      '🥉 Vendeur de Bronze'}
                 </Text>
               </View>
             )}
@@ -694,25 +779,62 @@ export default function MarketplaceScreen() {
     );
   };
 
-  
 
-  const regions = [
-    { id: 'all', name: 'Toutes' },
-    { id: 'Centre', name: 'Centre' },
-    { id: 'Hauts-Bassins', name: 'Hauts-Bassins' },
-    { id: 'Cascades', name: 'Cascades' },
-    { id: 'Centre-Nord', name: 'Centre-Nord' },
-    { id: 'Centre-Ouest', name: 'Centre-Ouest' },
-    { id: 'Est', name: 'Est' },
-    { id: 'Nord', name: 'Nord' },
-    { id: 'Sahel', name: 'Sahel' },
-  ];
+
+  // Regions are now dynamic based on selectedCountry
+
+  const renderCountryFilter = () => (
+    <View style={styles.regionSection}>
+      <Text style={styles.sectionTitle}>Pays</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.regionContainer}
+      >
+        <TouchableOpacity
+          style={[
+            styles.regionFilterButton,
+            selectedCountry === 'all' && styles.regionFilterButtonSelected
+          ]}
+          onPress={() => setSelectedCountry('all')}
+        >
+          <Text style={[
+            styles.regionFilterButtonText,
+            selectedCountry === 'all' && styles.regionFilterButtonTextSelected
+          ]}>
+            🌍 Tous
+          </Text>
+        </TouchableOpacity>
+
+        {COUNTRIES.map((c) => (
+          <TouchableOpacity
+            key={c.id}
+            style={[
+              styles.regionFilterButton,
+              selectedCountry === c.name && styles.regionFilterButtonSelected
+            ]}
+            onPress={() => setSelectedCountry(c.name)}
+          >
+            <Text style={{ marginRight: 4 }}>{c.flag}</Text>
+            <Text style={[
+              styles.regionFilterButtonText,
+              selectedCountry === c.name && styles.regionFilterButtonTextSelected
+            ]}>
+              {c.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
 
   const renderCategoryFilter = () => (
     <View style={styles.categorySection}>
+      {renderCountryFilter()}
+      {renderRegionFilter()}
       <Text style={styles.sectionTitle}>Catégories</Text>
-      <ScrollView 
-        horizontal 
+      <ScrollView
+        horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.categoryScroll}
         contentContainerStyle={styles.categoryContainer}
@@ -730,10 +852,10 @@ export default function MarketplaceScreen() {
               styles.categoryIconContainer,
               selectedCategory === category.id && styles.categoryIconContainerSelected
             ]}>
-              <Icon 
-                name={category.icon as any} 
-                size={24} 
-                color={selectedCategory === category.id ? colors.white : colors.orange} 
+              <Icon
+                name={category.icon as any}
+                size={24}
+                color={selectedCategory === category.id ? colors.white : colors.orange}
               />
             </View>
             <Text style={[
@@ -748,34 +870,1207 @@ export default function MarketplaceScreen() {
     </View>
   );
 
-  const renderRegionFilter = () => (
-    <View style={styles.regionSection}>
-      <Text style={styles.sectionTitle}>Filtrer par région</Text>
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.regionContainer}
-      >
-        {regions.map((region) => (
+  const renderRegionFilter = () => {
+    if (availableRegions.length === 0) return null; // Don't show if no regions available (e.g. All countries selected)
+
+    return (
+      <View style={styles.regionSection}>
+        <Text style={styles.sectionTitle}>Région ({selectedCountry})</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.regionContainer}
+        >
+          {availableRegions.map((region) => (
+            <TouchableOpacity
+              key={region.id}
+              style={[
+                styles.regionFilterButton,
+                regionFilter === region.id && styles.regionFilterButtonSelected
+              ]}
+              onPress={() => setRegionFilter(region.id)}
+            >
+              <Text style={[
+                styles.regionFilterButtonText,
+                regionFilter === region.id && styles.regionFilterButtonTextSelected
+              ]}>
+                {region.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  const renderProductDetail = () => {
+    if (!selectedProduct) return null;
+
+    const isOwnProduct = currentUserId && selectedProduct.seller_id === currentUserId;
+
+    // Préparer la liste des images à afficher
+    const displayImages = productImages.length > 0
+      ? productImages
+      : (selectedProduct.image ? [selectedProduct.image] : []);
+
+    return (
+      <ScrollView style={styles.productDetailContainer}>
+        <View style={styles.productDetailBackHeader}>
           <TouchableOpacity
-            key={region.id}
-            style={[
-              styles.regionFilterButton,
-              regionFilter === region.id && styles.regionFilterButtonSelected
-            ]}
-            onPress={() => setRegionFilter(region.id)}
+            onPress={() => setIsProductDetailVisible(false)}
+            style={styles.productDetailBackButton}
           >
-            <Text style={[
-              styles.regionFilterButtonText,
-              regionFilter === region.id && styles.regionFilterButtonTextSelected
-            ]}>
-              {region.name}
-            </Text>
+            <Icon name="arrow-back" size={24} color="#000000" />
           </TouchableOpacity>
-        ))}
+        </View>
+
+        {/* Carrousel d'images */}
+        <View>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ height: 300 }}
+          >
+            {displayImages.length > 0 ? (
+              displayImages.map((img: string, index: number) => (
+                <Image
+                  key={index}
+                  source={{ uri: getMarketplaceImageUrl(img) }}
+                  style={[styles.productDetailImage, { width: width, height: 300 }]}
+                  resizeMode="cover"
+                />
+              ))
+            ) : (
+              <Image
+                source={{ uri: getDefaultImageForCategory(selectedProduct.category) }}
+                style={[styles.productDetailImage, { width: width, height: 300 }]}
+                resizeMode="cover"
+              />
+            )}
+          </ScrollView>
+          {displayImages.length > 1 && (
+            <View style={styles.imageCounter}>
+              <Icon name="images" size={14} color="#fff" />
+              <Text style={styles.imageCounterText}>{displayImages.length}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.productDetailInfo}>
+          <View style={styles.productDetailHeader}>
+            <View style={styles.productDetailHeaderLeft}>
+              {/* Affichage du Logo et du Nom */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                {selectedProduct.logo && !logoLoadError ? (
+                  <Image
+                    source={{ uri: getMarketplaceImageUrl(selectedProduct.logo) }}
+                    style={styles.productLogo}
+                    onError={() => setLogoLoadError(true)}
+                  />
+                ) : (
+                  <View style={[styles.productLogo, { backgroundColor: colors.backgroundAlt, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Icon name="person" size={24} color={colors.textSecondary} />
+                  </View>
+                )}
+                <Text style={[styles.productDetailName, { marginBottom: 0, flex: 1 }]}>
+                  {selectedProduct.name || 'Sans nom'}
+                </Text>
+              </View>
+
+              {selectedProduct.is_on_sale && selectedProduct.discount_percentage > 0 ? (
+                <View style={styles.productDetailPriceContainer}>
+                  <Text style={styles.productDetailOriginalPrice}>
+                    {(selectedProduct.price || 0).toLocaleString()} CFA
+                  </Text>
+                  <Text style={styles.productDetailDiscountedPrice}>
+                    {((selectedProduct.price || 0) * (1 - selectedProduct.discount_percentage / 100)).toLocaleString()} CFA
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.productDetailPrice}>
+                  {(selectedProduct.price || 0).toLocaleString()} CFA
+                </Text>
+              )}
+            </View>
+            {!selectedProduct.in_stock && (
+              <View style={styles.soldBadge}>
+                <Text style={styles.soldBadgeText}>Vendu</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.productDetailMeta}>
+            <View style={styles.ratingContainer}>
+              <Icon name="star" size={20} color={colors.warning} />
+              <Text style={styles.productDetailRating}>{selectedProduct.rating || 0}</Text>
+            </View>
+          </View>
+
+          {/* --- MODIFICATION : Les actions du propriétaire sont maintenant ici --- */}
+          {isOwnProduct && (
+            <View style={styles.ownerSection}>
+              <View style={styles.ownerBadge}>
+                <Icon name="checkmark-circle" size={20} color={colors.success} />
+                <Text style={styles.ownerBadgeText}>Ceci est votre produit</Text>
+              </View>
+
+              <View style={styles.ownerActions}>
+                <TouchableOpacity
+                  style={[styles.ownerActionButton, styles.updateButton]}
+                  onPress={() => handleUpdateProduct(selectedProduct.id)}
+                >
+                  <Icon name="create" size={22} color={colors.white} />
+                  <Text style={styles.ownerActionButtonText}>Mettre à jour</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.ownerActionButton, styles.deleteButton]}
+                  onPress={() => handleDeleteProduct(selectedProduct.id)}
+                >
+                  <Icon name="trash" size={22} color={colors.white} />
+                  <Text style={styles.ownerActionButtonText}>Supprimer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {selectedProduct.location && (
+            <View style={styles.productDetailLocation}>
+              <Icon name="location" size={20} color={colors.orange} />
+              <View style={styles.productDetailLocationText}>
+                <Text style={styles.locationCity}>{selectedProduct.city || selectedProduct.location}</Text>
+                {selectedProduct.region && (
+                  <Text style={styles.locationRegion}>{selectedProduct.region}</Text>
+                )}
+              </View>
+            </View>
+          )}
+
+          <Text style={styles.productDetailDescription}>
+            {selectedProduct.description || 'Aucune description disponible'}
+          </Text>
+
+          {/* Seller Information */}
+          <View style={styles.sellerSection}>
+            <Text style={styles.sectionTitle}>Informations du vendeur</Text>
+            <View style={styles.sellerInfo}>
+              <Icon name="person" size={20} color={colors.primary} />
+              <View style={styles.sellerDetails}>
+                <Text style={styles.sellerName}>
+                  {selectedProduct.farm_name ? selectedProduct.farm_name : 'Vendeur vérifié'}
+                </Text>
+                <Text style={styles.farmName}>
+                  🏡 Ferme partenaire Aviprod
+                </Text>
+              </View>
+            </View>
+            {/* Seller Rating */}
+            {selectedProduct.seller_id && sellerStats?.[selectedProduct.seller_id] && (
+              <View style={styles.sellerRating}>
+                <View style={styles.ratingHeader}>
+                  <Text style={styles.ratingTitle}>Note du vendeur</Text>
+                  <View style={styles.starsContainer}>
+                    {renderStars(sellerStats[selectedProduct.seller_id].average_rating)}
+                    <Text style={styles.ratingValue}>
+                      {sellerStats[selectedProduct.seller_id].average_rating?.toFixed(1) || '0.0'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.ratingCount}>
+                  ({sellerStats[selectedProduct.seller_id].total_ratings || 0} avis)
+                </Text>
+                {sellerStats[selectedProduct.seller_id].average_rating >= 4.0 && (
+                  <View style={styles.sellerBadge}>
+                    <Text style={styles.sellerBadgeText}>
+                      {sellerStats[selectedProduct.seller_id].average_rating >= 4.8 ? '🏆 Vendeur d\'Or' :
+                        sellerStats[selectedProduct.seller_id].average_rating >= 4.5 ? '🥈 Vendeur d\'Argent' :
+                          '🥉 Vendeur de Bronze'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Customer Reviews Section */}
+            {selectedProduct.seller_id && sellerStats?.[selectedProduct.seller_id] && sellerStats[selectedProduct.seller_id].total_ratings > 0 && (
+              <TouchableOpacity style={styles.reviewsSection} onPress={() => handleViewSellerReviews(selectedProduct.seller_id)}>
+                <View style={styles.reviewsHeader}>
+                  <Text style={styles.reviewsTitle}>Avis clients</Text>
+                  <Icon name="chevron-forward" size={20} color={colors.primary} />
+                </View>
+                <Text style={styles.reviewsSubtitle}>
+                  Voir tous les avis ({sellerStats[selectedProduct.seller_id].total_ratings})
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        {!isOwnProduct && (
+          <>
+            <View style={styles.securityNote}>
+              <Icon name="shield-checkmark" size={20} color={colors.success} />
+              <Text style={styles.securityNoteText}>
+                Communication anonyme et sécurisée. Aucune information personnelle n'est partagée.
+              </Text>
+            </View>
+
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.contactButton]}
+                onPress={handleContactSeller}
+              >
+                <Icon name="chatbubble" size={20} color={colors.white} />
+                <Text style={styles.actionButtonText}>Contacter</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionButton, styles.cartButton]}
+                onPress={handleAddToCart}
+                disabled={!selectedProduct.in_stock}
+              >
+                <Icon name="cart" size={20} color={colors.white} />
+                <Text style={styles.actionButtonText}>
+                  {selectedProduct.in_stock ? 'Ajouter' : 'Vendu'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
-    </View>
-  );
+    );
+  };
+
+  const renderStars = (rating, size = 16) => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating - fullStars >= 0.5;
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(<Icon key={`full-${i}`} name="star" size={size} color={colors.warning} />);
+    }
+    if (hasHalfStar) {
+      stars.push(<Icon key="half" name="star-half" size={size} color={colors.warning} />);
+    }
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<Icon key={`empty-${i}`} name="star-outline" size={size} color={colors.warning} />);
+    }
+    return stars;
+  };
+
+  const styles = StyleSheet.create({
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 20,
+      paddingBottom: 10,
+    },
+    backButton: {
+      marginRight: 16,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    headerButton: {
+      position: 'relative',
+    },
+    cartBadge: {
+      position: 'absolute',
+      top: -4,
+      right: -4,
+      backgroundColor: colors.orange,
+      borderRadius: 10,
+      minWidth: 20,
+      height: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+    },
+    cartBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colors.white,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '800',
+      color: '#000000',
+      marginBottom: 4,
+    },
+    subtitle: {
+      fontSize: 16,
+      color: colors.textSecondary,
+      fontWeight: '500',
+    },
+    searchContainer: {
+      paddingHorizontal: 20,
+      marginBottom: 16,
+      gap: 12,
+    },
+    searchInputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.backgroundAlt,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 16,
+      color: '#000000',
+    },
+    locationFilterContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.backgroundAlt,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 12,
+      borderWidth: 1,
+      borderColor: colors.orange,
+    },
+    locationInput: {
+      flex: 1,
+      fontSize: 14,
+      color: '#000000',
+    },
+    kycBanner: {
+      marginHorizontal: 20,
+      marginBottom: 20,
+      backgroundColor: colors.primary,
+      borderRadius: 16,
+      padding: 20,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 5,
+    },
+    kycBannerIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    kycBannerContent: {
+      flex: 1,
+    },
+    kycBannerTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.white,
+      marginBottom: 4,
+    },
+    kycBannerText: {
+      fontSize: 14,
+      color: colors.white,
+      opacity: 0.9,
+      marginBottom: 12,
+      lineHeight: 20,
+    },
+    kycBannerButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      alignSelf: 'flex-start',
+    },
+    kycBannerButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.white,
+    },
+    kycStatusBanner: {
+      marginHorizontal: 20,
+      marginBottom: 20,
+      backgroundColor: colors.backgroundAlt,
+      borderRadius: 12,
+      padding: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    kycStatusContent: {
+      flex: 1,
+    },
+    kycStatusTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: 4,
+    },
+    kycStatusText: {
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
+
+    categorySection: {
+      marginBottom: 20,
+    },
+    sectionTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: '#000000',
+      marginBottom: 12,
+      paddingHorizontal: 20,
+    },
+    categoryScroll: {
+      marginBottom: 0,
+    },
+    categoryContainer: {
+      paddingHorizontal: 20,
+      gap: 16,
+    },
+    categoryButton: {
+      alignItems: 'center',
+      gap: 8,
+    },
+    categoryButtonSelected: {
+      // Add this style if needed
+    },
+    ratingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    categoryIconContainer: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: colors.backgroundAlt,
+      borderWidth: 2,
+      borderColor: colors.orange,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    categoryIconContainerSelected: {
+      backgroundColor: colors.orange,
+      borderColor: colors.orange,
+    },
+    categoryButtonText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#000000',
+    },
+    categoryButtonTextSelected: {
+      color: colors.orange,
+    },
+    regionSection: {
+      marginBottom: 20,
+    },
+    regionContainer: {
+      paddingHorizontal: 20,
+      gap: 12,
+    },
+    regionFilterButton: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 20,
+      backgroundColor: colors.backgroundAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    regionFilterButtonSelected: {
+      backgroundColor: colors.orange,
+      borderColor: colors.orange,
+    },
+    regionFilterButtonText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: '#000000',
+    },
+    regionFilterButtonTextSelected: {
+      color: colors.white,
+    },
+    showcaseSection: {
+      marginBottom: 24,
+      backgroundColor: colors.backgroundAlt,
+      borderRadius: 16,
+      marginHorizontal: 16,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    showcaseHeader: {
+      padding: 20,
+      paddingBottom: 16,
+    },
+    showcaseTitleContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 4,
+    },
+    showcaseEmoji: {
+      fontSize: 24,
+    },
+    showcaseTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    showcaseSubtitle: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginLeft: 32,
+    },
+    showcaseContainer: {
+      paddingHorizontal: 20,
+      paddingBottom: 20,
+      gap: 16,
+    },
+    showcaseCard: {
+      width: 160,
+      backgroundColor: colors.background,
+      borderRadius: 12,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    showcaseImageContainer: {
+      position: 'relative',
+    },
+    showcaseImage: {
+      width: '100%',
+      height: 140,
+      backgroundColor: colors.border,
+    },
+    showcaseBadge: {
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      backgroundColor: colors.primary,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+    },
+    showcaseBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colors.white,
+    },
+    topPickBadge: {
+      position: 'absolute',
+      top: 8,
+      right: 8,
+      backgroundColor: colors.warning,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+    },
+    topPickText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colors.white,
+    },
+    soldOutBadge: {
+      position: 'absolute',
+      top: 8,
+      right: 8,
+      backgroundColor: colors.error,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 8,
+    },
+    soldOutText: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: colors.white,
+    },
+    showcaseInfo: {
+      padding: 12,
+    },
+    showcaseName: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 6,
+      lineHeight: 18,
+    },
+    showcasePrice: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.primary,
+      marginBottom: 4,
+    },
+    showcaseRating: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    showcaseRatingText: {
+      fontSize: 12,
+      fontWeight: '500',
+      color: colors.textSecondary,
+    },
+    productsSection: {
+      marginBottom: 20,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    productsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      paddingHorizontal: 16,
+      gap: 12,
+    },
+    productCard: {
+      width: '48%',
+      backgroundColor: colors.backgroundAlt,
+      borderRadius: 12,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    productImage: {
+      width: '100%',
+      height: 120,
+      backgroundColor: colors.border,
+    },
+    productInfo: {
+      padding: 12,
+    },
+    productName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#000000',
+      marginBottom: 4,
+    },
+    productDescription: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginBottom: 8,
+    },
+    productFarmName: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginBottom: 4,
+    },
+    priceContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    originalPrice: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      textDecorationLine: 'line-through',
+      marginRight: 5,
+    },
+    discountedPrice: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: colors.error,
+    },
+    productPrice: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.orange,
+    },
+    productDetailPriceContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    productDetailOriginalPrice: {
+      fontSize: 18,
+      color: colors.textSecondary,
+      textDecorationLine: 'line-through',
+      marginRight: 8,
+    },
+    productDetailDiscountedPrice: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: colors.error,
+    },
+    loadingContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 40,
+      gap: 16,
+    },
+    loadingText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#000000',
+    },
+    errorContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 40,
+      gap: 12,
+    },
+    errorText: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.error,
+      textAlign: 'center',
+    },
+    errorSubtext: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      textAlign: 'center',
+    },
+    retryButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: colors.orange,
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 12,
+      marginTop: 8,
+    },
+    retryButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.white,
+    },
+    productDetailContainer: {
+      flex: 1,
+    },
+    productDetailBackHeader: {
+      position: 'absolute',
+      top: 20,
+      left: 20,
+      zIndex: 10,
+    },
+    productDetailBackButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    productDetailImage: {
+      width: '100%',
+      height: 200,
+      backgroundColor: colors.border,
+    },
+    productLogo: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    imageCounter: {
+      position: 'absolute',
+      bottom: 16,
+      right: 16,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    imageCounterText: {
+      color: 'white',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    productDetailInfo: {
+      padding: 20,
+    },
+    productDetailHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 8,
+    },
+    productDetailHeaderLeft: {
+      flex: 1,
+    },
+    productDetailName: {
+      fontSize: 24,
+      fontWeight: '700',
+      color: '#000000',
+      marginBottom: 8,
+    },
+    productDetailPrice: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.orange,
+    },
+    soldBadge: {
+      backgroundColor: colors.error,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 8,
+    },
+    soldBadgeText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.white,
+    },
+    productDetailMeta: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    productDetailRating: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: '#000000',
+    },
+    productDetailDescription: {
+      fontSize: 16,
+      color: '#000000',
+      lineHeight: 24,
+      marginBottom: 16,
+    },
+    productDetailLocation: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: colors.orange + '20',
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 16,
+    },
+    productDetailLocationText: {
+      flex: 1,
+    },
+    locationCity: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.orange,
+      marginBottom: 2,
+    },
+    locationRegion: {
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
+    ownerSection: {
+      marginTop: 8,
+    },
+    ownerBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: colors.success + '20',
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 16,
+    },
+    ownerBadgeText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.success,
+    },
+    ownerActions: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    ownerActionButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 18,
+      borderRadius: 12,
+      gap: 8,
+    },
+    updateButton: {
+      backgroundColor: colors.primary,
+    },
+    deleteButton: {
+      backgroundColor: colors.error,
+    },
+    ownerActionButtonText: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: colors.white,
+    },
+    securityNote: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: colors.success + '20',
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 24,
+    },
+    securityNoteText: {
+      flex: 1,
+      fontSize: 12,
+      color: '#000000',
+      lineHeight: 16,
+    },
+    actionButtons: {
+      flexDirection: 'row',
+      gap: 12,
+      marginBottom: 160,
+    },
+    actionButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 16,
+      borderRadius: 12,
+      gap: 8,
+    },
+    contactButton: {
+      flex: 1,
+      backgroundColor: colors.accentSecondary,
+      paddingVertical: 18,
+      borderRadius: 14,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    cartButton: {
+      flex: 2,
+      backgroundColor: colors.orange,
+      paddingVertical: 20,
+      borderRadius: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 8,
+    },
+    actionButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.white,
+    },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 40,
+      gap: 12,
+    },
+    emptyStateText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#000000',
+      textAlign: 'center',
+    },
+    emptyStateSubtext: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      textAlign: 'center',
+    },
+    bottomPadding: {
+      height: 100,
+    },
+    sellerSection: {
+      marginBottom: 16,
+    },
+    sellerInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: colors.primary + '10',
+      padding: 16,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.primary + '20',
+    },
+    sellerDetails: {
+      flex: 1,
+    },
+    sellerName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.primary,
+      marginBottom: 4,
+    },
+    farmName: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      fontStyle: 'italic',
+    },
+    sellerRating: {
+      marginTop: 16,
+      padding: 16,
+      backgroundColor: colors.background,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    ratingHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    ratingTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    starsContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    ratingValue: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.warning,
+    },
+    ratingCount: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginBottom: 8,
+    },
+    sellerBadge: {
+      backgroundColor: colors.warning + '20',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      alignSelf: 'flex-start',
+    },
+    sellerBadgeText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.warning,
+    },
+    reviewsSection: {
+      marginTop: 16,
+      padding: 16,
+      backgroundColor: colors.primary + '10',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.primary + '20',
+    },
+    reviewsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    reviewsTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.primary,
+    },
+    reviewsSubtitle: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginTop: 4,
+    },
+    reviewsContainer: {
+      flex: 1,
+    },
+    reviewsList: {
+      flex: 1,
+    },
+    sellerStatsSummary: {
+      padding: 20,
+      backgroundColor: colors.background,
+      borderRadius: 12,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    totalReviews: {
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
+    emptyReviews: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 40,
+    },
+    emptyReviewsText: {
+      fontSize: 16,
+      color: colors.textSecondary,
+      marginTop: 12,
+      textAlign: 'center',
+    },
+    reviewCard: {
+      backgroundColor: colors.backgroundAlt,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    reviewHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    reviewStars: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    reviewRating: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.warning,
+    },
+    reviewDate: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    reviewText: {
+      fontSize: 14,
+      color: colors.text,
+      lineHeight: 20,
+      marginBottom: 12,
+    },
+    reviewCriteria: {
+      gap: 8,
+    },
+    criterion: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    criterionLabel: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      flex: 1,
+    },
+    criterionStars: {
+      flexDirection: 'row',
+      gap: 2,
+    },
+  });
 
   const renderRecommendations = () => {
     const recommendedProducts = sponsored.slice(0, 4);
@@ -841,186 +2136,7 @@ export default function MarketplaceScreen() {
     );
   };
 
-  const renderProductDetail = () => {
-    if (!selectedProduct) return null;
 
-    const isOwnProduct = currentUserId && selectedProduct.seller_id === currentUserId;
-
-    return (
-      <ScrollView style={styles.productDetailContainer}>
-        <Image
-          source={{ uri: getMarketplaceImageUrl(selectedProduct.image) }}
-          style={styles.productDetailImage}
-          onError={(e) => {
-            console.log('❌ Product detail image load error for product', selectedProduct.id, ':', e.nativeEvent.error);
-            console.log('🔍 Image path was:', selectedProduct.image);
-          }}
-        />
-
-        <View style={styles.productDetailInfo}>
-          <View style={styles.productDetailHeader}>
-            <View style={styles.productDetailHeaderLeft}>
-              <Text style={styles.productDetailName}>{selectedProduct.name || 'Sans nom'}</Text>
-              {selectedProduct.is_on_sale && selectedProduct.discount_percentage > 0 ? (
-                <View style={styles.productDetailPriceContainer}>
-                  <Text style={styles.productDetailOriginalPrice}>
-                    {(selectedProduct.price || 0).toLocaleString()} CFA
-                  </Text>
-                  <Text style={styles.productDetailDiscountedPrice}>
-                    {((selectedProduct.price || 0) * (1 - selectedProduct.discount_percentage / 100)).toLocaleString()} CFA
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.productDetailPrice}>
-                  {(selectedProduct.price || 0).toLocaleString()} CFA
-                </Text>
-              )}
-            </View>
-            {!selectedProduct.in_stock && (
-              <View style={styles.soldBadge}>
-                <Text style={styles.soldBadgeText}>Vendu</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.productDetailMeta}>
-            <View style={styles.ratingContainer}>
-              <Icon name="star" size={20} color={colors.warning} />
-              <Text style={styles.productDetailRating}>{selectedProduct.rating || 0}</Text>
-            </View>
-          </View>
-
-          {selectedProduct.location && (
-            <View style={styles.productDetailLocation}>
-              <Icon name="location" size={20} color={colors.orange} />
-              <View style={styles.productDetailLocationText}>
-                <Text style={styles.locationCity}>{selectedProduct.city || selectedProduct.location}</Text>
-                {selectedProduct.region && (
-                  <Text style={styles.locationRegion}>{selectedProduct.region}</Text>
-                )}
-              </View>
-            </View>
-          )}
-
-          <Text style={styles.productDetailDescription}>
-            {selectedProduct.description || 'Aucune description disponible'}
-          </Text>
-
-          {/* Seller Information */}
-          <View style={styles.sellerSection}>
-            <Text style={styles.sectionTitle}>Informations du vendeur</Text>
-            <View style={styles.sellerInfo}>
-              <Icon name="person" size={20} color={colors.primary} />
-              <View style={styles.sellerDetails}>
-                <Text style={styles.sellerName}>
-                  {selectedProduct.farm_name ? selectedProduct.farm_name : 'Vendeur vérifié'}
-                </Text>
-                <Text style={styles.farmName}>
-                  🏡 Ferme partenaire Aviprod
-                </Text>
-              </View>
-            </View>
-            {/* Seller Rating */}
-            {selectedProduct.seller_id && sellerStats?.[selectedProduct.seller_id] && (
-              <View style={styles.sellerRating}>
-                <View style={styles.ratingHeader}>
-                  <Text style={styles.ratingTitle}>Note du vendeur</Text>
-                  <View style={styles.starsContainer}>
-                    {renderStars(sellerStats[selectedProduct.seller_id].average_rating)}
-                    <Text style={styles.ratingValue}>
-                      {sellerStats[selectedProduct.seller_id].average_rating?.toFixed(1) || '0.0'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.ratingCount}>
-                  ({sellerStats[selectedProduct.seller_id].total_ratings || 0} avis)
-                </Text>
-                {sellerStats[selectedProduct.seller_id].average_rating >= 4.0 && (
-                  <View style={styles.sellerBadge}>
-                    <Text style={styles.sellerBadgeText}>
-                      {sellerStats[selectedProduct.seller_id].average_rating >= 4.8 ? '🏆 Vendeur d\'Or' :
-                       sellerStats[selectedProduct.seller_id].average_rating >= 4.5 ? '🥈 Vendeur d\'Argent' :
-                       '🥉 Vendeur de Bronze'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Customer Reviews Section */}
-            {selectedProduct.seller_id && sellerStats?.[selectedProduct.seller_id] && sellerStats[selectedProduct.seller_id].total_ratings > 0 && (
-              <TouchableOpacity style={styles.reviewsSection} onPress={() => handleViewSellerReviews(selectedProduct.seller_id)}>
-                <View style={styles.reviewsHeader}>
-                  <Text style={styles.reviewsTitle}>Avis clients</Text>
-                  <Icon name="chevron-forward" size={20} color={colors.primary} />
-                </View>
-                <Text style={styles.reviewsSubtitle}>
-                  Voir tous les avis ({sellerStats[selectedProduct.seller_id].total_ratings})
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {isOwnProduct ? (
-          <View style={styles.ownerSection}>
-            <View style={styles.ownerBadge}>
-              <Icon name="checkmark-circle" size={20} color={colors.success} />
-              <Text style={styles.ownerBadgeText}>Votre produit</Text>
-            </View>
-
-            <View style={styles.ownerActions}>
-              <TouchableOpacity
-                style={[styles.ownerActionButton, styles.updateButton]}
-                onPress={() => handleUpdateProduct(selectedProduct.id)}
-              >
-                <Icon name="create" size={20} color={colors.white} />
-                <Text style={styles.ownerActionButtonText}>Mettre à jour</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.ownerActionButton, styles.deleteButton]}
-                onPress={() => handleDeleteProduct(selectedProduct.id)}
-              >
-                <Icon name="trash" size={20} color={colors.white} />
-                <Text style={styles.ownerActionButtonText}>Supprimer</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <>
-            <View style={styles.securityNote}>
-              <Icon name="shield-checkmark" size={20} color={colors.success} />
-              <Text style={styles.securityNoteText}>
-                Communication anonyme et sécurisée. Aucune information personnelle n'est partagée.
-              </Text>
-            </View>
-
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.contactButton]}
-                onPress={handleContactSeller}
-              >
-                <Icon name="chatbubble" size={20} color={colors.white} />
-                <Text style={styles.actionButtonText}>Contacter</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.actionButton, styles.cartButton]}
-                onPress={handleAddToCart}
-                disabled={!selectedProduct.in_stock}
-              >
-                <Icon name="cart" size={20} color={colors.white} />
-                <Text style={styles.actionButtonText}>
-                  {selectedProduct.in_stock ? 'Ajouter' : 'Vendu'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-      </ScrollView>
-    );
-  };
 
   return (
     <SafeAreaView style={commonStyles.container}>
@@ -1046,7 +2162,7 @@ export default function MarketplaceScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={() => setIsAddProductVisible(true)}
+            onPress={() => router.push('/AddProductScreen')}
           >
             <Icon name="add-circle" size={24} color={colors.orange} />
           </TouchableOpacity>
@@ -1066,8 +2182,8 @@ export default function MarketplaceScreen() {
         </View>
       </View>
 
-      <ScrollView 
-        style={[styles.scrollView, { backgroundColor: colors.background }]} 
+      <ScrollView
+        style={[styles.scrollView, { backgroundColor: colors.background }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -1077,44 +2193,44 @@ export default function MarketplaceScreen() {
           />
         }
       >
-          
-          {isLoadingProducts ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={colors.orange} />
-              <Text style={styles.loadingText}>Chargement des produits...</Text>
-            </View>
-          ) : loadError ? (
-            <View style={styles.errorContainer}>
-              <Icon name="alert-circle" size={48} color={colors.error} />
-              <Text style={styles.errorText}>Erreur de chargement</Text>
-              <Text style={styles.errorSubtext}>{loadError}</Text>
-              <TouchableOpacity 
-                style={styles.retryButton}
-                onPress={() => {
-                  setIsLoadingProducts(true);
-                  loadProducts().finally(() => setIsLoadingProducts(false));
-                }}
-              >
-                <Icon name="refresh" size={20} color={colors.white} />
-                <Text style={styles.retryButtonText}>Réessayer</Text>
+
+        {isLoadingProducts ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.orange} />
+            <Text style={styles.loadingText}>Chargement des produits...</Text>
+          </View>
+        ) : loadError ? (
+          <View style={styles.errorContainer}>
+            <Icon name="alert-circle" size={48} color={colors.error} />
+            <Text style={styles.errorText}>Erreur de chargement</Text>
+            <Text style={styles.errorSubtext}>{loadError}</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => {
+                setIsLoadingProducts(true);
+                loadProducts().finally(() => setIsLoadingProducts(false));
+              }}
+            >
+              <Icon name="refresh" size={20} color={colors.white} />
+              <Text style={styles.retryButtonText}>Réessayer</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.productsSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                Tous les Produits ({filteredProducts.length})
+              </Text>
+              <TouchableOpacity>
+                <Text style={styles.seeAllText}>Filtrer</Text>
               </TouchableOpacity>
             </View>
-          ) : (
-            <View style={styles.productsSection}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>
-                  Tous les Produits ({filteredProducts.length})
-                </Text>
-                <TouchableOpacity>
-                  <Text style={styles.seeAllText}>Filtrer</Text>
-                </TouchableOpacity>
-              </View>
-              
 
+            {/* --- CORRECTION : Nettoyage des appels en double --- */}
             <>
               {renderCategoryFilter()}
-              {renderRegionFilter()}
               {renderRecommendations()}
+
               <View style={styles.productsGrid}>
                 {filteredProducts.map((product) => (
                   <ProductCard
@@ -1136,10 +2252,10 @@ export default function MarketplaceScreen() {
                 </View>
               )}
             </>
-            </View>
-            
-          )}
-        
+          </View>
+
+        )}
+
         <View style={styles.bottomPadding} />
       </ScrollView>
 
@@ -1167,16 +2283,6 @@ export default function MarketplaceScreen() {
       </SimpleBottomSheet>
 
       <SimpleBottomSheet
-        isVisible={isAddProductVisible}
-        onClose={() => setIsAddProductVisible(false)}
-      >
-        <AddProductScreen
-          onProductAdded={handleProductAdded}
-          onCancel={() => setIsAddProductVisible(false)} // Pass onCancel
-        />
-      </SimpleBottomSheet>
-
-      <SimpleBottomSheet
         isVisible={isCartVisible}
         onClose={() => setIsCartVisible(false)}
       >
@@ -1198,858 +2304,3 @@ export default function MarketplaceScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    paddingBottom: 10,
-  },
-  backButton: {
-    marginRight: 16,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  headerButton: {
-    position: 'relative',
-  },
-  cartBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: colors.orange,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  cartBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.white,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#000000',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  searchContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
-    gap: 12,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#000000',
-  },
-  locationFilterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: colors.orange,
-  },
-  locationInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#000000',
-  },
-  kycBanner: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  kycBannerIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  kycBannerContent: {
-    flex: 1,
-  },
-  kycBannerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.white,
-    marginBottom: 4,
-  },
-  kycBannerText: {
-    fontSize: 14,
-    color: colors.white,
-    opacity: 0.9,
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  kycBannerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-  },
-  kycBannerButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  kycStatusBanner: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  kycStatusContent: {
-    flex: 1,
-  },
-  kycStatusTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  kycStatusText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  
-  categorySection: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000000',
-    marginBottom: 12,
-    paddingHorizontal: 20,
-  },
-  categoryScroll: {
-    marginBottom: 0,
-  },
-  categoryContainer: {
-    paddingHorizontal: 20,
-    gap: 16,
-  },
-  categoryButton: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  categoryButtonSelected: {
-    // Add this style if needed
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  categoryIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.backgroundAlt,
-    borderWidth: 2,
-    borderColor: colors.orange,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  categoryIconContainerSelected: {
-    backgroundColor: colors.orange,
-    borderColor: colors.orange,
-  },
-  categoryButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#000000',
-  },
-  categoryButtonTextSelected: {
-    color: colors.orange,
-  },
-  regionSection: {
-    marginBottom: 20,
-  },
-  regionContainer: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-  regionFilterButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: colors.backgroundAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  regionFilterButtonSelected: {
-    backgroundColor: colors.orange,
-    borderColor: colors.orange,
-  },
-  regionFilterButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#000000',
-  },
-  regionFilterButtonTextSelected: {
-    color: colors.white,
-  },
-  showcaseSection: {
-    marginBottom: 24,
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 16,
-    marginHorizontal: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  showcaseHeader: {
-    padding: 20,
-    paddingBottom: 16,
-  },
-  showcaseTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  showcaseEmoji: {
-    fontSize: 24,
-  },
-  showcaseTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  showcaseSubtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginLeft: 32,
-  },
-  showcaseContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    gap: 16,
-  },
-  showcaseCard: {
-    width: 160,
-    backgroundColor: colors.background,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  showcaseImageContainer: {
-    position: 'relative',
-  },
-  showcaseImage: {
-    width: '100%',
-    height: 140,
-    backgroundColor: colors.border,
-  },
-  showcaseBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  showcaseBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.white,
-  },
-  topPickBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: colors.warning,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  topPickText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.white,
-  },
-  soldOutBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: colors.error,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  soldOutText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  showcaseInfo: {
-    padding: 12,
-  },
-  showcaseName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 6,
-    lineHeight: 18,
-  },
-  showcasePrice: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.primary,
-    marginBottom: 4,
-  },
-  showcaseRating: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  showcaseRatingText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.textSecondary,
-  },
-  productsSection: {
-    marginBottom: 20,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  productsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  productCard: {
-    width: '48%',
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  productImage: {
-    width: '100%',
-    height: 120,
-    backgroundColor: colors.border,
-  },
-  productInfo: {
-    padding: 12,
-  },
-  productName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
-    marginBottom: 4,
-  },
-  productDescription: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 8,
-  },
-  productFarmName: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  originalPrice: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textDecorationLine: 'line-through',
-    marginRight: 5,
-  },
-  discountedPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.error,
-  },
-  productPrice: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.orange,
-  },
-  productDetailPriceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  productDetailOriginalPrice: {
-    fontSize: 18,
-    color: colors.textSecondary,
-    textDecorationLine: 'line-through',
-    marginRight: 8,
-  },
-  productDetailDiscountedPrice: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.error,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    gap: 16,
-  },
-  loadingText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
-  },
-  errorContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    gap: 12,
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.error,
-    textAlign: 'center',
-  },
-  errorSubtext: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.orange,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  productDetailContainer: {
-    flex: 1,
-  },
-  productDetailImage: {
-    width: '100%',
-    height: 200,
-    backgroundColor: colors.border,
-  },
-  productDetailInfo: {
-    padding: 20,
-  },
-  productDetailHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  productDetailHeaderLeft: {
-    flex: 1,
-  },
-  productDetailName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#000000',
-    marginBottom: 8,
-  },
-  productDetailPrice: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.orange,
-  },
-  soldBadge: {
-    backgroundColor: colors.error,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  soldBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  productDetailMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  productDetailRating: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#000000',
-  },
-  productDetailDescription: {
-    fontSize: 16,
-    color: '#000000',
-    lineHeight: 24,
-    marginBottom: 16,
-  },
-  productDetailLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.orange + '20',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  productDetailLocationText: {
-    flex: 1,
-  },
-  locationCity: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.orange,
-    marginBottom: 2,
-  },
-  locationRegion: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  ownerSection: {
-    marginTop: 8,
-  },
-  ownerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.success + '20',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  ownerBadgeText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.success,
-  },
-  ownerActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  ownerActionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 12,
-    gap: 8,
-  },
-  updateButton: {
-    backgroundColor: colors.primary,
-  },
-  deleteButton: {
-    backgroundColor: colors.error,
-  },
-  ownerActionButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  securityNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.success + '20',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 24,
-  },
-  securityNoteText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#000000',
-    lineHeight: 16,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 12,
-    gap: 8,
-  },
-  contactButton: {
-    backgroundColor: colors.accentSecondary,
-  },
-  cartButton: {
-    backgroundColor: colors.orange,
-  },
-  actionButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    gap: 12,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
-    textAlign: 'center',
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  bottomPadding: {
-    height: 100,
-  },
-  sellerSection: {
-    marginBottom: 16,
-  },
-  sellerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.primary + '10',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.primary + '20',
-  },
-  sellerDetails: {
-    flex: 1,
-  },
-  sellerName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.primary,
-    marginBottom: 4,
-  },
-  farmName: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontStyle: 'italic',
-  },
-  sellerRating: {
-    marginTop: 16,
-    padding: 16,
-    backgroundColor: colors.background,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  ratingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  ratingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  ratingValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.warning,
-  },
-  ratingCount: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 8,
-  },
-  sellerBadge: {
-    backgroundColor: colors.warning + '20',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    alignSelf: 'flex-start',
-  },
-  sellerBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.warning,
-  },
-  reviewsSection: {
-    marginTop: 16,
-    padding: 16,
-    backgroundColor: colors.primary + '10',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.primary + '20',
-  },
-  reviewsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  reviewsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  reviewsSubtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  reviewsContainer: {
-    flex: 1,
-  },
-  reviewsList: {
-    flex: 1,
-  },
-  sellerStatsSummary: {
-    padding: 20,
-    backgroundColor: colors.background,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  totalReviews: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  emptyReviews: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-  },
-  emptyReviewsText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  reviewCard: {
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  reviewHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  reviewStars: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  reviewRating: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.warning,
-  },
-  reviewDate: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  reviewText: {
-    fontSize: 14,
-    color: colors.text,
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  reviewCriteria: {
-    gap: 8,
-  },
-  criterion: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  criterionLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    flex: 1,
-  },
-  criterionStars: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-});

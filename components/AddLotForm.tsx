@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, ScrollView, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { colors, commonStyles } from '../styles/commonStyles';
 import { Lot } from '../types';
@@ -169,6 +169,7 @@ export default function AddLotForm({ onSubmit, onCancel }: AddLotFormProps) {
 
   const [showBirdTypePicker, setShowBirdTypePicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false); // Protection synchrone contre le double-clic
   const { trackLotEvent } = useDataCollector();
 
   const birdTypes = [
@@ -202,8 +203,10 @@ export default function AddLotForm({ onSubmit, onCancel }: AddLotFormProps) {
   };
 
   const handleSubmit = async () => {
+    if (isSubmittingRef.current) return; // Bloque immédiatement si déjà en cours
     if (!validateForm()) return;
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       const lotData = {
@@ -236,15 +239,17 @@ export default function AddLotForm({ onSubmit, onCancel }: AddLotFormProps) {
 
     } catch (error) {
       console.error('Error submitting form:', error);
+      Alert.alert('Erreur', "Une erreur est survenue lors de l'ajout du lot. Veuillez réessayer.");
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   return (
     <View style={styles.container}>
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -261,7 +266,7 @@ export default function AddLotForm({ onSubmit, onCancel }: AddLotFormProps) {
                 {birdTypes.find(t => t.value === birdType)?.label}
               </Text>
               <Icon
-                name="chevron-forward"
+                name="chevron-forward-outline"
                 size={20}
                 color={colors.text}
               />

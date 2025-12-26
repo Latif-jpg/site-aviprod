@@ -17,6 +17,7 @@ interface Lot {
   breed: string;
   quantity: number;
   age: number;
+  target_sale_date?: string; // Ajout de la date de vente cible
 }
 
 interface AutoRationFormProps {
@@ -103,8 +104,42 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
 
     setIsLoading(true);
     try {
-      const ration = await generateAutoRation(race, phase, parseInt(nbAnimaux));
-      setResult(ration);
+      const dailyRation = await generateAutoRation(race, phase, parseInt(nbAnimaux));
+
+      // --- NOUVELLE LOGIQUE DE CALCUL POUR LE CYCLE ---
+      const STAGE_END_DAYS = {
+        layers: { 'démarrage': 42, 'croissance': 119, 'pré-ponte': 140, 'ponte': 540 },
+        broilers: { 'démarrage': 21, 'croissance': 32, 'finition': 45 }
+      };
+
+      const birdTypeKey = selectedLot?.bird_type === 'layers' ? 'layers' : 'broilers';
+      const stageEndDay = STAGE_END_DAYS[birdTypeKey][phase as keyof typeof STAGE_END_DAYS[typeof birdTypeKey]] || (selectedLot?.age || 0) + 1;
+
+      let daysRemainingInStage = 0;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (selectedLot?.target_sale_date) {
+        const saleDate = new Date(selectedLot.target_sale_date);
+        saleDate.setHours(0, 0, 0, 0);
+        daysRemainingInStage = Math.max(0, Math.ceil((saleDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+      } else {
+        daysRemainingInStage = Math.max(0, stageEndDay - (selectedLot?.age || 0));
+      }
+
+      const totalKgForStage = dailyRation.totalKg * daysRemainingInStage;
+      const totalBagsForStage = Math.ceil(totalKgForStage / 50);
+
+      const enhancedResult = {
+        ...dailyRation,
+        cycle: {
+          daysRemaining: daysRemainingInStage,
+          totalKg: totalKgForStage,
+          totalBags: totalBagsForStage,
+        }
+      };
+
+      setResult(enhancedResult);
     } catch (error: any) {
       Alert.alert("Erreur", error.message || "Impossible de générer la ration");
     } finally {
@@ -329,6 +364,16 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
           )}
         </Picker>
       </View>
+      {/* --- NOUVEAU : Bouton pour créer un nouvel aliment si non trouvé --- */}
+      <TouchableOpacity 
+        style={styles.createFeedButton} 
+        onPress={() => {
+          // Redirige vers le formulaire d'ajout de stock, potentiellement avec des infos pré-remplies
+          Alert.alert("Action requise", "Vous allez être redirigé vers l'écran de stock pour créer un nouvel article. Une fois créé, revenez ici pour l'assigner.");
+          router.push('/stock'); // Simple redirection pour l'instant
+        }}>
+        <Text style={styles.createFeedButtonText}>Nouvel aliment non listé ? Créez-le ici</Text>
+      </TouchableOpacity>
 
 
       <TouchableOpacity style={[styles.btn, isLoading && { opacity: 0.6 }]} onPress={handleGenerate} disabled={isLoading}>
@@ -349,18 +394,30 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
             ⚖️ Consommation par oiseau: {result.dailyPerBird}g/jour
           </Text>
 
-          <Text style={styles.sectionTitle}>🥘 Composition des ingrédients</Text>
-          {result.ingredients?.map((ing: any, index: number) => (
-            <Text key={index} style={styles.ingredientLine}>
-              • {ing.name}: {ing.percentage}% ({ing.totalQuantity})
-            </Text>
-          ))}
+          <Text style={styles.sectionTitle}>🥘 Composition des ingrédients (par sac de 50kg)</Text>
+          {result.ingredients?.map((ing: any, index: number) => {
+            const quantityPerBag = ((ing.quantityKg / parseFloat(result.totalKg)) * 50).toFixed(2);
+            return (
+              <Text key={index} style={styles.ingredientLine}>
+                • {ing.name}: {ing.percentage}% ({quantityPerBag} kg)
+              </Text>
+            );
+          })}
 
           <Text style={styles.sectionTitle}>📊 Valeurs nutritionnelles</Text>
           <Text style={styles.summary}>⚖️ Total journalier : {result.totalKg} kg</Text>
           <Text style={styles.summary}>🧪 Protéines : {result.protein}%</Text>
           <Text style={styles.summary}>🔥 Énergie : {result.energy} kcal/kg</Text>
           <Text style={styles.summary}>🪣 Sacs (50kg) : {result.bags}</Text>
+
+          {/* --- NOUVELLE SECTION POUR LE CYCLE COMPLET --- */}
+          <Text style={styles.sectionTitle}>📦 Prévision pour le stade actuel ({result.cycle.daysRemaining} jours restants)</Text>
+          <Text style={styles.summary}>
+            ⚖️ Total pour le stade : {result.cycle.totalKg.toFixed(2)} kg
+          </Text>
+          <Text style={styles.summary}>
+            🪣 Total sacs (50kg) : {result.cycle.totalBags}
+          </Text>
 
           <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
             <Text style={styles.saveText}>💾 Enregistrer cette ration</Text>
@@ -372,7 +429,7 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: "#f8f8f8" },
+  container: { padding: 16, backgroundColor: "#f8f8f8", paddingBottom: 100 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
   label: { fontWeight: "600", marginTop: 10 },
   input: {
@@ -439,9 +496,11 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     backgroundColor: colors.success || "#28a745",
-    padding: 12,
+    paddingVertical: 20, // Augmentation du padding vertical pour plus de hauteur
+    paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: "center",
+    justifyContent: 'center', // Centrer le contenu verticalement
     marginTop: 16,
   },
   saveText: {
@@ -469,5 +528,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: 20,
+  },
+  createFeedButton: {
+    marginTop: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  createFeedButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
 });
