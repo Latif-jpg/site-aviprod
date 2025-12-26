@@ -119,14 +119,8 @@ export default {
       EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
       EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
       eas: {
-        "projectId": "918dcfbd-35cb-4a25-9a4a-f0f6bb8d492a"
+        "projectId": "3a17df33-3671-47b0-a0cd-55c16420e23a"
       }
-    },
-    updates: {
-      fallbackToCacheTimeout: 0,
-      checkAutomatically: "ON_LOAD",
-      enabled: true,
-      url: "https://u.expo.dev/918dcfbd-35cb-4a25-9a4a-f0f6bb8d492a"
     },
     runtimeVersion: {
       "policy": "nativeVersion"
