@@ -89,7 +89,7 @@
     "vitest": "^2.1.4"
   },
   "engines": {
-    "node": "20"
+    "node": "18"
   },
   "packageManager": "pnpm@9.15.0",
   "pnpm": {
