@@ -1,0 +1,18 @@
+{
+    "version": 2,
+    "functions": {
+        "dist/index.js": {
+            "memory": 1024
+        }
+    },
+    "rewrites": [
+        {
+            "source": "/assets/(.*)",
+            "destination": "/assets/$1"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/dist/index.js"
+        }
+    ]
+}
