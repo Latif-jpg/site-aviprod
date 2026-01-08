@@ -11,7 +11,8 @@ async function startServer() {
   const server = createServer(app);
 
   // Serve static files from the built client app
-  const staticPath = path.resolve(__dirname, "..", "client", "dist");
+  // Correction: Les logs de build indiquent que les fichiers sont dans "dist/public"
+  const staticPath = path.join(__dirname, "public");
 
   app.use(express.static(staticPath));
 
