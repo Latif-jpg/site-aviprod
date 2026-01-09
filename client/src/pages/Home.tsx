@@ -36,6 +36,14 @@ export default function Home() {
       adSenseScript.crossOrigin = "anonymous";
       document.head.appendChild(adSenseScript);
     }
+
+    // Meta tag Google AdSense Account
+    if (!document.querySelector('meta[name="google-adsense-account"]')) {
+      const meta = document.createElement('meta');
+      meta.name = "google-adsense-account";
+      meta.content = "ca-pub-5111525667900751";
+      document.head.appendChild(meta);
+    }
   }, []);
 
   const handleDownload = () => {
