@@ -34,7 +34,7 @@ export default function Home() {
       adSenseScript.src = adSenseSrc;
       adSenseScript.async = true;
       adSenseScript.crossOrigin = "anonymous";
-      document.body.appendChild(adSenseScript);
+      document.head.appendChild(adSenseScript);
     }
   }, []);
 
