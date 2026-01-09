@@ -8,24 +8,24 @@
  */
 
 import { Button } from "@/components/ui/button";
-import { Download, CheckCircle, Users, TrendingUp, Zap, Shield, Play, Image as ImageIcon } from "lucide-react";
+import { Download, CheckCircle, Users, TrendingUp, Zap, Shield, Play, Image as ImageIcon, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import ContactForm from "@/components/ContactForm";
 
 export default function Home() {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
+    const scriptSrc = "https://pl28436440.effectivegatecpm.com/32/dc/aa/32dcaae322d63634d198ba168fc1f8c5.js";
+
+    // Vérifier si le script existe déjà pour éviter les doublons
+    if (document.querySelector(`script[src="${scriptSrc}"]`)) return;
+
     const script = document.createElement('script');
-    script.src = "https://pl28436440.effectivegatecpm.com/32/dc/aa/32dcaae322d63634d198ba168fc1f8c5.js";
+    script.src = scriptSrc;
     script.async = true;
     document.body.appendChild(script);
-
-    return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
-    };
   }, []);
 
   const handleDownload = () => {
@@ -106,6 +106,9 @@ export default function Home() {
                     size="lg"
                     variant="outline"
                     className="border-primary text-primary hover:bg-primary/5"
+                    onClick={() => {
+                      document.getElementById('about-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
                   >
                     En Savoir Plus
                   </Button>
@@ -125,6 +128,63 @@ export default function Home() {
                     <p className="text-2xl font-bold text-primary">24/7</p>
                     <p className="text-sm text-muted-foreground">Support</p>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* About Section */}
+      <section id="about-section" className="py-20 md:py-28 bg-secondary/20">
+        <div className="container">
+          <div className="max-w-3xl mx-auto text-center mb-16">
+            <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
+              Comment AVIPROD Transforme Votre Élevage
+            </h2>
+            <p className="text-lg text-muted-foreground leading-relaxed">
+              AVIPROD est né d'un constat simple : les éleveurs de volaille en Afrique de l'Ouest ont besoin d'outils modernes, accessibles et adaptés à leurs réalités pour prospérer. Notre application centralise toutes les facettes de la gestion d'élevage pour vous faire gagner du temps, réduire les pertes et augmenter votre rentabilité.
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Illustration */}
+            <div className="relative">
+              <img
+                src="/images/features-illustration.png"
+                alt="Éleveur utilisant AVIPROD sur tablette"
+                className="rounded-2xl shadow-xl"
+              />
+            </div>
+            {/* Right: Key Points */}
+            <div className="space-y-8">
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0 mt-1 p-3 bg-primary/10 rounded-full">
+                  <CheckCircle className="text-primary" size={24} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xl text-foreground mb-1">Centralisation Totale</h4>
+                  <p className="text-muted-foreground">De la gestion des lots au suivi financier, tout est au même endroit. Fini les cahiers et les feuilles de calcul dispersées.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0 mt-1 p-3 bg-primary/10 rounded-full">
+                  <CheckCircle className="text-primary" size={24} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xl text-foreground mb-1">Décisions Intelligentes</h4>
+                  <p className="text-muted-foreground">Recevez des alertes, des diagnostics de santé et des recommandations de ration pour prendre les meilleures décisions au bon moment.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0 mt-1 p-3 bg-primary/10 rounded-full">
+                  <CheckCircle className="text-primary" size={24} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xl text-foreground mb-1">Accès Direct au Marché</h4>
+                  <p className="text-muted-foreground">Notre marketplace intégrée vous connecte directement aux acheteurs, éliminant les intermédiaires et améliorant vos marges.</p>
                 </div>
               </div>
             </div>
@@ -218,68 +278,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Features Illustration Section */}
-      <section className="py-20 md:py-28">
-        <div className="container">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            {/* Left: Illustration */}
-            <div className="relative">
-              <img
-                src="/images/features-illustration.png"
-                alt="AVIPROD Features"
-                className="w-full h-auto object-cover rounded-2xl"
-              />
-            </div>
-
-            {/* Right: Benefits */}
-            <div className="space-y-8">
-              <div>
-                <p className="text-primary font-semibold text-sm uppercase tracking-wide mb-2">
-                  Avantages Clés
-                </p>
-                <h2 className="text-4xl md:text-5xl font-bold text-foreground">
-                  Augmentez votre productivité
-                </h2>
-              </div>
-
-              {/* Benefit items */}
-              <div className="space-y-6">
-                {[
-                  {
-                    title: "Économisez du Temps",
-                    description: "Automatisez 80% de vos tâches administratives et concentrez-vous sur la croissance"
-                  },
-                  {
-                    title: "Réduisez les Coûts",
-                    description: "Optimisez les rations alimentaires et réduisez le gaspillage de 30%"
-                  },
-                  {
-                    title: "Améliorez la Santé",
-                    description: "Détectez les problèmes de santé plus tôt et réduisez la mortalité"
-                  },
-                  {
-                    title: "Augmentez les Revenus",
-                    description: "Vendez directement et accédez à plus de clients grâce à notre plateforme"
-                  }
-                ].map((benefit, idx) => (
-                  <div key={idx} className="flex gap-4">
-                    <div className="flex-shrink-0">
-                      <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-primary/10">
-                        <CheckCircle className="text-primary" size={24} />
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-foreground">{benefit.title}</h4>
-                      <p className="text-muted-foreground text-sm">{benefit.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Media Library Section */}
       <section className="py-20 md:py-28 bg-white">
         <div className="container">
@@ -318,7 +316,11 @@ export default function Home() {
               { src: "/images/market.jpeg", title: "Marketplace" },
               { src: "/images/finance.18.jpeg", title: "Finance & Analyse" }
             ].map((item, index) => (
-              <div key={index} className="group relative rounded-xl overflow-hidden shadow-md aspect-video">
+              <div
+                key={index}
+                className="group relative rounded-xl overflow-hidden shadow-md aspect-video cursor-pointer"
+                onClick={() => setSelectedImage(item.src)}
+              >
                 <img src={item.src} alt={item.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <p className="text-white font-bold text-lg">{item.title}</p>
@@ -542,6 +544,27 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Lightbox Modal */}
+      {selectedImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedImage(null)}
+        >
+          <button
+            className="absolute top-6 right-6 text-white/80 hover:text-white transition-colors"
+            onClick={() => setSelectedImage(null)}
+          >
+            <X size={32} />
+          </button>
+          <img
+            src={selectedImage}
+            alt="Aperçu"
+            className="max-w-full max-h-[90vh] w-auto h-auto object-contain rounded-md shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
