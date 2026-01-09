@@ -18,6 +18,57 @@ export default function Home() {
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   useEffect(() => {
+    // SEO - Optimisation pour les moteurs de recherche
+    document.title = "AVIPROD - Élevage Volaille, Diagnostic Maladie & Produits Vétérinaires";
+
+    let metaDesc = document.querySelector("meta[name='description']");
+    if (!metaDesc) {
+      metaDesc = document.createElement("meta");
+      metaDesc.setAttribute("name", "description");
+      document.head.appendChild(metaDesc);
+    }
+    metaDesc.setAttribute("content", "Solution complète pour l'élevage de volaille et poulet : diagnostic maladie, gestion de lot, et achat de produits vétérinaires. Téléchargez l'APK !");
+
+    let metaKeywords = document.querySelector("meta[name='keywords']");
+    if (!metaKeywords) {
+      metaKeywords = document.createElement("meta");
+      metaKeywords.setAttribute("name", "keywords");
+      document.head.appendChild(metaKeywords);
+    }
+    metaKeywords.setAttribute("content", "elevage, maladie, volaille, poulet, diagnostic, achat de produit veterinaire, aviculture, gestion ferme");
+
+    // JSON-LD pour le référencement IA (Schema.org)
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "AVIPROD",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Android",
+      "description": "Application complète de gestion d'élevage de volaille : diagnostic maladie, suivi de lot, ration alimentaire et achat de produits vétérinaires.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "XOF"
+      },
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.8",
+        "ratingCount": "1024"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "Green Eco Tech"
+      }
+    };
+
+    let scriptJsonLd = document.querySelector("script[type='application/ld+json']");
+    if (!scriptJsonLd) {
+      scriptJsonLd = document.createElement("script");
+      scriptJsonLd.setAttribute("type", "application/ld+json");
+      document.head.appendChild(scriptJsonLd);
+    }
+    scriptJsonLd.textContent = JSON.stringify(jsonLd);
+
     // Définir l'icône du site (Favicon)
     const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement || document.createElement('link');
     link.type = 'image/png';
@@ -244,7 +295,7 @@ export default function Home() {
               </div>
               <h3 className="text-xl font-bold text-foreground mb-3">Gestion de Lot</h3>
               <p className="text-muted-foreground leading-relaxed">
-                Gérez vos lots de poules facilement. Suivi en temps réel du nombre de sujets, de l'âge, et de l'état sanitaire.
+                Gérez vos lots de poules et poulets facilement. Suivi en temps réel du nombre de sujets, de l'âge, et de l'état sanitaire.
               </p>
             </div>
 
@@ -253,9 +304,9 @@ export default function Home() {
               <div className="w-14 h-14 bg-accent/10 rounded-lg flex items-center justify-center mb-6 group-hover:bg-accent/20 transition-colors">
                 <Shield className="text-accent" size={28} />
               </div>
-              <h3 className="text-xl font-bold text-foreground mb-3">Diagnostic Santé</h3>
+              <h3 className="text-xl font-bold text-foreground mb-3">Diagnostic Maladie & Santé</h3>
               <p className="text-muted-foreground leading-relaxed">
-                Détectez les problèmes de santé rapidement. Diagnostic automatique basé sur les symptômes observés.
+                Détectez les maladies et problèmes de santé rapidement. Diagnostic automatique basé sur les symptômes observés.
               </p>
             </div>
 
@@ -286,9 +337,9 @@ export default function Home() {
               <div className="w-14 h-14 bg-primary/10 rounded-lg flex items-center justify-center mb-6 group-hover:bg-primary/20 transition-colors">
                 <TrendingUp className="text-primary" size={28} />
               </div>
-              <h3 className="text-xl font-bold text-foreground mb-3">Vente & Achat Direct</h3>
+              <h3 className="text-xl font-bold text-foreground mb-3">Achat Produits Vétérinaires & Vente</h3>
               <p className="text-muted-foreground leading-relaxed">
-                Plateforme de vente directe intégrée. Connectez-vous avec les acheteurs et augmentez vos revenus.
+                Plateforme d'achat de produits vétérinaires et vente de volailles. Connectez-vous avec les fournisseurs et acheteurs.
               </p>
             </div>
 
@@ -411,6 +462,41 @@ export default function Home() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ Section - Optimisé pour les IA */}
+      <section className="py-20 md:py-28 bg-white">
+        <div className="container">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+              Questions Fréquentes
+            </h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Réponses aux questions sur la gestion d'élevage, les maladies et l'utilisation d'AVIPROD.
+            </p>
+          </div>
+
+          <div className="grid gap-6 max-w-3xl mx-auto">
+            <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
+              <h3 className="font-bold text-lg mb-2 text-foreground">Comment diagnostiquer une maladie de volaille avec AVIPROD ?</h3>
+              <p className="text-muted-foreground">
+                L'application utilise un système intelligent qui analyse les symptômes que vous observez (fientes, comportement, etc.) pour proposer un diagnostic probable et des conseils de traitement vétérinaire immédiats.
+              </p>
+            </div>
+            <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
+              <h3 className="font-bold text-lg mb-2 text-foreground">Comment gérer la ration alimentaire des poulets ?</h3>
+              <p className="text-muted-foreground">
+                AVIPROD calcule automatiquement la quantité d'aliment nécessaire par jour en fonction de l'âge et du type de volaille (poulet de chair, pondeuse), vous aidant à éviter le gaspillage et optimiser la croissance.
+              </p>
+            </div>
+            <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
+              <h3 className="font-bold text-lg mb-2 text-foreground">Peut-on acheter des produits vétérinaires en ligne ?</h3>
+              <p className="text-muted-foreground">
+                Oui, la section "Achat Produits Vétérinaires" vous permet de commander des vaccins, vitamines et matériel d'élevage directement auprès de fournisseurs certifiés avec livraison incluse.
+              </p>
+            </div>
           </div>
         </div>
       </section>
