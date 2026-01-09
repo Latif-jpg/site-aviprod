@@ -20,12 +20,22 @@ export default function Home() {
     const scriptSrc = "https://pl28436440.effectivegatecpm.com/32/dc/aa/32dcaae322d63634d198ba168fc1f8c5.js";
 
     // Vérifier si le script existe déjà pour éviter les doublons
-    if (document.querySelector(`script[src="${scriptSrc}"]`)) return;
+    if (!document.querySelector(`script[src="${scriptSrc}"]`)) {
+      const script = document.createElement('script');
+      script.src = scriptSrc;
+      script.async = true;
+      document.body.appendChild(script);
+    }
 
-    const script = document.createElement('script');
-    script.src = scriptSrc;
-    script.async = true;
-    document.body.appendChild(script);
+    // Script Google AdSense
+    const adSenseSrc = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5111525667900751";
+    if (!document.querySelector(`script[src="${adSenseSrc}"]`)) {
+      const adSenseScript = document.createElement('script');
+      adSenseScript.src = adSenseSrc;
+      adSenseScript.async = true;
+      adSenseScript.crossOrigin = "anonymous";
+      document.body.appendChild(adSenseScript);
+    }
   }, []);
 
   const handleDownload = () => {
