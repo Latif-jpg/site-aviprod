@@ -16,7 +16,7 @@ export default function Home() {
   const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
-    // Script publicitaire (Social Bar) - Chargement asynchrone pour ne pas perturber l'affichage
+    // Script publicitaire (Social Bar)
     const script = document.createElement('script');
     script.src = "https://pl28436440.effectivegatecpm.com/32/dc/aa/32dcaae322d63634d198ba168fc1f8c5.js";
     script.async = true;
