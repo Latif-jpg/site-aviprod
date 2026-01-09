@@ -17,6 +17,13 @@ export default function Home() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
+    // Définir l'icône du site (Favicon)
+    const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement || document.createElement('link');
+    link.type = 'image/png';
+    link.rel = 'shortcut icon';
+    link.href = '/images/icon-prod.png';
+    document.head.appendChild(link);
+
     const scriptSrc = "https://pl28436440.effectivegatecpm.com/32/dc/aa/32dcaae322d63634d198ba168fc1f8c5.js";
 
     // Vérifier si le script existe déjà pour éviter les doublons
