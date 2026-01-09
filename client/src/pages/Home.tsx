@@ -653,7 +653,7 @@ export default function Home() {
               <h4 className="font-bold mb-4">Entreprise</h4>
               <ul className="space-y-2 text-white/70 text-sm">
                 <li><a href="#" className="hover:text-white transition">À propos de</a></li>
-                <li><a href="#" className="hover:text-white transition">Blog</a></li>
+                <li><a href="/blog" className="hover:text-white transition">Blog</a></li>
                 <li><a href="#" className="hover:text-white transition">Contact</a></li>
               </ul>
             </div>
