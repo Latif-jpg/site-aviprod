@@ -8,16 +8,30 @@
  */
 
 import { Button } from "@/components/ui/button";
-import { Download, CheckCircle, Users, TrendingUp, Zap, Shield } from "lucide-react";
-import { useState } from "react";
+import { Download, CheckCircle, Users, TrendingUp, Zap, Shield, Play, Image as ImageIcon } from "lucide-react";
+import { useState, useEffect } from "react";
 import ContactForm from "@/components/ContactForm";
 
 export default function Home() {
   const [isDownloading, setIsDownloading] = useState(false);
 
+  useEffect(() => {
+    // Script publicitaire (Social Bar) - Chargement asynchrone pour ne pas perturber l'affichage
+    const script = document.createElement('script');
+    script.src = "https://pl28436440.effectivegatecpm.com/32/dc/aa/32dcaae322d63634d198ba168fc1f8c5.js";
+    script.async = true;
+    document.body.appendChild(script);
+
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
+
   const handleDownload = () => {
-    // Redirect to Google Drive APK download
-    window.location.href = 'https://drive.google.com/file/d/1aUqGyptLTCy_qXXKIAaAsoxfEp8JgJ5Z/view?usp=sharing';
+    // Redirect to APK download
+    window.location.href = 'https://github.com/Latif-jpg/aviprod-android/releases/latest/download/aviprod12227.apk';
   };
 
   return (
@@ -25,24 +39,25 @@ export default function Home() {
       {/* Navigation Header */}
       <nav className="sticky top-0 z-50 bg-white border-b border-border shadow-sm">
         <div className="container flex items-center justify-between py-4">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">A</span>
-            </div>
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          >
+            <img src="/images/icon-prod.png" alt="AVIPROD Logo" className="w-10 h-10 object-contain" />
             <div className="flex flex-col">
               <span className="font-bold text-primary text-lg">AVIPROD</span>
               <span className="text-xs text-muted-foreground">Green Eco Tech</span>
             </div>
           </div>
-              <Button 
-                onClick={handleDownload}
-                className="bg-primary hover:bg-primary/90 text-white gap-2"
-              >
-                <>
-                  <Download size={18} />
-                  Télécharger l'APK
-                </>
-              </Button>
+          <Button
+            onClick={handleDownload}
+            className="bg-primary hover:bg-primary/90 text-white gap-2"
+          >
+            <>
+              <Download size={18} />
+              Télécharger l'APK
+            </>
+          </Button>
         </div>
       </nav>
 
@@ -53,9 +68,9 @@ export default function Home() {
             {/* Left: Image */}
             <div className="relative order-2 lg:order-1">
               <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-                <img 
-                  src="/images/hero-background.png" 
-                  alt="AVIPROD Dashboard" 
+                <img
+                  src="/images/hero-background.png"
+                  alt="AVIPROD Dashboard"
                   className="w-full h-auto object-cover"
                 />
               </div>
@@ -80,7 +95,7 @@ export default function Home() {
                 </p>
 
                 <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                  <Button 
+                  <Button
                     onClick={handleDownload}
                     size="lg"
                     className="bg-primary hover:bg-primary/90 text-white gap-2"
@@ -88,7 +103,7 @@ export default function Home() {
                     <Download size={20} />
                     Télécharger Maintenant
                   </Button>
-                  <Button 
+                  <Button
                     size="lg"
                     variant="outline"
                     className="border-primary text-primary hover:bg-primary/5"
@@ -210,9 +225,9 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             {/* Left: Illustration */}
             <div className="relative">
-              <img 
-                src="/images/features-illustration.png" 
-                alt="AVIPROD Features" 
+              <img
+                src="/images/features-illustration.png"
+                alt="AVIPROD Features"
                 className="w-full h-auto object-cover rounded-2xl"
               />
             </div>
@@ -261,6 +276,52 @@ export default function Home() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Media Library Section */}
+      <section className="py-20 md:py-28 bg-white">
+        <div className="container">
+          <div className="text-center mb-16">
+            <p className="text-primary font-semibold text-sm uppercase tracking-wide mb-2">
+              Médiathèque
+            </p>
+            <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
+              Galerie Multimédia
+            </h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Découvrez AVIPROD en action à travers nos vidéos et notre galerie photos.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Video Item Example */}
+            <div className="group relative rounded-xl overflow-hidden shadow-md aspect-video bg-black">
+              {/* Mettez votre vidéo dans le dossier public/videos et changez le nom ici */}
+              <video
+                className="w-full h-full object-cover"
+                controls
+                poster="/images/hero-background.png"
+              >
+                <source src="/videos/presentation.mp4" type="video/mp4" />
+                Votre navigateur ne supporte pas la vidéo.
+              </video>
+            </div>
+
+            {/* Image Item Example 1 */}
+            <div className="group relative rounded-xl overflow-hidden shadow-md aspect-video">
+              {/* Mettez votre image dans public/images et changez le nom ici */}
+              <img src="/images/votre-image-1.jpg" alt="Galerie 1" className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
+              <div className="absolute top-4 right-4 bg-black/50 p-2 rounded-lg backdrop-blur-sm">
+                <ImageIcon className="text-white" size={20} />
+              </div>
+            </div>
+
+            {/* Image Item Example 2 */}
+            <div className="group relative rounded-xl overflow-hidden shadow-md aspect-video">
+              <img src="/images/votre-image-2.jpg" alt="Galerie 2" className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
             </div>
           </div>
         </div>
@@ -323,9 +384,9 @@ export default function Home() {
       <section className="relative py-20 md:py-28 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-primary via-accent to-primary/80 opacity-90"></div>
         <div className="absolute inset-0">
-          <img 
-            src="/images/cta-section-background.png" 
-            alt="Background" 
+          <img
+            src="/images/cta-section-background.png"
+            alt="Background"
             className="w-full h-full object-cover opacity-20"
           />
         </div>
@@ -339,7 +400,7 @@ export default function Home() {
               Rejoignez des milliers d'éleveurs qui utilisent AVIPROD pour augmenter leur productivité et leurs revenus.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button 
+              <Button
                 onClick={handleDownload}
                 size="lg"
                 className="bg-white text-primary hover:bg-white/90 gap-2 font-semibold"
@@ -347,7 +408,7 @@ export default function Home() {
                 <Download size={20} />
                 Télécharger l'APK
               </Button>
-              <Button 
+              <Button
                 size="lg"
                 variant="outline"
                 className="border-white text-white hover:bg-white/10"
@@ -438,9 +499,7 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">A</span>
-                </div>
+                <img src="/images/icon-prod.png" alt="AVIPROD Logo" className="w-10 h-10 object-contain" />
                 <span className="font-bold text-lg">AVIPROD</span>
               </div>
               <p className="text-white/70 text-sm">
