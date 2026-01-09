@@ -8,13 +8,14 @@
  */
 
 import { Button } from "@/components/ui/button";
-import { Download, CheckCircle, Users, TrendingUp, Zap, Shield, Play, Image as ImageIcon, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Download, CheckCircle, Users, TrendingUp, Zap, Shield, Play, Image as ImageIcon, X, Facebook } from "lucide-react";
+import { useState, useEffect, MouseEvent } from "react";
 import ContactForm from "@/components/ContactForm";
 
 export default function Home() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   useEffect(() => {
     // Définir l'icône du site (Favicon)
@@ -43,9 +44,19 @@ export default function Home() {
       adSenseScript.crossOrigin = "anonymous";
       document.head.appendChild(adSenseScript);
     }
+
+    // Afficher la fenêtre popup au lancement (après 1.5 secondes)
+    const timer = setTimeout(() => {
+      setShowWelcomeModal(true);
+    }, 1500);
+    return () => clearTimeout(timer);
   }, []);
 
-  const handleDownload = () => {
+  const handleDownload = (e: MouseEvent<HTMLButtonElement>) => {
+    // Empêcher la propagation de l'événement pour éviter que les scripts publicitaires ne se déclenchent
+    e.stopPropagation();
+    e.nativeEvent.stopImmediatePropagation();
+
     // Redirect to APK download
     window.location.href = 'https://github.com/Latif-jpg/aviprod-android/releases/latest/download/aviprod12227.apk';
   };
@@ -379,8 +390,8 @@ export default function Home() {
                 rating: 5
               },
               {
-                name: "Ibrahim Traoré",
-                farm: "Ferme Traoré, Mali",
+                name: "Ibrahim Sissoko",
+                farm: "Ferme Sissoko, Mali",
                 text: "Avec AVIPROD, je gère 3000 poules sans stress. Les alertes automatiques me sauvent du temps.",
                 rating: 5
               }
@@ -472,7 +483,7 @@ export default function Home() {
                   </div>
                   <div>
                     <h4 className="font-bold text-foreground">Email</h4>
-                    <p className="text-muted-foreground">contact@aviprod.com</p>
+                    <p className="text-muted-foreground">aviprod099@gmail.com</p>
                   </div>
                 </div>
 
@@ -484,7 +495,21 @@ export default function Home() {
                   </div>
                   <div>
                     <h4 className="font-bold text-foreground">Telephone</h4>
-                    <p className="text-muted-foreground">+226 XX XX XX XX</p>
+                    <p className="text-muted-foreground">+226 56 50 87 09</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="flex items-center justify-center h-12 w-12 rounded-lg bg-primary/10">
+                      <Facebook className="text-primary" size={20} />
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-foreground">Facebook</h4>
+                    <a href="https://www.facebook.com/profile.php?id=100064111684692" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
+                      Page Facebook
+                    </a>
                   </div>
                 </div>
 
@@ -541,7 +566,7 @@ export default function Home() {
             <div>
               <h4 className="font-bold mb-4">Entreprise</h4>
               <ul className="space-y-2 text-white/70 text-sm">
-                <li><a href="#" className="hover:text-white transition">À propos</a></li>
+                <li><a href="#" className="hover:text-white transition">À propos de</a></li>
                 <li><a href="#" className="hover:text-white transition">Blog</a></li>
                 <li><a href="#" className="hover:text-white transition">Contact</a></li>
               </ul>
@@ -551,7 +576,7 @@ export default function Home() {
               <ul className="space-y-2 text-white/70 text-sm">
                 <li><a href="#" className="hover:text-white transition">Confidentialité</a></li>
                 <li><a href="#" className="hover:text-white transition">Conditions</a></li>
-                <li><a href="#" className="hover:text-white transition">Support</a></li>
+                <li><a href="#" className="hover:text-white transition">Soutien</a></li>
               </ul>
             </div>
           </div>
@@ -580,6 +605,71 @@ export default function Home() {
             className="max-w-full max-h-[90vh] w-auto h-auto object-contain rounded-md shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {/* Welcome / Ad Modal */}
+      {showWelcomeModal && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-300"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowWelcomeModal(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-2xl animate-in zoom-in-95 duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowWelcomeModal(false);
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X size={24} />
+            </button>
+
+            <div className="text-center space-y-6 pt-2">
+              <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                <img src="/images/icon-prod.png" alt="Logo" className="w-10 h-10 object-contain" />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-2xl font-bold text-gray-900">Bienvenue sur AVIPROD</h3>
+                <p className="text-gray-500">
+                  La solution n°1 pour la gestion de votre élevage.
+                </p>
+              </div>
+
+              <div
+                className="bg-gray-50 rounded-xl p-6 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-gray-100 transition-colors group"
+                onClick={() => {
+                  // Laisser la propagation pour déclencher les scripts de pub globaux si l'utilisateur clique ici
+                  setShowWelcomeModal(false);
+                }}
+              >
+                <div className="p-3 bg-primary/10 rounded-full group-hover:bg-primary/20 transition-colors">
+                  <Zap className="text-primary" size={24} />
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-gray-900">Découvrir nos partenaires</p>
+                  <p className="text-xs text-gray-500">Cliquez ici pour voir l'offre</p>
+                </div>
+              </div>
+
+              <Button
+                onClick={(e) => {
+                  e.stopPropagation(); // Empêche la pub de s'ouvrir si on clique juste sur "Accéder"
+                  setShowWelcomeModal(false);
+                }}
+                className="w-full bg-primary hover:bg-primary/90 text-white"
+              >
+                Accéder au site
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
