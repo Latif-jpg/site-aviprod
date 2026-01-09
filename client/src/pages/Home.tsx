@@ -309,19 +309,25 @@ export default function Home() {
               </video>
             </div>
 
-            {/* Image Item Example 1 */}
-            <div className="group relative rounded-xl overflow-hidden shadow-md aspect-video">
-              {/* Mettez votre image dans public/images et changez le nom ici */}
-              <img src="/images/votre-image-1.jpg" alt="Galerie 1" className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
-              <div className="absolute top-4 right-4 bg-black/50 p-2 rounded-lg backdrop-blur-sm">
-                <ImageIcon className="text-white" size={20} />
+            {/* Gallery Images */}
+            {[
+              { src: "/images/lot.jpeg", title: "Gestion de Lot" },
+              { src: "/images/santé.jpeg", title: "Santé & Diagnostic" },
+              { src: "/images/ration.jpeg", title: "Ration & Alimentation" },
+              { src: "/images/stock.jpeg", title: "Gestion de Stock" },
+              { src: "/images/market.jpeg", title: "Marketplace" },
+              { src: "/images/finance.18.jpeg", title: "Finance & Analyse" }
+            ].map((item, index) => (
+              <div key={index} className="group relative rounded-xl overflow-hidden shadow-md aspect-video">
+                <img src={item.src} alt={item.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <p className="text-white font-bold text-lg">{item.title}</p>
+                </div>
+                <div className="absolute top-4 right-4 bg-black/50 p-2 rounded-lg backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                  <ImageIcon className="text-white" size={20} />
+                </div>
               </div>
-            </div>
-
-            {/* Image Item Example 2 */}
-            <div className="group relative rounded-xl overflow-hidden shadow-md aspect-video">
-              <img src="/images/votre-image-2.jpg" alt="Galerie 2" className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
-            </div>
+            ))}
           </div>
         </div>
       </section>
