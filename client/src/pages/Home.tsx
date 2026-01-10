@@ -27,7 +27,7 @@ export default function Home() {
       metaDesc.setAttribute("name", "description");
       document.head.appendChild(metaDesc);
     }
-    metaDesc.setAttribute("content", "Solution complète pour l'élevage de volaille et poulet : diagnostic maladie, gestion de lot, et achat de produits vétérinaires. Téléchargez l'APK !");
+    metaDesc.setAttribute("content", "AVIPROD : Solution complète pour l'élevage de volaille et poulet. Diagnostic maladie, gestion de lot, et achat de produits vétérinaires. Téléchargez l'APK !");
 
     let metaKeywords = document.querySelector("meta[name='keywords']");
     if (!metaKeywords) {
@@ -35,7 +35,7 @@ export default function Home() {
       metaKeywords.setAttribute("name", "keywords");
       document.head.appendChild(metaKeywords);
     }
-    metaKeywords.setAttribute("content", "elevage, maladie, volaille, poulet, diagnostic, achat de produit veterinaire, aviculture, gestion ferme");
+    metaKeywords.setAttribute("content", "AVIPROD, aviprod, elevage, maladie, volaille, poulet, diagnostic, achat de produit veterinaire, aviculture, gestion ferme");
 
     // JSON-LD pour le référencement IA (Schema.org)
     const jsonLd = {
