@@ -86,6 +86,13 @@ export default function Home() {
       document.head.appendChild(adSenseScript);
     }
 
+    // Initialiser l'unité d'annonce
+    try {
+      ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+    } catch (e) {
+      console.error("AdSense error", e);
+    }
+
     // Afficher la fenêtre popup au lancement (après 1.5 secondes)
     const timer = setTimeout(() => {
       setShowWelcomeModal(true);
@@ -214,6 +221,16 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Publicité AdSense */}
+      <div className="container my-8">
+        <ins className="adsbygoogle"
+          style={{ display: 'block' }}
+          data-ad-client="ca-pub-5111525667900751"
+          data-ad-slot="9905337148"
+          data-ad-format="auto"
+          data-full-width-responsive="true"></ins>
+      </div>
 
       {/* About Section */}
       <section id="about-section" className="py-20 md:py-28 bg-secondary/20">
