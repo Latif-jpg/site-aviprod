@@ -27,7 +27,7 @@ export default function Home() {
       metaDesc.setAttribute("name", "description");
       document.head.appendChild(metaDesc);
     }
-    metaDesc.setAttribute("content", "AVIPROD : Solution complète pour l'élevage de volaille et poulet. Diagnostic maladie, gestion de lot, et achat de produits vétérinaires. Téléchargez l'APK !");
+    metaDesc.setAttribute("content", "AVIPROD est une application pour la gestion d’élevage de volailles avec suivi santé, vaccins, stocks et finances automatiques grâce à l’intelligence artificielle.");
 
     let metaKeywords = document.querySelector("meta[name='keywords']");
     if (!metaKeywords) {
@@ -35,7 +35,7 @@ export default function Home() {
       metaKeywords.setAttribute("name", "keywords");
       document.head.appendChild(metaKeywords);
     }
-    metaKeywords.setAttribute("content", "AVIPROD, aviprod, elevage, maladie, volaille, poulet, diagnostic, achat de produit veterinaire, aviculture, gestion ferme");
+    metaKeywords.setAttribute("content", "AVIPROD, élevage volaille, gestion poulailler, diagnostic poulet, application avicole, IA élevage");
 
     // JSON-LD pour le référencement IA (Schema.org)
     const jsonLd = {
@@ -76,16 +76,6 @@ export default function Home() {
     link.href = '/images/icon-prod.png';
     document.head.appendChild(link);
 
-    const scriptSrc = "https://pl28436440.effectivegatecpm.com/32/dc/aa/32dcaae322d63634d198ba168fc1f8c5.js";
-
-    // Vérifier si le script existe déjà pour éviter les doublons
-    if (!document.querySelector(`script[src="${scriptSrc}"]`)) {
-      const script = document.createElement('script');
-      script.src = scriptSrc;
-      script.async = true;
-      document.body.appendChild(script);
-    }
-
     // Script Google AdSense
     const adSenseSrc = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5111525667900751";
     if (!document.querySelector(`script[src="${adSenseSrc}"]`)) {
@@ -114,6 +104,17 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* SEO Content - Hidden visually but available for crawlers */}
+      <div id="seo-content" className="hidden">
+        <h1>AVIPROD – Gestion intelligente d’élevage de volailles</h1>
+        <p>
+          AVIPROD est une application mobile et web pour les éleveurs de volailles. Elle permet de suivre la santé des poulets, planifier les vaccins, gérer les stocks et finances, et diagnostiquer les maladies grâce à l’intelligence artificielle.
+        </p>
+        <p>
+          L'application AVIPROD aide les aviculteurs à optimiser la production, améliorer la rentabilité et assurer le bien-être de leurs volailles grâce à une interface simple et des notifications automatiques.
+        </p>
+      </div>
+
       {/* Navigation Header */}
       <nav className="sticky top-0 z-50 bg-white border-b border-border shadow-sm">
         <div className="container flex items-center justify-between py-4">
