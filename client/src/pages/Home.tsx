@@ -127,7 +127,10 @@ export default function Home() {
         <div className="container flex items-center justify-between py-4">
           <div
             className="flex items-center gap-2 cursor-pointer"
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            onClick={(e) => {
+              e.stopPropagation();
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
           >
             <img src="/images/icon-prod.png" alt="AVIPROD Logo" className="w-10 h-10 object-contain" />
             <div className="flex flex-col">
@@ -193,7 +196,8 @@ export default function Home() {
                     size="lg"
                     variant="outline"
                     className="border-primary text-primary hover:bg-primary/5"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       document.getElementById('about-section')?.scrollIntoView({ behavior: 'smooth' });
                     }}
                   >
@@ -392,7 +396,10 @@ export default function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Video Item Example */}
-            <div className="group relative rounded-xl overflow-hidden shadow-md aspect-video bg-black">
+            <div
+              className="group relative rounded-xl overflow-hidden shadow-md aspect-video bg-black"
+              onClick={(e) => e.stopPropagation()}
+            >
               {/* Mettez votre vidéo dans le dossier public/videos et changez le nom ici */}
               <video
                 className="w-full h-full object-cover"
@@ -416,7 +423,10 @@ export default function Home() {
               <div
                 key={index}
                 className="group relative rounded-xl overflow-hidden shadow-md aspect-video cursor-pointer"
-                onClick={() => setSelectedImage(item.src)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedImage(item.src);
+                }}
               >
                 <img src={item.src} alt={item.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -551,6 +561,7 @@ export default function Home() {
                 size="lg"
                 variant="outline"
                 className="border-white text-white hover:bg-white/10"
+                onClick={(e) => e.stopPropagation()}
               >
                 Demander une Démo
               </Button>
@@ -611,7 +622,13 @@ export default function Home() {
                   </div>
                   <div>
                     <h4 className="font-bold text-foreground">Facebook</h4>
-                    <a href="https://www.facebook.com/profile.php?id=100064111684692" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
+                    <a
+                      href="https://www.facebook.com/profile.php?id=100064111684692"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-muted-foreground hover:text-primary"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       Page Facebook
                     </a>
                   </div>
@@ -639,7 +656,10 @@ export default function Home() {
             </div>
 
             {/* Right: Contact Form */}
-            <div className="bg-white rounded-2xl shadow-lg p-8 border border-border">
+            <div
+              className="bg-white rounded-2xl shadow-lg p-8 border border-border"
+              onClick={(e) => e.stopPropagation()}
+            >
               <ContactForm />
             </div>
           </div>
@@ -662,25 +682,25 @@ export default function Home() {
             <div>
               <h4 className="font-bold mb-4">Produit</h4>
               <ul className="space-y-2 text-white/70 text-sm">
-                <li><a href="#" className="hover:text-white transition">Fonctionnalités</a></li>
-                <li><a href="#" className="hover:text-white transition">Tarifs</a></li>
-                <li><a href="#" className="hover:text-white transition">Télécharger</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Fonctionnalités</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Tarifs</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Télécharger</a></li>
               </ul>
             </div>
             <div>
               <h4 className="font-bold mb-4">Entreprise</h4>
               <ul className="space-y-2 text-white/70 text-sm">
-                <li><a href="#" className="hover:text-white transition">À propos de</a></li>
-                <li><a href="/blog" className="hover:text-white transition">Blog</a></li>
-                <li><a href="#" className="hover:text-white transition">Contact</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>À propos de</a></li>
+                <li><a href="/blog" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Blog</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Contact</a></li>
               </ul>
             </div>
             <div>
               <h4 className="font-bold mb-4">Légal</h4>
               <ul className="space-y-2 text-white/70 text-sm">
-                <li><a href="#" className="hover:text-white transition">Confidentialité</a></li>
-                <li><a href="#" className="hover:text-white transition">Conditions</a></li>
-                <li><a href="#" className="hover:text-white transition">Soutien</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Confidentialité</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Conditions</a></li>
+                <li><a href="#" className="hover:text-white transition" onClick={(e) => e.stopPropagation()}>Soutien</a></li>
               </ul>
             </div>
           </div>
@@ -695,11 +715,17 @@ export default function Home() {
       {selectedImage && (
         <div
           className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setSelectedImage(null)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedImage(null);
+          }}
         >
           <button
             className="absolute top-6 right-6 text-white/80 hover:text-white transition-colors"
-            onClick={() => setSelectedImage(null)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedImage(null);
+            }}
           >
             <X size={32} />
           </button>
