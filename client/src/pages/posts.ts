@@ -24,7 +24,7 @@ export const BLOG_POSTS: BlogPost[] = [
         author: "Équipe AVIPROD",
         category: "Annonce",
         // Vous pouvez ajouter une image ici, par exemple : "/images/poule.jpg"
-        imageUrl: "/images/photo blog1.png"
+        imageUrl: "/images/santé.jpeg"
     },
     {
         id: 2,
@@ -34,6 +34,6 @@ export const BLOG_POSTS: BlogPost[] = [
         date: "25 Janvier 2024",
         author: "Dr. Vétérinaire AVIPROD",
         category: "Santé",
-        imageUrl: "/images/santé.jpeg"
+        imageUrl: "/images/photo blog1.png"
     },
 ];
