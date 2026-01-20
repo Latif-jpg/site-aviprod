@@ -2,8 +2,46 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Construction, Sparkles, Calendar, User, Tag } from "lucide-react";
 import { Link } from "wouter";
 import { BLOG_POSTS } from "@/pages/posts";
+import { useEffect } from "react";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
 
 export default function Blog() {
+    useEffect(() => {
+        document.title = "Blog - Conseils et Actualités pour l'Élevage de Volaille | AVIPROD";
+
+        const metaDesc = document.querySelector("meta[name='description']") || document.createElement("meta");
+        metaDesc.setAttribute("name", "description");
+        metaDesc.setAttribute("content", "Découvrez les derniers articles, conseils et actualités sur la gestion d'élevage de volaille, la santé des poulets, et l'optimisation de votre ferme avec AVIPROD.");
+        document.head.appendChild(metaDesc);
+
+        // JSON-LD pour le fil d'ariane
+        const jsonLd = {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [{
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Accueil",
+                "item": "https://site-aviprod.vercel.app"
+            }, {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Blog",
+                "item": "https://site-aviprod.vercel.app/blog"
+            }]
+        };
+
+        const scriptJsonLd = document.createElement("script");
+        scriptJsonLd.setAttribute("type", "application/ld+json");
+        scriptJsonLd.textContent = JSON.stringify(jsonLd);
+        document.head.appendChild(scriptJsonLd);
+
+        return () => {
+            document.head.removeChild(scriptJsonLd);
+        };
+    }, []);
+
     return (
         <div className="min-h-screen bg-white">
             <nav className="sticky top-0 z-50 bg-white border-b border-border shadow-sm">
@@ -60,7 +98,7 @@ export default function Blog() {
                                                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                                                     <div className="flex items-center gap-1">
                                                         <Calendar size={14} />
-                                                        {post.date}
+                                                        {format(new Date(post.date), 'd MMMM yyyy', { locale: fr })}
                                                     </div>
                                                     <div className="flex items-center gap-1">
                                                         <User size={14} />

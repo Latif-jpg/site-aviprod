@@ -8,14 +8,24 @@
  */
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Download, CheckCircle, Users, TrendingUp, Zap, Shield, Play, Image as ImageIcon, X, Facebook } from "lucide-react";
 import { useState, useEffect, MouseEvent } from "react";
 import ContactForm from "@/components/ContactForm";
 
 export default function Home() {
-  const [isDownloading, setIsDownloading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
 
   useEffect(() => {
     // SEO - Optimisation pour les moteurs de recherche
@@ -100,11 +110,14 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleDownload = (e: MouseEvent<HTMLButtonElement>) => {
+  const handleDownloadClick = (e: MouseEvent<HTMLButtonElement>) => {
     // Empêcher la propagation de l'événement pour éviter que les scripts publicitaires ne se déclenchent
     e.stopPropagation();
     e.nativeEvent.stopImmediatePropagation();
+    setShowDownloadConfirm(true);
+  };
 
+  const startApkDownload = () => {
     // Redirect to APK download
     window.location.href = 'https://github.com/Latif-jpg/aviprod-android/releases/latest/download/aviprod12227.apk';
   };
@@ -139,7 +152,7 @@ export default function Home() {
             </div>
           </div>
           <Button
-            onClick={handleDownload}
+            onClick={handleDownloadClick}
             className="bg-primary hover:bg-primary/90 text-white gap-2"
           >
             <>
@@ -185,7 +198,7 @@ export default function Home() {
 
                 <div className="flex flex-col sm:flex-row gap-4 pt-4">
                   <Button
-                    onClick={handleDownload}
+                    onClick={handleDownloadClick}
                     size="lg"
                     className="bg-primary hover:bg-primary/90 text-white gap-2"
                   >
@@ -550,7 +563,7 @@ export default function Home() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button
-                onClick={handleDownload}
+                onClick={handleDownloadClick}
                 size="lg"
                 className="bg-white text-primary hover:bg-white/90 gap-2 font-semibold"
               >
@@ -802,6 +815,28 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Custom Download Confirmation Dialog */}
+      <AlertDialog open={showDownloadConfirm} onOpenChange={setShowDownloadConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Téléchargement de l'application</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 pt-2">
+              <p>
+                Votre navigateur pourrait afficher un avertissement de sécurité. C'est une procédure normale pour les applications qui ne sont pas sur le Play Store.
+              </p>
+              <p className="font-semibold text-foreground">
+                Nous garantissons que notre fichier est 100% sûr.
+              </p>
+              <p>Voulez-vous continuer le téléchargement ?</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={startApkDownload}>Oui, télécharger</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
