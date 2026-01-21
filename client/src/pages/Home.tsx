@@ -407,50 +407,87 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-10">
             {/* Video Item Example */}
-            <div
-              className="group relative rounded-xl overflow-hidden shadow-md aspect-video bg-black"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Mettez votre vidéo dans le dossier public/videos et changez le nom ici */}
-              <video
-                className="w-full h-full object-cover"
-                controls
-                autoPlay
-                muted
-                loop
-                playsInline
+            <div className="flex flex-col gap-3 group">
+              <div
+                className="relative rounded-xl overflow-hidden shadow-md aspect-video bg-black"
+                onClick={(e) => e.stopPropagation()}
               >
-                <source src="/videos/videopresenta.mp4" type="video/mp4" />
-                <source src="/videopresenta.mp4" type="video/mp4" />
-                Votre navigateur ne supporte pas la vidéo.
-              </video>
+                {/* Mettez votre vidéo dans le dossier public/videos et changez le nom ici */}
+                <video
+                  className="w-full h-full object-cover"
+                  controls
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                >
+                  <source src="/videos/videopresenta.mp4" type="video/mp4" />
+                  <source src="/videopresenta.mp4" type="video/mp4" />
+                  Votre navigateur ne supporte pas la vidéo.
+                </video>
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-bold text-lg text-foreground group-hover:text-primary transition-colors">Présentation AVIPROD</h3>
+                <p className="text-sm text-muted-foreground">
+                  Découvrez en vidéo comment AVIPROD simplifie la gestion quotidienne de votre ferme avicole.
+                </p>
+              </div>
             </div>
 
             {/* Gallery Images */}
             {[
-              { src: "/images/lot.jpeg", title: "Gestion de Lot" },
-              { src: "/images/santé.jpeg", title: "Santé & Diagnostic" },
-              { src: "/images/ration.jpeg", title: "Ration & Alimentation" },
-              { src: "/images/stock.jpeg", title: "Gestion de Stock" },
-              { src: "/images/market.jpeg", title: "Marketplace" },
-              { src: "/images/finance.18.jpeg", title: "Finance & Analyse" }
+              {
+                src: "/images/lot.jpeg",
+                title: "Gestion de Lot",
+                desc: "Suivez l'évolution de vos sujets jour après jour pour une traçabilité complète."
+              },
+              {
+                src: "/images/santé.jpeg",
+                title: "Santé & Diagnostic",
+                desc: "Un assistant vétérinaire de poche pour identifier et traiter les maladies rapidement."
+              },
+              {
+                src: "/images/ration.jpeg",
+                title: "Ration & Alimentation",
+                desc: "Optimisez l'alimentation de vos volailles pour réduire le gaspillage et les coûts."
+              },
+              {
+                src: "/images/stock.jpeg",
+                title: "Gestion de Stock",
+                desc: "Gardez un œil sur vos inventaires d'aliments et de médicaments en temps réel."
+              },
+              {
+                src: "/images/market.jpeg",
+                title: "Marketplace",
+                desc: "Accédez à un vaste marché pour vendre vos poulets et acheter vos intrants."
+              },
+              {
+                src: "/images/finance.18.jpeg",
+                title: "Finance & Analyse",
+                desc: "Maîtrisez votre comptabilité et visualisez vos profits en un coup d'œil."
+              }
             ].map((item, index) => (
-              <div
-                key={index}
-                className="group relative rounded-xl overflow-hidden shadow-md aspect-video cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedImage(item.src);
-                }}
-              >
-                <img src={item.src} alt={item.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <p className="text-white font-bold text-lg">{item.title}</p>
+              <div key={index} className="flex flex-col gap-3 group">
+                <div
+                  className="relative rounded-xl overflow-hidden shadow-md aspect-video cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedImage(item.src);
+                  }}
+                >
+                  <img src={item.src} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors" />
+                  <div className="absolute top-4 right-4 bg-black/50 p-2 rounded-lg backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                    <ImageIcon className="text-white" size={20} />
+                  </div>
                 </div>
-                <div className="absolute top-4 right-4 bg-black/50 p-2 rounded-lg backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                  <ImageIcon className="text-white" size={20} />
+                <div className="space-y-1">
+                  <h3 className="font-bold text-lg text-foreground group-hover:text-primary transition-colors">{item.title}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {item.desc}
+                  </p>
                 </div>
               </div>
             ))}
