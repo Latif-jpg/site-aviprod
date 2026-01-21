@@ -421,9 +421,9 @@ export default function Home() {
                 muted
                 loop
                 playsInline
-                poster="/images/hero-background.png"
               >
                 <source src="/videos/videopresenta.mp4" type="video/mp4" />
+                <source src="/videopresenta.mp4" type="video/mp4" />
                 Votre navigateur ne supporte pas la vidéo.
               </video>
             </div>
