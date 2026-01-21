@@ -417,6 +417,10 @@ export default function Home() {
               <video
                 className="w-full h-full object-cover"
                 controls
+                autoPlay
+                muted
+                loop
+                playsInline
                 poster="/images/hero-background.png"
               >
                 <source src="/videos/videopresenta.mp4" type="video/mp4" />
