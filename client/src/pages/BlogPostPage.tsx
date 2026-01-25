@@ -25,8 +25,6 @@ export default function BlogPostPage() {
 
     useEffect(() => {
         if (post) {
-            const postUrl = `https://site-aviprod.vercel.app/blog/${post.id}`;
-            const imageUrl = post.imageUrl ? `https://site-aviprod.vercel.app${post.imageUrl}` : `https://site-aviprod.vercel.app/images/hero-background.png`;
             const baseUrl = import.meta.env.VITE_WEBSITE_URL || "https://site-aviprod.vercel.app";
             const postUrl = `${baseUrl}/blog/${post.id}`;
             const imageUrl = post.imageUrl ? `${baseUrl}${post.imageUrl}` : `${baseUrl}/images/hero-background.png`;
@@ -64,7 +62,6 @@ export default function BlogPostPage() {
                 "publisher": {
                     "@type": "Organization",
                     "name": "AVIPROD",
-                    "logo": { "@type": "ImageObject", "url": "https://site-aviprod.vercel.app/images/icon-prod.png" }
                     "logo": { "@type": "ImageObject", "url": `${baseUrl}/images/icon-prod.png` }
                 },
                 "datePublished": post.date, // Format YYYY-MM-DD
