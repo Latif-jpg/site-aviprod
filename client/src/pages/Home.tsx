@@ -155,7 +155,7 @@ export default function Home() {
             <Button
               variant="ghost"
               onClick={() => window.open('https://aviprod-web.vercel.app/dashboard', '_blank')}
-              className="text-primary hover:text-primary/80 hidden sm:flex"
+              className="text-primary hover:text-primary/80"
             >
               Se connecter
             </Button>
