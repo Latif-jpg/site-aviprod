@@ -151,15 +151,24 @@ export default function Home() {
               <span className="text-xs text-muted-foreground">Green Eco Tech</span>
             </div>
           </div>
-          <Button
-            onClick={handleDownloadClick}
-            className="bg-primary hover:bg-primary/90 text-white gap-2"
-          >
-            <>
-              <Download size={18} />
-              Télécharger l'APK
-            </>
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => window.open('https://aviprod-web.vercel.app/dashboard', '_blank')}
+              className="text-primary hover:text-primary/80 hidden sm:flex"
+            >
+              Se connecter
+            </Button>
+            <Button
+              onClick={handleDownloadClick}
+              className="bg-primary hover:bg-primary/90 text-white gap-2"
+            >
+              <>
+                <Download size={18} />
+                Télécharger l'APK
+              </>
+            </Button>
+          </div>
         </div>
       </nav>
 
@@ -209,12 +218,9 @@ export default function Home() {
                     size="lg"
                     variant="outline"
                     className="border-primary text-primary hover:bg-primary/5"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      document.getElementById('about-section')?.scrollIntoView({ behavior: 'smooth' });
-                    }}
+                    onClick={() => window.open('https://aviprod-web.vercel.app/dashboard', '_blank')}
                   >
-                    En Savoir Plus
+                    Utiliser la Version Web
                   </Button>
                 </div>
 
@@ -615,9 +621,9 @@ export default function Home() {
                 size="lg"
                 variant="outline"
                 className="border-white text-white hover:bg-white/10"
-                onClick={(e) => e.stopPropagation()}
+                onClick={() => window.open('https://aviprod-web.vercel.app/dashboard', '_blank')}
               >
-                Demander une Démo
+                Accéder au Dashboard
               </Button>
             </div>
           </div>
