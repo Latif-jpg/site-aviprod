@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Dimensions, Image, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from './Icon';
-import { supabase, ensureSupabaseInitialized } from '../config'; // Import supabase directly
+import { supabase, ensureSupabaseInitialized, getMarketplaceImageUrl } from '../config'; // Import supabase directly
 import { router } from 'expo-router';
-// import GoogleAdBanner from './GoogleAdBanner';
+import Toast from 'react-native-toast-message';
 
 const { width } = Dimensions.get('window');
 
@@ -25,6 +25,16 @@ interface RecentDelivery {
   created_at: string;
   customer_location: string;
   items_count: number;
+  // Extended properties for full seller dashboard
+  total_amount?: number;
+  items_summary?: {
+    product_name: string;
+    image?: string;
+    quantity: number;
+  }[];
+  buyer_name?: string;
+  delivery_fee?: number;
+  grand_total?: number;
 }
 
 export default function DeliveryDashboard() {
@@ -34,6 +44,27 @@ export default function DeliveryDashboard() {
   const [userRole, setUserRole] = useState<'customer' | 'driver' | 'seller' | null>(null);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
   const [showRoleSelector, setShowRoleSelector] = useState(false);
+  // Ajout de l'état pour les badges
+  const [badgeCounts, setBadgeCounts] = useState({
+    pending: 0,
+    processing: 0,
+    rejected: 0
+  });
+
+  // Seller Management State
+  const [selectedOrder, setSelectedOrder] = useState<RecentDelivery | null>(null);
+  const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
+  const [pickupInfo, setPickupInfo] = useState({
+    address: '',
+    phone: '',
+    orderToConfirm: null as RecentDelivery | null,
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRejectModalVisible, setIsRejectModalVisible] = useState(false);
+  const [rejectionInfo, setRejectionInfo] = useState({
+    reason: '',
+    orderToReject: null as RecentDelivery | null,
+  });
 
   useEffect(() => {
     // --- CORRECTION : Utiliser onAuthStateChange pour une gestion fiable de la session ---
@@ -194,7 +225,7 @@ export default function DeliveryDashboard() {
           status,
           created_at,
           order:orders(
-            total_amount,
+            total_price,
             delivery_address
           )
         `)
@@ -206,7 +237,7 @@ export default function DeliveryDashboard() {
         id: d.id,
         order_id: d.order_id,
         status: d.status,
-        total_amount: d.order?.total_amount || 0,
+        total_amount: d.order?.total_price || 0,
         created_at: d.created_at,
         customer_location: d.order?.delivery_address?.city || 'Non spécifié',
         items_count: 1 // Simplified
@@ -228,7 +259,7 @@ export default function DeliveryDashboard() {
         .from('orders')
         .select(`
           id,
-          total_amount,
+          total_price,
           status,
           created_at,
           delivery:deliveries(status)
@@ -256,7 +287,7 @@ export default function DeliveryDashboard() {
         id: o.delivery?.id || o.id,
         order_id: o.id,
         status: o.delivery?.status || 'pending',
-        total_amount: o.total_amount,
+        total_amount: o.total_price,
         created_at: o.created_at,
         customer_location: 'Votre adresse',
         items_count: 1 // Simplified
@@ -274,49 +305,216 @@ export default function DeliveryDashboard() {
       const supabase = await ensureSupabaseInitialized();
 
       // Get seller delivery stats (orders from seller's products)
-      const { data: orders } = await supabase
+      // Utilisation de jointures avancées pour récupérer toutes les infos nécessaires à l'affichage enrichi
+      const { data: orders, error } = await supabase
         .from('orders')
         .select(`
           id,
-          total_amount,
+          buyer_id,
+          total_price,
+          delivery_fee,
           status,
           created_at,
-          delivery:deliveries(status)
+          buyer_profile:profiles!orders_buyer_id_fkey (full_name),
+          order_items (
+            quantity,
+            product:marketplace_products (name, image)
+          ),
+          delivery:deliveries(id, status)
         `)
-        .eq('seller_id', userId);
+        .eq('seller_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching orders:', error);
+        throw error;
+      }
+
+      console.log('📦 Loaded Orders:', JSON.stringify(orders?.map(o => ({ id: o.id, buyer: o.buyer_profile })), null, 2));
 
       const totalDeliveries = orders?.length || 0;
-      const activeDeliveries = orders?.filter(o => o.delivery?.status && ['accepted', 'picked_up', 'in_transit'].includes(o.delivery.status)).length || 0;
+
+      const pendingCount = orders?.filter(o => o.status === 'pending').length || 0;
+      const processingCount = orders?.filter(o =>
+        ['confirmed', 'preparing', 'ready'].includes(o.status) ||
+        (o.delivery && ['accepted', 'picked_up', 'in_transit'].includes(o.delivery.status))
+      ).length || 0;
       const completedToday = orders?.filter(o =>
-        o.delivery?.status === 'delivered' &&
+        (o.status === 'delivered' || o.delivery?.status === 'delivered') &&
         new Date(o.created_at).toDateString() === new Date().toDateString()
       ).length || 0;
 
+      setBadgeCounts({
+        pending: pendingCount,
+        processing: processingCount,
+        rejected: orders?.filter(o => o.status === 'cancelled').length || 0
+      });
+
       setStats({
         total_deliveries: totalDeliveries,
-        active_deliveries: activeDeliveries,
+        active_deliveries: processingCount,
         completed_today: completedToday,
-        total_earnings: 0, // Sellers earn from sales, not deliveries
+        total_earnings: 0,
         avg_rating: 0
       });
 
-      // Get recent deliveries for seller's orders
-      const recentDeliveriesData: RecentDelivery[] = orders?.filter(o => o.delivery).slice(0, 5).map(o => ({
+      // Transformation complète des données pour l'affichage enrichi
+      const fullOrdersData: SellerOrder[] = orders?.map((o: any) => ({
         id: o.delivery?.id || o.id,
         order_id: o.id,
-        status: o.delivery?.status || 'pending',
-        total_amount: o.total_amount,
+        status: o.delivery?.status || o.status, // Priorité au statut livraison
         created_at: o.created_at,
-        customer_location: 'Client',
-        items_count: 1
+
+        // Extended Data
+        total_amount: o.total_price,
+        delivery_fee: o.delivery_fee,
+        grand_total: (o.total_price || 0) + (o.delivery_fee || 0),
+        buyer_name: o.buyer_profile?.full_name || 'Client',
+        customer_location: 'Client', // Placeholder, idealement l'adresse de livraison
+        items_count: o.order_items?.length || 0,
+
+        items_summary: (o.order_items || []).map((item: any) => ({
+          product_name: item.product?.name || 'Produit',
+          image: item.product?.image,
+          quantity: item.quantity || 1,
+        })),
+        driver_earning: 0, // Not relevant for seller view directly
       })) || [];
 
-      setRecentDeliveries(recentDeliveriesData);
+      setRecentDeliveries(fullOrdersData);
 
     } catch (error: any) {
       console.error('❌ Error loading seller dashboard:', error);
+      Alert.alert('Erreur', 'Impossible de charger les commandes.');
     }
   };
+
+  // ------------------------------------------------------------------
+  // SELLER ORDER MANAGEMENT LOGIC (Ported from seller-orders.tsx)
+  // ------------------------------------------------------------------
+
+  const handleConfirmOrderClick = (order: SellerOrder) => {
+    setPickupInfo({ address: '', phone: '', orderToConfirm: order });
+    setIsConfirmModalVisible(true);
+  };
+
+  const handleRejectOrderClick = (order: SellerOrder) => {
+    setRejectionInfo({ reason: '', orderToReject: order });
+    setIsRejectModalVisible(true);
+  };
+
+  const confirmOrderWithPickupInfo = async (orderId: string, pickupInfo: any) => {
+    const supabase = await ensureSupabaseInitialized();
+
+    // Validation UUID simple
+    if (!orderId || !/^[0-9a-f-]{36}$/i.test(orderId)) {
+      throw new Error('ID de commande invalide.');
+    }
+
+    const { data, error } = await supabase
+      .rpc('confirm_order_with_pickup_info', {
+        p_order_id: orderId,
+        p_pickup_address: pickupInfo?.address ? {
+          address: pickupInfo.address,
+          city: null,
+          notes: null
+        } : null,
+        p_pickup_phone: pickupInfo?.phone || null
+      });
+
+    if (error) throw error;
+    return data;
+  };
+
+  const handleConfirmSubmit = async () => {
+    if (!pickupInfo.orderToConfirm || !pickupInfo.address.trim() || !pickupInfo.phone.trim()) {
+      Toast.show({ type: 'error', text1: 'Champs requis', text2: 'Adresse et téléphone sont obligatoires.' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await confirmOrderWithPickupInfo(pickupInfo.orderToConfirm.order_id, {
+        address: pickupInfo.address,
+        phone: pickupInfo.phone
+      });
+
+      // Notification logic (simplified)
+      const supabase = await ensureSupabaseInitialized();
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .insert({
+          // We need buyer_id here, but we don't have it easily in RecentDelivery without another fetch or prop.
+          // For now we rely on trigger or assume the RPC handles status updates which triggers other things.
+          // Wait, safe implementation:
+          user_id: (await supabase.from('orders').select('buyer_id').eq('id', pickupInfo.orderToConfirm.order_id).single()).data?.buyer_id,
+          type: 'order_confirmed',
+          title: 'Commande confirmée ! 🎉',
+          message: `Votre commande #${pickupInfo.orderToConfirm.order_id.slice(-6)} a été confirmée.`,
+          data: { order_id: pickupInfo.orderToConfirm.order_id, action: 'pay_order' }
+        });
+
+      Toast.show({ type: 'success', text1: 'Succès', text2: 'Commande confirmée !' });
+      setIsConfirmModalVisible(false);
+      // Reload dashboard using current user ID
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) loadSellerDashboard(user.id);
+
+    } catch (error: any) {
+      console.error('❌ Error confirming order:', error);
+      Toast.show({ type: 'error', text1: 'Erreur', text2: error.message || 'Échec confirmation.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const rejectOrderWithReason = async () => {
+    if (!rejectionInfo.orderToReject || !rejectionInfo.reason.trim()) {
+      Toast.show({ type: 'error', text1: 'Motif requis', text2: 'Veuillez indiquer un motif.' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const supabase = await ensureSupabaseInitialized();
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'cancelled',
+          rejection_reason: rejectionInfo.reason,
+        })
+        .eq('id', rejectionInfo.orderToReject.order_id);
+
+      if (error) throw error;
+
+      Toast.show({ type: 'success', text1: 'Commande rejetée', text2: 'Commande annulée.' });
+      setIsRejectModalVisible(false);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) loadSellerDashboard(user.id);
+
+    } catch (error: any) {
+      console.error('❌ Error rejecting order:', error);
+      Toast.show({ type: 'error', text1: 'Erreur', text2: 'Échec annulation.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    try {
+      const supabase = await ensureSupabaseInitialized();
+      const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
+      if (error) throw error;
+      Toast.show({ type: 'success', text1: 'Statut mis à jour', text2: `Commande ${newStatus}` });
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) loadSellerDashboard(user.id);
+    } catch (e) {
+      Toast.show({ type: 'error', text1: 'Erreur', text2: 'Mise à jour échouée' });
+    }
+  };
+
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -401,56 +599,225 @@ export default function DeliveryDashboard() {
     );
   };
 
-  const renderRecentDeliveries = () => (
-    <View style={styles.recentSection}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Livraisons Récentes</Text>
-        <TouchableOpacity onPress={() => {
-          if (userRole === 'driver') {
-            // Direct navigation to driver app for approved drivers
-            router.push('/delivery-driver');
-          } else {
-            router.push('/order-tracking');
-          }
-        }}>
-          <Text style={styles.seeAllText}>Voir tout</Text>
-        </TouchableOpacity>
-      </View>
-
-      {recentDeliveries.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Icon name="bag" size={48} color={colors.textSecondary} />
-          <Text style={styles.emptyStateText}>Aucune livraison récente</Text>
-        </View>
-      ) : (
-        recentDeliveries.map(delivery => (
-          <View key={delivery.id} style={styles.deliveryCard}>
-            <View style={styles.deliveryHeader}>
-              <Text style={styles.deliveryId}>#{delivery.id.slice(-8)}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(delivery.status) + '20' }]}>
-                <Text style={[styles.statusText, { color: getStatusColor(delivery.status) }]}>
-                  {getStatusText(delivery.status)}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.deliveryDetails}>
-              <Text style={styles.deliveryAmount}>{delivery.total_amount.toLocaleString()} CFA</Text>
-              <Text style={styles.deliveryLocation}>{delivery.customer_location}</Text>
-            </View>
-
-            <Text style={styles.deliveryDate}>
-              {new Date(delivery.created_at).toLocaleDateString('fr-FR', {
-                day: 'numeric',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </Text>
+  const renderRecentDeliveries = () => {
+    // ------------------------------------------------------------------
+    // SPECIFIC SELLER RENDER (Cards with Actions)
+    // ------------------------------------------------------------------
+    if (userRole === 'seller') {
+      return (
+        <View style={styles.recentSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Commandes & Actions</Text>
+            <TouchableOpacity onPress={() => router.push('/seller-orders')}>
+              <Text style={styles.seeAllText}>Voir tout historique</Text>
+            </TouchableOpacity>
           </View>
-        ))
-      )}
-    </View>
+
+          {recentDeliveries.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Icon name="bag" size={48} color={colors.textSecondary} />
+              <Text style={styles.emptyStateText}>Aucune commande pour le moment</Text>
+            </View>
+          ) : (
+            recentDeliveries.map(delivery => (
+              <View key={delivery.id} style={styles.sellerOrderCard}>
+                {/* HEADER CARD */}
+                <View style={styles.orderHeader}>
+                  {delivery.items_summary?.[0]?.image && (
+                    <Image
+                      source={{ uri: getMarketplaceImageUrl(delivery.items_summary[0].image) }}
+                      style={styles.productImage}
+                    />
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderId}>#{delivery.order_id.slice(-8)}</Text>
+                    <Text style={styles.buyerName}>{delivery.buyer_name || 'Client'}</Text>
+                    <Text style={styles.orderDate}>
+                      {new Date(delivery.created_at).toLocaleDateString()} • {new Date(delivery.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(delivery.status) + '20' }]}>
+                    <Text style={[styles.statusText, { color: getStatusColor(delivery.status) }]}>
+                      {getStatusText(delivery.status)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* DETAILS */}
+                <View style={styles.sellerOrderDetails}>
+                  <Text style={styles.orderAmount}>{delivery.grand_total?.toLocaleString() || delivery.total_amount.toLocaleString()} CFA</Text>
+                  <Text style={styles.itemsCount}>{delivery.items_count} article(s)</Text>
+                </View>
+
+                {/* ACTIONS */}
+                {delivery.status === 'pending' && (
+                  <View style={styles.actionButtonsContainer}>
+                    <TouchableOpacity style={[styles.compactActionBtn, { backgroundColor: colors.error + '20' }]} onPress={() => handleRejectOrderClick(delivery)}>
+                      <Icon name="close" size={18} color={colors.error} />
+                      <Text style={[styles.compactActionBtnText, { color: colors.error }]}>Rejeter</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.compactActionBtn, { backgroundColor: colors.primary }]} onPress={() => handleConfirmOrderClick(delivery)}>
+                      <Icon name="checkmark" size={18} color={colors.white} />
+                      <Text style={[styles.compactActionBtnText, { color: colors.white }]}>Accepter</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {delivery.status === 'confirmed' && (
+                  <TouchableOpacity style={[styles.fullWidthActionBtn, { backgroundColor: colors.warning }]} onPress={() => updateOrderStatus(delivery.order_id, 'preparing')}>
+                    <Text style={styles.fullWidthActionBtnText}>Commencer préparation</Text>
+                  </TouchableOpacity>
+                )}
+                {delivery.status === 'preparing' && (
+                  <TouchableOpacity style={[styles.fullWidthActionBtn, { backgroundColor: colors.accent }]} onPress={() => updateOrderStatus(delivery.order_id, 'ready')}>
+                    <Text style={styles.fullWidthActionBtnText}>Marquer comme prêt</Text>
+                  </TouchableOpacity>
+                )}
+
+              </View>
+            ))
+          )}
+        </View>
+      );
+    }
+
+    // ------------------------------------------------------------------
+    // STANDARD RENDER (Driver / Customer)
+    // ------------------------------------------------------------------
+    return (
+      <View style={styles.recentSection}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Livraisons Récentes</Text>
+          <TouchableOpacity onPress={() => {
+            if (userRole === 'driver') {
+              // Direct navigation to driver app for approved drivers
+              router.push('/delivery-driver');
+            } else {
+              router.push('/order-tracking');
+            }
+          }}>
+            <Text style={styles.seeAllText}>Voir tout</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recentDeliveries.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Icon name="bag" size={48} color={colors.textSecondary} />
+            <Text style={styles.emptyStateText}>Aucune livraison récente</Text>
+          </View>
+        ) : (
+          recentDeliveries.map(delivery => (
+            <View key={delivery.id} style={styles.deliveryCard}>
+              <View style={styles.deliveryHeader}>
+                <Text style={styles.deliveryId}>#{delivery.id.slice(-8)}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(delivery.status) + '20' }]}>
+                  <Text style={[styles.statusText, { color: getStatusColor(delivery.status) }]}>
+                    {getStatusText(delivery.status)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.deliveryDetails}>
+                <Text style={styles.deliveryAmount}>{delivery.total_amount.toLocaleString()} CFA</Text>
+                <Text style={styles.deliveryLocation}>{delivery.customer_location}</Text>
+              </View>
+
+              <Text style={styles.deliveryDate}>
+                {new Date(delivery.created_at).toLocaleDateString('fr-FR', {
+                  day: 'numeric',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+    );
+  };
+
+  const renderConfirmModal = () => (
+    <Modal
+      transparent={true}
+      visible={isConfirmModalVisible}
+      animationType="slide"
+      onRequestClose={() => setIsConfirmModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Confirmer la Commande</Text>
+          <Text style={styles.modalSubtitle}>
+            Infos pour le livreur (Adresse de retrait & Contact)
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Adresse de retrait du colis"
+            value={pickupInfo.address}
+            onChangeText={(text) => setPickupInfo(prev => ({ ...prev, address: text }))}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Numéro de téléphone"
+            value={pickupInfo.phone}
+            onChangeText={(text) => setPickupInfo(prev => ({ ...prev, phone: text }))}
+            keyboardType="phone-pad"
+          />
+          <TouchableOpacity
+            style={[styles.fullWidthActionBtn, { backgroundColor: colors.primary, marginBottom: 10 }]}
+            onPress={handleConfirmSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.fullWidthActionBtnText}>Confirmer</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelButton} onPress={() => setIsConfirmModalVisible(false)}>
+            <Text style={styles.cancelButtonText}>Annuler</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderRejectModal = () => (
+    <Modal
+      transparent={true}
+      visible={isRejectModalVisible}
+      animationType="slide"
+      onRequestClose={() => setIsRejectModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Rejeter la Commande</Text>
+          <Text style={styles.modalSubtitle}>
+            Pourquoi annulez-vous cette commande ?
+          </Text>
+          <TextInput
+            style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+            placeholder="Motif (ex: Rupture de stock)"
+            value={rejectionInfo.reason}
+            onChangeText={(text) => setRejectionInfo(prev => ({ ...prev, reason: text }))}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.fullWidthActionBtn, { backgroundColor: colors.error, marginBottom: 10 }]}
+            onPress={rejectOrderWithReason}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.fullWidthActionBtnText}>Confirmer Rejet</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelButton} onPress={() => setIsRejectModalVisible(false)}>
+            <Text style={styles.cancelButtonText}>Retour</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 
   const renderRoleSelector = () => {
@@ -581,7 +948,7 @@ export default function DeliveryDashboard() {
   };
 
   const renderRoleSwitcher = () => {
-    if (!userRole || availableRoles.length <= 1) return null;
+    if (!userRole || availableRoles.length <= 1 || showRoleSelector) return null;
 
     return (
       <View style={styles.roleSwitcher}>
@@ -626,8 +993,20 @@ export default function DeliveryDashboard() {
       );
     } else if (userRole === 'seller') {
       actions.push(
-        { title: 'Commandes reçues', icon: 'storefront', action: () => router.push('/seller-orders'), color: colors.primary },
-        { title: 'Suivi livraisons', icon: 'car', action: () => router.push('/seller-orders'), color: colors.success }
+        {
+          title: 'Commandes reçues',
+          icon: 'storefront',
+          action: () => router.push('/seller-orders'),
+          color: colors.primary,
+          badge: badgeCounts.pending // Badge pour les commandes en attente
+        },
+        {
+          title: 'Suivi livraisons',
+          icon: 'car',
+          action: () => router.push('/seller-orders'),
+          color: colors.success,
+          badge: badgeCounts.processing // Badge pour les commandes en cours/livraison
+        }
       );
     } else if (userRole === 'admin') { // Ajout pour le rôle admin
       actions.push(
@@ -648,6 +1027,15 @@ export default function DeliveryDashboard() {
             >
               <Icon name={action.icon as any} size={24} color={colors.white} />
               <Text style={styles.actionButtonText}>{action.title}</Text>
+
+              {/* Badge Conditionnel */}
+              {(action as any).badge > 0 && (
+                <View style={styles.actionBadge}>
+                  <Text style={styles.actionBadgeText}>
+                    {(action as any).badge > 99 ? '99+' : (action as any).badge}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           ))}
         </View>
@@ -683,12 +1071,19 @@ export default function DeliveryDashboard() {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
           {renderRoleSelector()}
-          {renderStatsCards()}
-          {renderQuickActions()}
-          {renderRecentDeliveries()}
-          {/* <GoogleAdBanner /> */}
+
+          {!showRoleSelector && (
+            <>
+              {renderStatsCards()}
+              {renderQuickActions()}
+              {renderRecentDeliveries()}
+              {/* <GoogleAdBanner /> */}
+            </>
+          )}
         </View>
       </ScrollView>
+      {renderConfirmModal()}
+      {renderRejectModal()}
     </SafeAreaView>
   );
 }
@@ -714,6 +1109,26 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: colors.text,
+  },
+  actionBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: colors.error,
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.white,
+    zIndex: 10,
+    paddingHorizontal: 6,
+  },
+  actionBadgeText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   scrollView: {
     flex: 1,
@@ -804,6 +1219,121 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  // STYLES SPECIFIQUES VENDEUR
+  sellerOrderCard: {
+    backgroundColor: colors.backgroundAlt,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16, // Plus d'espace
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 12
+  },
+  productImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: colors.border,
+  },
+  orderId: { fontSize: 14, color: colors.textSecondary },
+  buyerName: { fontSize: 16, fontWeight: '700', color: colors.text },
+  orderDate: { fontSize: 12, color: colors.textSecondary },
+  sellerOrderDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border
+  },
+  orderAmount: { fontSize: 18, fontWeight: '700', color: colors.primary },
+  itemsCount: { fontSize: 14, color: colors.textSecondary },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12
+  },
+  compactActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6
+  },
+  compactActionBtnText: {
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  fullWidthActionBtn: {
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  fullWidthActionBtnText: {
+    color: colors.white,
+    fontWeight: '700',
+    fontSize: 16
+  },
+  // MODAL STYLES
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '90%',
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  input: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 16,
+    color: colors.text
+  },
+  cancelButton: {
+    marginTop: 12,
+    alignItems: 'center',
+    padding: 10
+  },
+  cancelButtonText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    fontWeight: '500'
   },
   deliveryHeader: {
     flexDirection: 'row',

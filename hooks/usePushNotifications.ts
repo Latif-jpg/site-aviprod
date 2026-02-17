@@ -5,7 +5,6 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { supabase } from '../config';
 import { useAuth } from './useAuth';
-import { stockOptimizerAgent } from '../src/intelligence/agents/StockOptimizerAgent';
 
 // --- NOUVEAU : Fonction de configuration extraite et robuste ---
 async function setupNotificationChannels() {
@@ -66,8 +65,8 @@ export function usePushNotifications() {
   const { user } = useAuth();
 
   // Fonction extraite pour pouvoir être appelée manuellement
-  const syncToken = async () => {
-    if (!user || !user.id) return;
+  const syncToken = useCallback(async () => {
+    if (!user || !user.id || Platform.OS === 'web') return;
 
     console.log("[PushNotifications] 🔄 Tentative de synchronisation du token...");
     const token = await registerForPushNotificationsAsync();
@@ -90,13 +89,14 @@ export function usePushNotifications() {
     } else {
       console.log("[PushNotifications] ✅ Token sauvegardé en base avec succès.");
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     if (user) syncToken();
-  }, [user]); // Se déclenche uniquement lorsque la session change
+  }, [user, syncToken]); // Se déclenche uniquement lorsque la session change ou syncToken change
 
-  const sendLocalNotification = async (title: string, body: string, data?: any) => {
+  const sendLocalNotification = useCallback(async (title: string, body: string, data?: any) => {
+    if (Platform.OS === 'web') return;
     try {
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -114,17 +114,20 @@ export function usePushNotifications() {
     } catch (error) {
       console.error("Error sending local notification:", error);
     }
-  };
+  }, []);
 
   // --- NOUVEAU : Planification des rappels d'alimentation ---
   const scheduleFeedingReminders = useCallback(async () => {
-    if (!user || !user.id) return;
+    if (!user || !user.id || Platform.OS === 'web') return;
 
     // --- CORRECTION : S'assurer que les canaux sont créés AVANT de planifier ---
     await setupNotificationChannels();
 
     try {
       // 1. Calculer la consommation totale journalière via l'agent intelligent
+      // Import dynamique pour éviter les dépendances circulaires et l'erreur d'initialisation
+      // Utilisation de import() asynchrone pour briser le cycle de dépendance au niveau du bundler
+      const { stockOptimizerAgent } = await import('../src/intelligence/agents/StockOptimizerAgent');
       const consumption = await stockOptimizerAgent.calculateFarmTotalConsumption(user.id);
       const totalKg = consumption.total_daily_consumption;
       const birdCount = consumption.activeBirdCount || 0;
@@ -135,10 +138,12 @@ export function usePushNotifications() {
       const halfRation = (totalKg / 2).toFixed(1); // Divisé par 2 pour matin/soir
 
       // 2. Annuler les anciens rappels d'alimentation pour éviter les doublons/erreurs
-      const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-      for (const notif of scheduled) {
-        if (notif.content.data?.type === 'feeding_reminder') {
-          await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+      if ((Platform.OS as string) !== 'web') {
+        const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+        for (const notif of scheduled) {
+          if (notif.content.data?.type === 'feeding_reminder') {
+            await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+          }
         }
       }
 

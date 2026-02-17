@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ensureSupabaseInitialized } from '../config';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { ensureSupabaseInitialized, getStorageUrl } from '../config';
 
 // This should match the AdItem interface in AdBanner.tsx
 export interface Ad {
@@ -43,7 +43,7 @@ export const useAds = () => {
           id: ad.id,
           title: ad.title,
           subtitle: ad.subtitle || '',
-          image_url: ad.image_url,
+          image_url: getStorageUrl('advertisements', ad.image_url),
           target_url: ad.target_url || undefined,
         }));
         setAds(mappedAds);
@@ -95,5 +95,5 @@ export const useAds = () => {
     };
   }, [fetchAds]);
 
-  return { ads, isLoading, refetchAds: fetchAds };
+  return useMemo(() => ({ ads, isLoading, refetchAds: fetchAds }), [ads, isLoading, fetchAds]);
 };

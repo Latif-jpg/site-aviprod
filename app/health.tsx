@@ -15,6 +15,7 @@ import LiveAIRecommendations from '../components/LiveAIRecommendations'; // --- 
 import { useSubscription } from '../contexts/SubscriptionContext'; // --- NOUVEAU : Importer le hook d'abonnement fiable ---
 import { heuristicsModel, AIResult } from '../lib/liveAI';
 import { supabase } from '../config';
+import GoogleAdBanner from '../components/GoogleAdBanner';
 
 interface HistoryItem {
   id: string;
@@ -173,12 +174,7 @@ export default function HealthScreen() {
   };
 
   const handleAiAnalysisPress = () => {
-    // --- CORRECTION : Vérifier le statut de l'abonnement depuis le bon contexte ---
-    if (subscription?.status === 'active') {
-      router.push('/ai-analysis');
-    } else {
-      router.push('/subscription-plans');
-    }
+    router.push('/ai-analysis');
   };
 
   const renderHistoryItem = (item: HistoryItem) => (
@@ -216,11 +212,11 @@ export default function HealthScreen() {
           </View>
         </View>
         <View style={styles.headerMetrics}>
-           <View style={styles.mainMetricCard}>
-             <Text style={styles.mainMetricLabel}>Indice de Santé Global</Text>
-             <Text style={[styles.mainMetricValue, { color: hasValidData ? getHealthScoreColor(global_health_score) : colors.textSecondary }]}>{hasValidData ? `${Math.round(global_health_score)}%` : 'N/A'}</Text>
-           </View>
-         </View>
+          <View style={styles.mainMetricCard}>
+            <Text style={styles.mainMetricLabel}>Indice de Santé Global</Text>
+            <Text style={[styles.mainMetricValue, { color: hasValidData ? getHealthScoreColor(global_health_score) : colors.textSecondary }]}>{hasValidData ? `${Math.round(global_health_score)}%` : 'N/A'}</Text>
+          </View>
+        </View>
       </LinearGradient>
 
       <ScrollView
@@ -228,22 +224,22 @@ export default function HealthScreen() {
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
       >
         <View style={styles.kpiGrid}>
-           <View style={[styles.kpiCard, styles.kpiCardFull]}>
-             <Icon name="trending-down" size={24} color={hasValidData ? getMortalityColor(average_mortality_rate) : colors.textSecondary} />
-             <Text style={[styles.kpiValue, { color: hasValidData ? getMortalityColor(average_mortality_rate) : colors.textSecondary }]}>{hasValidData ? `${average_mortality_rate.toFixed(1)}%` : 'N/A'}</Text>
-             <Text style={styles.kpiLabel}>Mortalité</Text>
-           </View>
-           <View style={[styles.kpiCard, styles.kpiCardHalf]}>
-             <Icon name="pulse" size={24} color={hasValidData ? colors.warning : colors.textSecondary} />
-             <Text style={[styles.kpiValue, { color: hasValidData ? colors.text : colors.textSecondary }]}>{total_symptom_count || 0}</Text>
-             <Text style={styles.kpiLabel}>Symptômes</Text>
-           </View>
-           <View style={[styles.kpiCard, styles.kpiCardHalf]}>
-             <Icon name="shield-checkmark" size={24} color={hasValidData ? colors.primary : colors.textSecondary} />
-             <Text style={[styles.kpiValue, { color: hasValidData ? colors.text : colors.textSecondary }]}>{healthData?.lots[0]?.days_since_last_vaccine || 'N/A'}</Text>
-             <Text style={styles.kpiLabel}>Jours depuis vaccin</Text>
-           </View>
-         </View>
+          <View style={[styles.kpiCard, styles.kpiCardFull]}>
+            <Icon name="trending-down" size={24} color={hasValidData ? getMortalityColor(average_mortality_rate) : colors.textSecondary} />
+            <Text style={[styles.kpiValue, { color: hasValidData ? getMortalityColor(average_mortality_rate) : colors.textSecondary }]}>{hasValidData ? `${average_mortality_rate.toFixed(1)}%` : 'N/A'}</Text>
+            <Text style={styles.kpiLabel}>Mortalité</Text>
+          </View>
+          <View style={[styles.kpiCard, styles.kpiCardHalf]}>
+            <Icon name="pulse" size={24} color={hasValidData ? colors.warning : colors.textSecondary} />
+            <Text style={[styles.kpiValue, { color: hasValidData ? colors.text : colors.textSecondary }]}>{total_symptom_count || 0}</Text>
+            <Text style={styles.kpiLabel}>Symptômes</Text>
+          </View>
+          <View style={[styles.kpiCard, styles.kpiCardHalf]}>
+            <Icon name="shield-checkmark" size={24} color={hasValidData ? colors.primary : colors.textSecondary} />
+            <Text style={[styles.kpiValue, { color: hasValidData ? colors.text : colors.textSecondary }]}>{healthData?.lots[0]?.days_since_last_vaccine || 'N/A'}</Text>
+            <Text style={styles.kpiLabel}>Jours depuis vaccin</Text>
+          </View>
+        </View>
 
         {/* La section des lots enrichis par la RPC */}
         <View style={styles.section}>
@@ -263,7 +259,7 @@ export default function HealthScreen() {
             {healthData.lots.map((lot: any) => (
               <View key={lot.id} style={styles.lotCard}>
                 <Text style={styles.lotName}>{lot.name}</Text>
-                <Text style={styles.lotDetail}>Score de Risque: <Text style={{fontWeight: 'bold', color: getHealthScoreColor(100 - lot.risk_score)}}>{lot.risk_score.toFixed(0)}</Text></Text>
+                <Text style={styles.lotDetail}>Score de Risque: <Text style={{ fontWeight: 'bold', color: getHealthScoreColor(100 - lot.risk_score) }}>{lot.risk_score.toFixed(0)}</Text></Text>
                 <Text style={styles.lotDetail}>Prochaine Tâche: {lot.next_prophylaxis_task?.title || 'Aucune'} (le {lot.next_prophylaxis_task ? new Date(lot.next_prophylaxis_task.due_date).toLocaleDateString() : ''})</Text>
               </View>
             ))}
@@ -274,7 +270,7 @@ export default function HealthScreen() {
         {aiResult && (
           <View style={[styles.section, { paddingHorizontal: 0 }]}>
             {/* --- CORRECTION : Utiliser le nouveau composant pour un affichage plus riche --- */}
-            <LiveAIRecommendations 
+            <LiveAIRecommendations
               // --- CORRECTION : Passer les données brutes en plus du résultat de l'IA ---
               // Cela garantit que les métriques s'affichent même si l'IA ne retourne rien.
               result={{
@@ -292,9 +288,9 @@ export default function HealthScreen() {
           <Text style={styles.sectionTitle}>Historique des analyses et vaccins</Text>
           {/* L'historique peut être ajouté à la RPC plus tard */}
           <View style={styles.emptyState}>
-              <Icon name="time" size={48} color={colors.textSecondary} />
-              <Text style={styles.emptyStateText}>Aucun historique récent</Text>
-            </View>
+            <Icon name="time" size={48} color={colors.textSecondary} />
+            <Text style={styles.emptyStateText}>Aucun historique récent</Text>
+          </View>
         </View>
       </ScrollView>
 
@@ -347,6 +343,9 @@ export default function HealthScreen() {
           </View>
         )}
       </SimpleBottomSheet>
+
+      {/* Google AdMob Banner */}
+      <GoogleAdBanner />
     </SafeAreaView>
   );
 }

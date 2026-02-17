@@ -14,196 +14,9 @@ import FloatingActionButton from '../components/FloatingActionButton';
 import { supabase } from '../config'; // Import supabase directly
 import BottomNavigation from '../components/BottomNavigation';
 import LotIntelligenceDashboard from '../src/intelligence/ui/LotIntelligenceDashboard';
+import { useLotIntelligence } from '../src/intelligence/agents/LotIntelligenceAgent';
 
-// --- MISE À JOUR MAJEURE : Intégration de la logique de l'agent d'intelligence ---
-// Le code de LotIntelligenceAgent.ts est maintenant intégré ici pour garantir son exécution
-// et utiliser les données de lot les plus à jour (avec l'âge dynamique).
-
-const BREED_STANDARDS: Record<string, any> = {
-  'default': { target_weight_6weeks: 2.0, fcr_target: 1.8, growth_rate_per_day: 60, normal_mortality_rate: 5 },
-  'broiler': { target_weight_6weeks: 2.2, fcr_target: 1.7, growth_rate_per_day: 65, normal_mortality_rate: 4 },
-  'cobb500': { target_weight_6weeks: 2.3, fcr_target: 1.65, growth_rate_per_day: 68, normal_mortality_rate: 3.5 },
-  'ross 308': { target_weight_6weeks: 2.2, fcr_target: 1.7, growth_rate_per_day: 66, normal_mortality_rate: 4 },
-  'isa brown': { target_weight_6weeks: 1.5, fcr_target: 2.0, growth_rate_per_day: 25, normal_mortality_rate: 3 },
-};
-
-const getBreedStandards = (breed: string) => {
-  const normalized = breed?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'default';
-  return BREED_STANDARDS[normalized] || BREED_STANDARDS['default'];
-};
-
-// --- NOUVEAU : Logique de calcul pour la fenêtre de vente optimale ---
-const calculateOptimalSaleWindow = (lot: any, standards: any) => {
-  const sellingPricePerKg = lot.selling_price || 2500; // Prix de vente/kg (CFA), défaut à 2500 si non défini
-  const feedCostPerKg = 400; // Coût de l'aliment/kg (CFA)
-
-  let currentWeight = lot.poids_moyen || (standards.growth_rate_per_day * lot.age) / 1000;
-  let optimalStartDate: Date | null = null;
-  let optimalEndDate: Date | null = null;
-
-  // Simuler les 30 prochains jours
-  for (let i = 0; i < 30; i++) {
-    const dailyFeedConsumption = (currentWeight * 0.10); // Approximation: 10% du poids corporel en aliment/jour
-    const dailyFeedCost = dailyFeedConsumption * feedCostPerKg;
-    const dailyWeightGainKg = standards.growth_rate_per_day / 1000;
-    const dailyRevenueGain = dailyWeightGainKg * sellingPricePerKg;
-
-    if (dailyRevenueGain > dailyFeedCost && !optimalStartDate) {
-      optimalStartDate = new Date();
-      optimalStartDate.setDate(optimalStartDate.getDate() + i);
-    }
-
-    if (dailyRevenueGain < dailyFeedCost && optimalStartDate && !optimalEndDate) {
-      optimalEndDate = new Date();
-      optimalEndDate.setDate(optimalEndDate.getDate() + i);
-      break; // La fenêtre est trouvée
-    }
-    currentWeight += dailyWeightGainKg;
-  }
-
-  // Si aucune fin n'est trouvée, définir une fenêtre de 7 jours par défaut
-  if (optimalStartDate && !optimalEndDate) {
-    optimalEndDate = new Date(optimalStartDate);
-    optimalEndDate.setDate(optimalStartDate.getDate() + 7);
-  }
-
-  // Fallback si aucune fenêtre n'est trouvée
-  if (!optimalStartDate) {
-    optimalStartDate = new Date();
-    optimalStartDate.setDate(optimalStartDate.getDate() + (42 - lot.age));
-    optimalEndDate = new Date(optimalStartDate);
-    optimalEndDate.setDate(optimalStartDate.getDate() + 5);
-  }
-
-  return {
-    start_date: optimalStartDate.toISOString(),
-    end_date: optimalEndDate.toISOString(),
-    estimated_margin: (sellingPricePerKg - (feedCostPerKg * 1.7)) * currentWeight, // Marge brute estimée
-  };
-};
-
-const useLotIntelligenceWithLogging = (lotData: any | null) => {
-  const [insights, setInsights] = useState<any[]>([]);
-  const [kpis, setKpis] = useState<any>({});
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!lotData) {
-      setLoading(false);
-      return;
-    }
-
-    const fetchAndAnalyze = async () => {
-      console.log(`🧠 [IA - 1/3] Lancement de l'agent d'intelligence pour le lot ID: ${lotData.id}`);
-      setLoading(true);
-      try {
-        console.log('🧠 [IA - 2/3] Données brutes du lot reçues par l\'agent :', JSON.stringify(lotData, null, 2));
-
-        // --- DÉBUT DE LA LOGIQUE D'ANALYSE RÉELLE ---
-        const standards = getBreedStandards(lotData.breed);
-        const currentWeight = lotData.poids_moyen || (standards.growth_rate_per_day * lotData.age) / 1000;
-
-        // 1. Prédiction de Croissance
-        const daysRemaining = Math.max(0, 42 - lotData.age);
-        const predictedGrowth = daysRemaining * standards.growth_rate_per_day / 1000;
-        const predictedFinalWeight = currentWeight + predictedGrowth;
-        const predictedSaleDate = new Date();
-        predictedSaleDate.setDate(predictedSaleDate.getDate() + daysRemaining);
-
-        // 2. Calcul de la fenêtre de vente optimale
-        const optimalWindow = calculateOptimalSaleWindow(lotData, standards);
-
-        // 2. Analyse Santé
-        const mortalityRate = lotData.taux_mortalite || 0;
-        let riskLevel = 'low';
-        if (mortalityRate > standards.normal_mortality_rate * 2) riskLevel = 'high';
-        else if (mortalityRate > standards.normal_mortality_rate) riskLevel = 'medium';
-
-        // 3. Analyse Alimentaire (FCR simulé car données manquantes)
-        // --- MISE À JOUR : Logique pour utiliser la consommation réelle ---
-        // À l'avenir, cette valeur viendra de la gestion de stock.
-        // Exemple: supabase.rpc('get_feed_consumed_by_lot', { p_lot_id: lotData.id })
-        const realTotalFeedConsumed = lotData.feed_consumption || 0; // On utilise la colonne 'feed_consumption' du lot
-
-        const initialWeight = (lotData.initial_quantity || lotData.quantity) * 0.040; // Poids initial estimé à 40g/sujet
-        const currentTotalWeight = currentWeight * lotData.quantity;
-        const totalWeightGain = currentTotalWeight - initialWeight;
-
-        // Calcul de l'IC (Indice de Consommation) réel si les données sont disponibles
-        const ic = totalWeightGain > 0 && realTotalFeedConsumed > 0 ? realTotalFeedConsumed / totalWeightGain : 0;
-        const efficiencyScore = ic > 0 ? Math.min(100, (standards.fcr_target / ic) * 100) : 0;
-
-        // 4. Construction des KPIs
-        const calculatedKpis = {
-          predicted_weight: predictedFinalWeight,
-          predicted_sale_date: predictedSaleDate.toISOString(),
-          growth_trend: currentWeight > (standards.growth_rate_per_day * lotData.age) / 1000 ? 'good' : 'average',
-          confidence_score: lotData.poids_moyen ? 85 : 60,
-          optimal_sale_window: optimalWindow,
-          current_consumption: realTotalFeedConsumed / lotData.age || 0, // Consommation moyenne par jour
-          recommended_feed: (currentWeight * 0.05 * lotData.quantity),
-          ic: ic, // Utiliser 'ic' au lieu de 'fcr'
-          efficiency_score: efficiencyScore,
-          mortality_rate: mortalityRate,
-          mortality_trend: 'stable', // Donnée à intégrer
-          risk_level: riskLevel,
-          benchmark: {
-            current_performance: efficiencyScore,
-            average_performance: 75, // Simulé
-            best_performance: 95, // Simulé
-            ranking_percentile: 60, // Simulé
-            comparison_insights: ["Votre FCR est meilleur que la moyenne de la ferme."], // Simulé
-          }
-        };
-
-        // 5. Génération des Insights
-        const generatedInsights = [];
-        if (riskLevel === 'high') {
-          generatedInsights.push({
-            category: 'health_prediction',
-            title: 'Risque Sanitaire Élevé',
-            description: `Le taux de mortalité (${mortalityRate.toFixed(1)}%) est supérieur à la norme (${standards.normal_mortality_rate}%).`,
-            probability: 70,
-            days_to_occurrence: 3,
-          });
-        }
-        // --- NOUVEAU : Alerte de stock manquant pour le prochain aliment ---
-        const daysUntilGrower = 21 - lotData.age;
-        if (daysUntilGrower > 0 && daysUntilGrower <= 4) {
-          generatedInsights.push({
-            category: 'feed_stock',
-            title: 'Stock préventif requis',
-            description: `Le lot passera à l'Aliment Croissance dans ${daysUntilGrower} jours. Pensez à vérifier votre stock.`
-          });
-        }
-        if (efficiencyScore < 70 && ic > 0) {
-          generatedInsights.push({
-            category: 'feed',
-            description: `L'Indice de Consommation (IC) de ${ic.toFixed(2)} est élevé. Vérifiez la qualité et le gaspillage de l'aliment.`
-          });
-        } else {
-          generatedInsights.push({
-            category: 'feed',
-            description: `L'efficacité alimentaire est bonne. Continuez les bonnes pratiques.`
-          });
-        }
-
-        setInsights(generatedInsights);
-        setKpis(calculatedKpis);
-        console.log('🧠 [IA - 3/3] Analyses finales générées :', JSON.stringify({ insights: generatedInsights, kpis: calculatedKpis }, null, 2));
-
-      } catch (error) {
-        console.error("Erreur dans l'agent d'intelligence:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAndAnalyze();
-  }, [lotData]);
-
-  return { lot: lotData, insights, kpis, loading };
-};
+// --- LOGIQUE IA DÉLÉGUÉE À LotIntelligenceAgent.ts ---
 
 const { width } = Dimensions.get('window');
 
@@ -527,6 +340,14 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontWeight: '600',
   },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
 });
 
 export default function LotsScreen() {
@@ -768,7 +589,7 @@ export default function LotsScreen() {
     }
   };
 
-  const getStageFromAge = (birdType: string, age: number): 'starter' | 'grower' | 'finisher' | 'layer' | 'pre-layer' => {
+  const getStageFromAge = (birdType: string, age: number): 'starter' | 'grower' | 'finisher' | 'layer' | 'pré-ponte' => {
     // Protocole pour les races commerciales à croissance rapide (Broilers)
     if (birdType === 'broilers') {
       if (age <= 21) return 'starter';   // J1 à J21
@@ -779,7 +600,7 @@ export default function LotsScreen() {
     else if (birdType === 'layers') {
       if (age <= 42) return 'starter';   // J1 à J42 (6 semaines)
       if (age <= 119) return 'grower';    // J43 à J119 (7 à 17 semaines) - Similaire à votre J105
-      if (age <= 140) return 'pre-layer'; // J120 à J140 (18 à 20 semaines) - Phase pré-ponte
+      if (age <= 140) return 'pré-ponte'; // J120 à J140 (18 à 20 semaines) - Phase pré-ponte
       return 'layer';
     }
     // Fallback pour les types inconnus (cycle court par défaut)
@@ -822,6 +643,7 @@ export default function LotsScreen() {
     if (highMortalityLots.length > 0) {
       insights.push({
         type: 'critical',
+        category: 'health', // --- AJOUT ---
         title: 'Alerte Mortalité Élevée',
         description: `${highMortalityLots.length} lot(s) avec mortalité > 5%`,
         action: 'Vérifier conditions sanitaires',
@@ -839,6 +661,7 @@ export default function LotsScreen() {
     if (lotsNearTarget.length > 0) {
       insights.push({
         type: 'success',
+        category: 'sale', // --- AJOUT ---
         title: 'Fenêtre de Vente Optimale',
         description: `${lotsNearTarget.length} lot(s) prêt(s) pour la vente`,
         action: 'Préparer la commercialisation',
@@ -851,6 +674,7 @@ export default function LotsScreen() {
     if (analytics.averageAge > 0 && analytics.totalBirds > 0) {
       insights.push({
         type: 'info',
+        category: 'growth', // --- AJOUT ---
         title: 'Analyse de Croissance',
         description: `Âge moyen: ${analytics.averageAge} jours`,
         action: 'Ajuster l\'alimentation selon phase',
@@ -1211,8 +1035,8 @@ export default function LotsScreen() {
       >
         {selectedLotForDetail && (
           <LotIntelligenceDashboard
-            useLotIntelligenceHook={() => useLotIntelligenceWithLogging(selectedLotForDetail)} // --- CORRECTION : Passer l'objet lot complet ---
             lotId={selectedLotForDetail.id}
+            useLotIntelligenceHook={useLotIntelligence}
             onClose={() => {
               setShowIntelligence(false);
               setSelectedLotForDetail(null);

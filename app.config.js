@@ -4,8 +4,8 @@ export default {
   expo: {
     name: "AviprodApp",
     slug: "aviprod",
-    version: "1.2.2",
-    orientation: "portrait", // Version 1.2.0
+    version: "1.2.3",
+    orientation: "portrait",
     icon: "./assets/images/icon-prod.png",
     scheme: "aviprodapp",
     userInterfaceStyle: "light",
@@ -36,10 +36,10 @@ export default {
       googleServicesFile: process.env.GOOGLE_SERVICES_JSON || "./google-services.json", // INDISPENSABLE pour Firebase/Notifications
       permissions: [
         "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.POST_NOTIFICATIONS" // DÉCOMMENTÉ pour Android 13+
+        "android.permission.POST_NOTIFICATIONS",
+        "com.google.android.gms.permission.AD_ID"
       ],
-      versionCode: 26
+      versionCode: 28
     },
     web: {
       bundler: "metro",
@@ -48,16 +48,18 @@ export default {
       build: {
         babel: {
           include: [
-            "@expo/vector-icons"
+            "@expo/vector-icons",
+            "expo-font"
           ]
         }
-
       },
-      name: "AviprodApp",
+      name: "AviprodWeb",
       shortName: "Aviprod",
       lang: "fr",
-      scope: "/",
-      themeColor: "#2196F3",
+      startUrl: "/",
+      display: "standalone",
+      backgroundColor: "#ffffff",
+      themeColor: "#FF8C00",
       description: "Application de gestion d'élevage avicole"
     },
     plugins: [
@@ -104,13 +106,13 @@ export default {
           "cameraPermission": "Cette application a besoin d'accéder à votre caméra pour prendre des photos des volailles lors de l'analyse de santé IA."
         }
       ],
-      // [
-      //   "react-native-google-mobile-ads",
-      //   {
-      //     "androidAppId": "ca-app-pub-3940256099942544~3347511713",
-      //     "iosAppId": "ca-app-pub-3940256099942544~1458002511"
-      //   }
-      // ]
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-5111525667900751~1325867913",
+          "iosAppId": "ca-app-pub-5111525667900751~1325867913"
+        }
+      ]
     ],
     experiments: {
       typedRoutes: true
@@ -122,8 +124,12 @@ export default {
         "projectId": "3a17df33-3671-47b0-a0cd-55c16420e23a"
       }
     },
-    runtimeVersion: {
-      "policy": "nativeVersion"
-    }
+    updates: {
+      url: "https://u.expo.dev/3a17df33-3671-47b0-a0cd-55c16420e23a",
+      enabled: true,
+      checkAutomatically: "ON_LOAD",
+      fallbackToCacheTimeout: 0
+    },
+    runtimeVersion: "1.2.3"
   },
 };

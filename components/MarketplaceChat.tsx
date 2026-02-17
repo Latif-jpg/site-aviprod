@@ -6,6 +6,8 @@ import Button from './Button';
 import { supabase } from '../config'; // Import supabase directly
 import { useProfile } from '../contexts/ProfileContext'; // Importer le hook de profil
 import { containsContactInfo, sanitizeText } from '../utils/validators';
+import { usePremiumFeature } from '../hooks/usePremiumFeature';
+import SmartTunnelModal from './SmartTunnelModal';
 
 interface Message {
   id: string;
@@ -40,9 +42,36 @@ export default function MarketplaceChat({
   const scrollViewRef = useRef<ScrollView>(null);
   const initializedProductIdRef = useRef<string | null>(null); // Ref pour éviter la double exécution et suivre le produit
   const { profile, refreshProfile, loading: profileLoading } = useProfile(); // Utiliser le contexte de profil
+  const { requestAccess, showTunnel, tunnelProps } = usePremiumFeature({
+    featureKey: 'marketplace_chat',
+    featureName: 'Chat avec un vendeur',
+    cost: 10,
+  });
 
   // Déterminer si l'utilisateur actuel est le vendeur
   const isCurrentUserSeller = useMemo(() => currentUserId === sellerId, [currentUserId, sellerId]);
+
+  const markMessagesAsRead = useCallback(async () => {
+    try { // Supabase est déjà importé depuis config
+
+      // Mark all unread messages from seller to current user as read
+      const { error } = await supabase
+        .from('marketplace_messages')
+        .update({ read_at: new Date().toISOString() })
+        .eq('product_id', productId)
+        .eq('sender_id', sellerId)
+        .eq('receiver_id', currentUserId)
+        .is('read_at', null);
+
+      if (error) {
+        console.error('Error marking messages as read:', error);
+      } else {
+        console.log('Messages marked as read');
+      }
+    } catch (error: any) {
+      console.error('Exception marking messages as read:', error);
+    }
+  }, [productId, sellerId, currentUserId]);
 
   const checkAndChargeForNewChat = useCallback(async () => {
     try { // Supabase est déjà importé depuis config
@@ -59,40 +88,16 @@ export default function MarketplaceChat({
 
       // Si c'est une nouvelle conversation ET que l'utilisateur n'est pas le vendeur
       if (data.length === 0 && !isCurrentUserSeller) {
-        console.log("Nouvelle conversation, vérification du solde d'avicoins...");
+        console.log("Nouvelle conversation, vérification de l'accès via PremiumFeature...");
 
-        // 1. Vérifier le solde de l'utilisateur depuis le contexte
-        const userAvicoins = profile?.avicoins_balance ?? 0;
-        if (!profile) throw new Error("Impossible de récupérer le profil utilisateur.");
-
-        // 2. Vérifier si le solde est suffisant
-        if (userAvicoins < 20) {
-          Alert.alert(
-            "Solde Insuffisant",
-            `Vous avez besoin de 20 avicoins pour contacter ce vendeur. Votre solde est de ${userAvicoins} avicoins.`,
-            [{ text: 'OK', onPress: onClose }]
-          );
-          return false; // Indique que le chat ne doit pas continuer
+        const access = await requestAccess();
+        if (!access.granted) {
+          return false; // usePremiumFeature gère déjà l'affichage de l'alerte ou du tunnel
         }
-
-        // 3. Déduire les avicoins
-        const { error: updateError } = await supabase
-          .from('user_avicoins')
-          .update({ balance: userAvicoins - 20 })
-          .eq('user_id', currentUserId);
-
-        if (updateError) throw new Error("Erreur lors de la déduction des avicoins.");
-
-        // Rafraîchir le profil dans le contexte pour que le solde soit à jour partout
-        await refreshProfile();
-
-        // --- AJOUT : Émettre un événement pour rafraîchir le solde dans le drawer ---
-        const { DeviceEventEmitter } = require('react-native');
-        DeviceEventEmitter.emit('refreshAvicoins');
 
         Alert.alert(
           "Conversation Débloquée",
-          "20 avicoins ont été déduits de votre compte pour démarrer cette conversation."
+          "10 Avicoins ont été utilisés pour démarrer cette conversation."
         );
       }
 
@@ -113,7 +118,7 @@ export default function MarketplaceChat({
       Alert.alert('Erreur', error.message || "Une erreur est survenue.", [{ text: 'OK', onPress: onClose }]);
       return false;
     }
-  }, [productId, sellerId, currentUserId, isCurrentUserSeller, onClose, profile, refreshProfile, profileLoading]);
+  }, [productId, sellerId, currentUserId, isCurrentUserSeller, onClose, requestAccess]);
 
   useEffect(() => {
     // Ce `useEffect` gère l'initialisation complète du chat.
@@ -148,7 +153,14 @@ export default function MarketplaceChat({
       await markMessagesAsRead();
 
       // 3. S'abonner aux nouveaux messages en temps réel
-      channel = supabase.channel(`chat:${productId}:${currentUserId}`)
+      const channelName = `chat:${productId}:${currentUserId}`;
+      if (!productId || !currentUserId) {
+        console.warn('⚠️ [MarketplaceChat] productId ou currentUserId manquant, impossible de créer le canal.');
+        setIsLoading(false);
+        return;
+      }
+
+      channel = supabase.channel(channelName)
         .on('postgres_changes', {
           event: 'INSERT',
           schema: 'public',
@@ -199,27 +211,6 @@ export default function MarketplaceChat({
     };
   }, [profile, profileLoading, checkAndChargeForNewChat, markMessagesAsRead, productId, currentUserId, sellerId, sellerName]);
 
-  const markMessagesAsRead = useCallback(async () => {
-    try { // Supabase est déjà importé depuis config
-
-      // Mark all unread messages from seller to current user as read
-      const { error } = await supabase
-        .from('marketplace_messages')
-        .update({ read_at: new Date().toISOString() })
-        .eq('product_id', productId)
-        .eq('sender_id', sellerId)
-        .eq('receiver_id', currentUserId)
-        .is('read_at', null);
-
-      if (error) {
-        console.error('Error marking messages as read:', error);
-      } else {
-        console.log('Messages marked as read');
-      }
-    } catch (error: any) {
-      console.error('Exception marking messages as read:', error);
-    }
-  }, [productId, sellerId, currentUserId]);
 
   const handleSendMessage = async () => {
     const trimmedText = inputText.trim();
@@ -239,6 +230,8 @@ export default function MarketplaceChat({
       return;
     }
 
+    /* 
+    DÉSACTIVÉ : Autoriser l'envoi de numéros de téléphone et infos de contact
     const isSpam = containsContactInfo(trimmedText);
 
     if (isSpam) {
@@ -258,6 +251,7 @@ export default function MarketplaceChat({
       );
       return;
     }
+    */
 
     sendMessage(trimmedText, false);
   };
@@ -435,6 +429,8 @@ export default function MarketplaceChat({
           <Icon name="ellipsis-vertical" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
+
+      <SmartTunnelModal {...tunnelProps} />
 
       <View style={styles.warningBanner}>
         <Icon name="shield-checkmark" size={20} color={colors.warning} />

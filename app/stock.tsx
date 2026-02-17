@@ -4,12 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { colors } from '../styles/commonStyles';
-import { useData } from '../hooks/useData'; // Assurez-vous que useData exporte aussi les lots
 import Icon from '../components/Icon';
 import SimpleBottomSheet from '../components/BottomSheet';
 import FloatingActionButton from '../components/FloatingActionButton'; // Importer le bouton flottant
 import AddStockItemForm from '../components/AddStockItemForm';
-import { useDataCollector } from '../src/hooks/useDataCollector'; // Importer le collecteur
 import { supabase } from '../config'; // Import supabase directly
 import { StockItem } from '../types';
 import { useAuth } from '../hooks/useAuth';
@@ -19,11 +17,12 @@ const StockItemCard = ({ item, onEdit }: { item: StockItem, onEdit: (item: Stock
   const minThreshold = item.min_threshold || 0;
   const initialQuantity = item.initial_quantity || 0;
 
+  const dailyConsumption = { total: item.daily_consumption, lots: item.consuming_lots };
   // Le pourcentage est basé sur la quantité initiale. S'il n'y en a pas, on considère 0 pour ne pas montrer de barre erronée.
   const stockPercentage = initialQuantity > 0 ? (quantity / initialQuantity) * 100 : 0;
   const totalDailyConsumption = dailyConsumption?.total || 0;
   const daysRemaining = totalDailyConsumption > 0 ? Math.floor(quantity / totalDailyConsumption) : Infinity;
-  const dailyConsumption = { total: item.daily_consumption, lots: item.consuming_lots };
+
   let status: 'ok' | 'low' | 'out' | 'unassigned' = 'ok';
   let statusColor = colors.success;
   if (quantity <= 0) {
@@ -213,12 +212,51 @@ const EditStockItemForm = ({ item, onClose, onUpdateSuccess }: { item: StockItem
     }
   };
 
+  const handleDelete = async () => {
+    if (!user) return;
+
+    Alert.alert(
+      "Supprimer l'article ?",
+      "Êtes-vous sûr de vouloir supprimer cet article de stock définitvement ? Cette action est irréversible.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            setIsLoading(true);
+            try {
+              // Suppression de l'article (les assignations seront supprimées en cascade si configuré, sinon on devrait les supprimer manuellement)
+              // Pour être sûr, on supprime d'abord les assignations
+              await supabase.from('lot_stock_assignments').delete().eq('stock_item_id', item.id);
+
+              const { error } = await supabase.from('stock').delete().eq('id', item.id);
+              if (error) throw error;
+
+              Alert.alert("Succès", "Article supprimé.");
+              onUpdateSuccess();
+              onClose();
+            } catch (error: any) {
+              console.error("Erreur suppression:", error);
+              Alert.alert("Erreur", "Impossible de supprimer l'article.");
+            } finally {
+              setIsLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     // --- CORRECTION DÉFINITIVE : Le ScrollView est maintenant le conteneur principal ---
     <ScrollView
-      style={styles.formContainer}
-      contentContainerStyle={{ paddingBottom: 40 }} // Ajoute un espace en bas
+      // Le style du ScrollView lui-même ne doit pas avoir flex: 1
+      // Le contentContainerStyle gère le layout du contenu interne
+      style={{ padding: 20 }}
+      contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled" // Améliore l'interaction avec les inputs
     >
       <Text style={styles.formTitle}>Modifier l'article</Text>
       <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nom de l'article" />
@@ -238,17 +276,22 @@ const EditStockItemForm = ({ item, onClose, onUpdateSuccess }: { item: StockItem
       <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={isLoading}>
         <Text style={styles.saveButtonText}>{isLoading ? "Sauvegarde..." : "Sauvegarder"}</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity style={styles.deleteButton} onPress={handleDelete} disabled={isLoading}>
+        <Icon name="trash-outline" size={20} color={colors.error} />
+        <Text style={styles.deleteButtonText}>Supprimer l'article</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 };
 
 export default function StockScreen() {
-   const { user } = useAuth();
-   const [isRefreshing, setIsRefreshing] = useState(false);
-   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
-   const [stockData, setStockData] = useState<{ kpis: any, items: any[] } | null>(null);
-   const [isLoading, setIsLoading] = useState(true);
-   const [itemToEdit, setItemToEdit] = useState<StockItem | null>(null);
+  const { user } = useAuth();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isAddFormVisible, setIsAddFormVisible] = useState(false);
+  const [stockData, setStockData] = useState<{ kpis: any, items: any[] } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [itemToEdit, setItemToEdit] = useState<StockItem | null>(null);
 
   const loadStockOverview = useCallback(async () => {
     if (!user) return;
@@ -257,7 +300,7 @@ export default function StockScreen() {
       console.log('📦 Calling RPC get_stock_overview...');
       const { data, error } = await supabase.rpc('get_stock_overview', { p_user_id: user.id });
       if (error) throw error;
-      
+
       console.log('✅ Received stock overview from RPC:', data);
       setStockData(data);
 
@@ -280,10 +323,10 @@ export default function StockScreen() {
   };
 
   useFocusEffect(
-     useCallback(() => {
-       loadStockOverview();
-     }, [loadStockOverview])
-   );
+    useCallback(() => {
+      loadStockOverview();
+    }, [loadStockOverview])
+  );
 
   const analytics = useMemo(() => stockData?.kpis || {
     total_items: 0,
@@ -317,7 +360,7 @@ export default function StockScreen() {
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.replace('/dashboard')}
-          > 
+          >
             <Icon name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View>
@@ -770,6 +813,23 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fee2e2', // Rouge très clair
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+  },
+  deleteButtonText: {
+    color: colors.error,
     fontSize: 16,
     fontWeight: '700',
   },

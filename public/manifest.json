@@ -1,25 +1,24 @@
 {
-  "name": "Natively",
-  "short_name": "Natively",
+  "name": "Aviprod - Gestion Avicole",
+  "short_name": "Aviprod",
+  "description": "Logiciel intelligent de gestion pour fermes avicoles",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#007AFF",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
-    },
-    {
-      "src": "logo192x192.png",
+      "src": "icon-prod.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "logo512x512.png",
+      "src": "icon-prod.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ],
-  "start_url": ".",
-  "display": "standalone",
-  "theme_color": "#d6d6d6",
-  "background_color": "#242424"
+  ]
 }

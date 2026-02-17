@@ -7,6 +7,42 @@ import Icon from '../components/Icon';
 
 const FAQ_DATA = [
   {
+    question: "Tableau de bord : À quoi ça sert ?",
+    answer: "Le tableau de bord est votre centre de commandement. Il vous donne une vue d'ensemble de votre exploitation en temps réel. Vous y trouverez des indicateurs clés (KPI) comme la mortalité, la consommation d'aliments et vos finances. Il inclut aussi des alertes intelligentes pour vous prévenir en cas de problème (ex: stock bas, risque de maladie) et des raccourcis vers toutes les fonctionnalités.",
+  },
+  {
+    question: "Gestion des Lots : Comment créer et suivre un lot ?",
+    answer: "La fonctionnalité 'Lots' permet de gérer vos groupes de volailles. Pour créer un lot, allez dans l'onglet 'Lots' et cliquez sur le bouton '+'. Remplissez les détails (type de volaille, nombre, date d'arrivée). Une fois créé, cliquez sur le lot pour le suivre : enregistrez la mortalité quotidienne, la consommation d'aliments et le poids. L'IA analysera ces données pour optimiser vos performances.",
+  },
+  {
+    question: "Santé : Comment utiliser l'analyse IA ?",
+    answer: "La section 'Santé' vous aide à prévenir et traiter les maladies. C'est ici que vous mettez à jour la mortalité quotidienne pour suivre l'état de vos lots. Utilisez aussi le scanner IA pour obtenir une première orientation. ATTENTION : Cette analyse ne remplace pas un vétérinaire ; vous devez impérativement consulter un professionnel pour confirmer tout diagnostic.",
+  },
+  {
+    question: "Alimentation : Comment optimiser la nutrition ?",
+    answer: "La section 'Alimentation' est dédiée à la stratégie nutritionnelle de vos lots. Vous pouvez y configurer des rations précises (manuelles ou via l'IA) adaptées à l'âge de vos volailles. Pour y accéder, cliquez sur 'Alimentation' dans le dashboard. C'est l'outil idéal pour maximiser la croissance tout en minimisant les gaspillages.",
+  },
+  {
+    question: "Stock : Comment éviter les ruptures ?",
+    answer: "Dans 'Stock', vous gérez tout votre inventaire : aliments, médicaments et équipements. Enregistrez votre volume d'achats pour mettre à jour les quantités. L'application calcule automatiquement votre autonomie restante et vous envoie des alertes 'Stock Bas' ou 'Rupture'. Vous pouvez même racheter directement vos besoins via le Marché.",
+  },
+  {
+    question: "Finances : Comment suivre ma rentabilité ?",
+    answer: "La fonctionnalité 'Finances' enregistre automatiquement vos dépenses (aliments, vaccins, achats de poussins) et vos revenus (ventes d'oeufs ou de poulets). Vous obtenez un bilan financier clair avec votre marge bénéficiaire. Utilisez le conseiller financier IA pour obtenir des recommandations d'économies.",
+  },
+  {
+    question: "Marché : Comment vendre mes produits ?",
+    answer: "Le 'Marché' est votre espace de vente en ligne. Pour vendre, complétez d'abord votre profil vendeur (KYC). Ensuite, publiez vos offres (poulets, oeufs) avec des photos. Les acheteurs pourront vous contacter directement. Vous recevrez des notifications pour chaque commande.",
+  },
+  {
+    question: "Suivi : Quel est son rôle ?",
+    answer: "Le 'Suivi' vous permet de piloter toute la logistique de votre exploitation. Son rôle principal est de suivre vos ventes de produits, vos achats d'intrants et l'état de vos livraisons en temps réel. C'est l'outil indispensable pour s'assurer que vos commandes arrivent à bon port et que vos transactions sont sécurisées.",
+  },
+  {
+    question: "Avicoins : C'est quoi et comment en obtenir ?",
+    answer: "Les Avicoins sont la monnaie virtuelle d'Aviprod. Ils vous permettent d'accéder à des fonctionnalités premium comme les analyses IA avancées ou les conseils financiers. Vous pouvez en obtenir de trois manières : 1. En les achetant directement dans votre profil. 2. En parrainant des amis via votre code de parrainage (vous gagnez des Avicoins pour chaque nouvel inscrit). 3. En regardant des vidéos publicitaires dans le menu.",
+  },
+  {
     question: "Comment ajouter un nouveau lot de volailles ?",
     answer: "Allez sur l'écran 'Lots' depuis la barre de navigation, puis cliquez sur le bouton flottant '+' en bas à droite. Remplissez ensuite le formulaire avec les informations de votre lot.",
   },
@@ -16,7 +52,7 @@ const FAQ_DATA = [
   },
   {
     question: "Comment fonctionne l'analyse de santé par IA ?",
-    answer: "Allez dans la section 'Santé', puis 'Analyse par IA'. Prenez des photos de vos volailles, décrivez les symptômes et lancez l'analyse. L'IA vous donnera un diagnostic probable et des recommandations. Notez que cela ne remplace pas l'avis d'un vétérinaire.",
+    answer: "Allez dans la section 'Santé', puis 'Analyse par IA'. Prenez des photos, décrivez les symptômes et lancez l'analyse. L'IA vous donnera une assistance au diagnostic. Notez bien que cela ne remplace JAMAIS l'avis d'un vétérinaire. Vous devez obligatoirement contacter un vétérinaire pour valider les résultats de l'IA avant tout traitement.",
   },
 ];
 
@@ -110,13 +146,13 @@ export default function HelpSupportScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Légal</Text>
-            <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('CGU', 'Page des Conditions Générales d\'Utilisation à venir.')}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/terms-of-use')}>
               <Icon name="document-text" size={24} color={colors.textSecondary} />
               <View style={styles.menuContent}>
                 <Text style={styles.menuTitle}>Conditions Générales d'Utilisation</Text>
               </View>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Confidentialité', 'Page de la Politique de Confidentialité à venir.')}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/privacy-policy')}>
               <Icon name="shield-checkmark" size={24} color={colors.textSecondary} />
               <View style={styles.menuContent}>
                 <Text style={styles.menuTitle}>Politique de Confidentialité</Text>

@@ -5,14 +5,14 @@ export const generateAutoRation = async (race: string, phase: string, nbAnimaux:
 
   // Normalize breed and phase
   const normalizedBreed = race.toLowerCase().includes('pondeuse') || race.toLowerCase().includes('layer') ? 'layer' :
-                         race.toLowerCase().includes('chair') || race.toLowerCase().includes('broiler') ? 'broiler' : 'broiler';
+    race.toLowerCase().includes('chair') || race.toLowerCase().includes('broiler') ? 'broiler' : 'broiler';
 
   const normalizedPhase = phase.toLowerCase();
   const stage = normalizedPhase.includes('démarrage') || normalizedPhase.includes('starter') ? 'starter' :
-                normalizedPhase.includes('croissance') || normalizedPhase.includes('grower') ? 'grower' :
-                normalizedPhase.includes('pré-ponte') || normalizedPhase.includes('pre-lay') ? 'grower' :
-                normalizedPhase.includes('ponte') || normalizedPhase.includes('layer') ? 'layer' :
-                normalizedPhase.includes('finition') || normalizedPhase.includes('finisher') ? 'finisher' : 'finisher';
+    normalizedPhase.includes('croissance') || normalizedPhase.includes('grower') ? 'grower' :
+      normalizedPhase.includes('pré-ponte') || normalizedPhase.includes('pre-lay') ? 'grower' :
+        normalizedPhase.includes('ponte') || normalizedPhase.includes('layer') ? 'layer' :
+          normalizedPhase.includes('finition') || normalizedPhase.includes('finisher') ? 'finisher' : 'finisher';
 
   console.log('🔍 Generating ration composition for:', { normalizedBreed, stage });
 
@@ -85,7 +85,7 @@ const getAvailableIngredients = async (supabase: any) => {
   const { data, error } = await supabase
     .from('feed_ingredients')
     .select('*')
-    .eq('available', true)
+    // .eq('available', true) // --- MODIFICATION : On prend TOUT pour afficher tout le potentiel
     .order('protein_percent', { ascending: false });
 
   if (error) {
@@ -101,101 +101,207 @@ const getAvailableIngredients = async (supabase: any) => {
     ];
   }
 
-  return data || [];
+  // Liste des ingrédients standards "de secours" si l'utilisateur ne les a pas encore créés
+  const defaultStandardIngredients = [
+    { name: "Maïs grain", protein_percent: 9, energy_kcal: 3350, id: 'std_corn' },
+    { name: "Tourteau de soja", protein_percent: 44, energy_kcal: 2230, id: 'std_soy' },
+    { name: "Son de blé", protein_percent: 16, energy_kcal: 1300, id: 'std_bran' },
+    { name: "Farine de poisson", protein_percent: 55, energy_kcal: 2800, id: 'std_fish' },
+    { name: "Coquilles d'huîtres", protein_percent: 0, energy_kcal: 0, id: 'std_shell' },
+    { name: "Sel", protein_percent: 0, energy_kcal: 0, id: 'std_salt' },
+    { name: "Prémix", protein_percent: 0, energy_kcal: 0, id: 'std_premix' }
+  ];
+
+  if (error || !data) {
+    console.log('⚠️ Erreur ou pas de données, utilisation des standards');
+    return defaultStandardIngredients;
+  }
+
+  // FUSION INTELLIGENTE : On utilise les ingrédients de la base, mais on complète avec les standards s'ils manquent
+  // pour éviter que le calcul ne plante par manque de Maïs ou de Soja.
+  const userIngredients = data;
+  const combinedIngredients = [...userIngredients];
+
+  // Vérifier les essentiels manquants
+  const hasEnergy = userIngredients.some((i: any) => i.name.toLowerCase().includes('maïs') || i.name.toLowerCase().includes('corn'));
+  const hasProtein = userIngredients.some((i: any) => i.name.toLowerCase().includes('soja') || i.name.toLowerCase().includes('fish') || i.name.toLowerCase().includes('poisson'));
+
+  if (!hasEnergy) {
+    console.log('➕ Ajout automatique du Maïs standard (manquant en base)');
+    combinedIngredients.push(defaultStandardIngredients[0]);
+  }
+  if (!hasProtein) {
+    console.log('➕ Ajout automatique du Soja standard (manquant en base)');
+    combinedIngredients.push(defaultStandardIngredients[1]);
+  }
+
+  // Ajouter les minéraux manquants pour l'affichage complet
+  defaultStandardIngredients.slice(4).forEach(std => {
+    if (!userIngredients.some((i: any) => i.name.toLowerCase().includes(std.name.toLowerCase().split(' ')[0]))) {
+      combinedIngredients.push(std);
+    }
+  });
+
+  return combinedIngredients;
 };
 
-// Calculate ingredient composition using real West African formulations
-const calculatePearsonSquareComposition = (ingredients: any[], targetProtein: number, stage: string, breed: string) => {
-  // Real formulations based on West African poultry farming standards
+// Algorithme de formulation dynamique (Carré de Pearson modifié)
+const calculatePearsonSquareComposition = (availableIngredients: any[], targetProtein: number, stage: string, breed: string) => {
+  console.log('🧮 Début du calcul de ration dynamique...');
 
-  const formulations = {
-    broiler: {
-      starter: [
-        { name: "Maïs grain", percentage: 52, protein: 9 },
-        { name: "Tourteau de soja", percentage: 20, protein: 44 },
-        { name: "Tourteau de coton", percentage: 8, protein: 36 },
-        { name: "Son de blé", percentage: 5, protein: 16 },
-        { name: "Farine de poisson", percentage: 8, protein: 55 },
-        { name: "Coquilles d'huîtres", percentage: 3, protein: 0 },
-        { name: "Phosphate bicalcique", percentage: 1.5, protein: 0 },
-        { name: "Sel", percentage: 0.3, protein: 0 },
-        { name: "Prémix vitamines/minéraux", percentage: 0.5, protein: 0 },
-        { name: "Huile de palme/arachide", percentage: 1.5, protein: 0 }
-      ],
-      grower: [
-        { name: "Maïs grain", percentage: 58, protein: 9 },
-        { name: "Tourteau de soja", percentage: 15, protein: 44 },
-        { name: "Tourteau de coton", percentage: 10, protein: 36 },
-        { name: "Son de riz", percentage: 6, protein: 12 },
-        { name: "Farine de poisson", percentage: 5, protein: 55 },
-        { name: "Coquilles d'huîtres", percentage: 2.5, protein: 0 },
-        { name: "Phosphate bicalcique", percentage: 1, protein: 0 },
-        { name: "Sel", percentage: 0.3, protein: 0 },
-        { name: "Prémix", percentage: 0.5, protein: 0 },
-        { name: "Huile de palme", percentage: 1.7, protein: 0 }
-      ],
-      finisher: [
-        { name: "Maïs grain", percentage: 62, protein: 9 },
-        { name: "Tourteau de soja", percentage: 12, protein: 44 },
-        { name: "Tourteau de coton", percentage: 8, protein: 36 },
-        { name: "Son de riz", percentage: 8, protein: 12 },
-        { name: "Farine de poisson", percentage: 3, protein: 55 },
-        { name: "Coquilles d'huîtres", percentage: 2.5, protein: 0 },
-        { name: "Phosphate bicalcique", percentage: 1, protein: 0 },
-        { name: "Sel", percentage: 0.3, protein: 0 },
-        { name: "Prémix", percentage: 0.5, protein: 0 },
-        { name: "Huile de palme", percentage: 2.7, protein: 0 }
-      ]
-    },
-    layer: {
-      starter: [
-        { name: "Maïs grain", percentage: 55, protein: 9 },
-        { name: "Tourteau de soja", percentage: 18, protein: 44 },
-        { name: "Tourteau d'arachide", percentage: 10, protein: 45 },
-        { name: "Son de blé", percentage: 8, protein: 16 },
-        { name: "Farine de poisson", percentage: 4, protein: 55 },
-        { name: "Coquilles d'huîtres", percentage: 2, protein: 0 },
-        { name: "Phosphate bicalcique", percentage: 1.5, protein: 0 },
-        { name: "Sel", percentage: 0.3, protein: 0 },
-        { name: "Prémix", percentage: 0.5, protein: 0 },
-        { name: "Huile", percentage: 0.7, protein: 0 }
-      ],
-      grower: [
-        { name: "Maïs grain", percentage: 57, protein: 9 },
-        { name: "Tourteau de soja", percentage: 16, protein: 44 },
-        { name: "Tourteau d'arachide", percentage: 8, protein: 45 },
-        { name: "Son de blé", percentage: 10, protein: 16 },
-        { name: "Farine de poisson", percentage: 3, protein: 55 },
-        { name: "Coquilles d'huîtres", percentage: 2.5, protein: 0 },
-        { name: "Phosphate bicalcique", percentage: 1.2, protein: 0 },
-        { name: "Sel", percentage: 0.3, protein: 0 },
-        { name: "Prémix", percentage: 0.5, protein: 0 },
-        { name: "Huile", percentage: 1.5, protein: 0 }
-      ],
-      layer: [
-        { name: "Maïs grain", percentage: 60, protein: 9 },
-        { name: "Tourteau de soja", percentage: 15, protein: 44 },
-        { name: "Tourteau d'arachide", percentage: 5, protein: 45 },
-        { name: "Son de riz", percentage: 6, protein: 12 },
-        { name: "Farine de poisson", percentage: 3, protein: 55 },
-        { name: "Coquilles d'huîtres/calcaire", percentage: 8, protein: 0 },
-        { name: "Phosphate bicalcique", percentage: 1, protein: 0 },
-        { name: "Sel", percentage: 0.3, protein: 0 },
-        { name: "Prémix pondeuses", percentage: 0.5, protein: 0 },
-        { name: "Huile de palme", percentage: 1.2, protein: 0 }
-      ]
+  // 1. Classification des ingrédients disponibles
+  const energySources = availableIngredients.filter(i =>
+    i.protein_percent < 12 && (i.name.toLowerCase().includes('maïs') || i.name.toLowerCase().includes('corn') || i.name.toLowerCase().includes('sorgho'))
+  );
+
+  const proteinSources = availableIngredients.filter(i =>
+    i.protein_percent > 20 && (i.name.toLowerCase().includes('soja') || i.name.toLowerCase().includes('fish') || i.name.toLowerCase().includes('poisson') || i.name.toLowerCase().includes('concentré'))
+  );
+
+  const mineralsAndAdditives = availableIngredients.filter(i =>
+    i.protein_percent < 5 && (i.name.toLowerCase().includes('coquille') || i.name.toLowerCase().includes('sel') || i.name.toLowerCase().includes('prémix') || i.name.toLowerCase().includes('phosphate'))
+  );
+
+  const fillers = availableIngredients.filter(i =>
+    i.name.toLowerCase().includes('son') && i.protein_percent >= 10 && i.protein_percent <= 20
+  );
+
+  // 2. Définir les ingrédients fixes (Minéraux & Additifs indispensables)
+  // On essaye de trouver les équivalents dans le stock de l'utilisateur, sinon on ignore (ou on alerte idéalement)
+  const fixedIngredients = [
+    { type: 'coquille', target: breed === 'layer' && stage.includes('ponte') ? 8 : 1.5, found: null as any },
+    { type: 'prémix', target: 0.5, found: null as any },
+    { type: 'sel', target: 0.3, found: null as any },
+    { type: 'phosphate', target: 1.0, found: null as any },
+    { type: 'methionine', target: 0.1, found: null as any },
+    { type: 'lysine', target: 0.1, found: null as any }
+  ];
+
+  let fixedPercentageTotal = 0;
+  let rationComposition: any[] = [];
+
+  // Remplir les ingrédients fixes avec ce qu'on trouve en stock
+  fixedIngredients.forEach(req => {
+    const match = mineralsAndAdditives.find(i => i.name.toLowerCase().includes(req.type));
+    if (match) {
+      rationComposition.push({
+        ...match,
+        percentage: req.target,
+        fixed: true
+      });
+      fixedPercentageTotal += req.target;
     }
-  };
+  });
 
-  // Get the appropriate formulation
-  const breedKey = breed.includes('layer') || breed.includes('pondeuse') ? 'layer' : 'broiler';
-  const stageKey = stage as keyof typeof formulations.broiler;
+  // Ajouter un peu de son (filler) pour les fibres si dispo
+  const bran = fillers[0];
+  if (bran) {
+    const branTarget = 5; // 5% de son par défaut
+    rationComposition.push({
+      ...bran,
+      percentage: branTarget,
+      fixed: true
+    });
+    fixedPercentageTotal += branTarget;
+  }
 
-  const formulation = formulations[breedKey]?.[stageKey] || formulations.broiler.finisher;
+  // 3. Calculer l'espace restant pour Énergie + Protéine
+  const remainingSpace = 100 - fixedPercentageTotal;
 
-  // Calculate quantities based on total needed
-  return formulation.map((item: any) => ({
+  // Si on n'a pas de sources principales, on retourne ce qu'on a (échec partiel)
+  if (energySources.length === 0 || proteinSources.length === 0) {
+    console.warn('⚠️ Manque de sources d\'énergie ou de protéines pour le calcul');
+    return availableIngredients.map(i => ({ ...i, percentage: 0, quantityKg: 0 }));
+  }
+
+  // --- SIMPLIFICATION : On prend la meilleure source d'énergie et la meilleure source de protéine ---
+  // Pour un algorithme plus complexe, on pourrait mélanger plusieurs sources.
+  // Pour l'instant, on prend le Maïs (ou équivalent) et le Soja/Concentré principal.
+
+  const mainEnergy = energySources[0]; // ex: Maïs
+  const mainProtein = proteinSources[0]; // ex: Tourteau de Soja ou Concentré
+
+  // Calcul du taux de protéine cible ajusté pour l'espace restant
+  // Ex: Si on veut 18% au total, et que les fixes apportent ~0%, il faut que les 90% restants apportent les 18% globaux.
+  // Donc la cible dans le mélange (Maïs+Soja) doit être : (18 - proteinFromFixed) * 100 / remainingSpace
+
+  let proteinFromFixed = 0;
+  rationComposition.forEach(item => {
+    proteinFromFixed += (item.protein_percent * item.percentage) / 100;
+  });
+
+  const requiredProteinInMix = ((targetProtein - proteinFromFixed) * 100) / remainingSpace;
+
+  // --- CARRÉ DE PEARSON ---
+  // Part A (Energy Source) : Protein % = mainEnergy.protein_percent
+  // Part B (Protein Source) : Protein % = mainProtein.protein_percent
+  // Target = requiredProteinInMix
+
+  const valA = mainEnergy.protein_percent || 9;
+  const valB = mainProtein.protein_percent || 44;
+  const target = requiredProteinInMix;
+
+  let ratioA = 0;
+  let ratioB = 0;
+
+  if (target <= valA) {
+    // Impossible mathématiquement, on ne met que du A
+    ratioA = 1;
+    ratioB = 0;
+  } else if (target >= valB) {
+    // Impossible mathématiquement, on ne met que du B
+    ratioA = 0;
+    ratioB = 1;
+  } else {
+    // Calcul Pearson
+    const diffA = Math.abs(target - valB); // Parts de A
+    const diffB = Math.abs(target - valA); // Parts de B
+    const totalParts = diffA + diffB;
+
+    ratioA = diffA / totalParts;
+    ratioB = diffB / totalParts;
+  }
+
+  // Appliquer les ratios à l'espace restant
+  const percentageA = ratioA * remainingSpace;
+  const percentageB = ratioB * remainingSpace;
+
+  rationComposition.push({
+    ...mainEnergy,
+    percentage: parseFloat(percentageA.toFixed(2)),
+    fixed: false
+  });
+
+  rationComposition.push({
+    ...mainProtein,
+    percentage: parseFloat(percentageB.toFixed(2)),
+    fixed: false
+  });
+
+  // 4. Compléter la liste avec les ingrédients non utilisés (à 0%) pour l'affichage complet
+  const usedIds = new Set(rationComposition.map(i => i.id));
+
+  availableIngredients.forEach(item => {
+    if (!usedIds.has(item.id)) {
+      rationComposition.push({
+        ...item,
+        percentage: 0,
+        quantityKg: 0,
+        fixed: false
+      });
+    }
+  });
+
+  // Trier pour avoir les ingrédients utilisés en premier
+  rationComposition.sort((a, b) => b.percentage - a.percentage);
+
+  // Vérification finale du total (devrait être proche de 100%)
+  const totalCheck = rationComposition.reduce((sum, item) => sum + item.percentage, 0);
+  console.log(`✅ Ration calculée (Total: ${totalCheck.toFixed(2)}%)`);
+
+  // Retourner avec les pourcentages calculés
+  return rationComposition.map(item => ({
     ...item,
-    quantityKg: (item.percentage / 100) // Will be calculated based on total needed
+    quantityKg: 0 // Sera calculé dans la fonction appelante
   }));
 };

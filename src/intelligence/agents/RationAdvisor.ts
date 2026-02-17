@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { supabase } from '../../../config';
+import { generateAutoRation } from '../../../utils/autoRation';
 
 import { smartAlertSystem } from '../core/SmartAlertSystem';
 import { dataCollector } from '../core/DataCollector';
@@ -139,6 +140,13 @@ const STANDARD_RATIONS: Record<string, Record<string, Partial<RationFormula>>> =
         energy_min: 2700, energy_max: 2900,
         calcium_min: 3.5, calcium_max: 4.5
       }
+    },
+    'pré-ponte': {
+      nutritional_targets: {
+        protein_min: 16, protein_max: 18,
+        energy_min: 2750, energy_max: 2950,
+        calcium_min: 2.0, calcium_max: 2.5
+      }
     }
   },
   'breeders': {
@@ -214,7 +222,7 @@ const INGREDIENT_DATABASE: Record<string, {
 class RationAdvisor {
   private static instance: RationAdvisor;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): RationAdvisor {
     if (!RationAdvisor.instance) {
@@ -237,43 +245,52 @@ class RationAdvisor {
     }
   ): Promise<RationFormula | null> {
     try {
-      // 1. Récupérer standards nutritionnels
-      const standards = this.getNutritionalStandards(race, phase);
-      if (!standards || !standards.nutritional_targets) {
-        console.error(`[RationAdvisor] Standards non trouvés pour ${race}/${phase}`);
+      console.log(`[RationAdvisor] Délégation du calcul à generateAutoRation pour ${race}/${phase}`);
+
+      // Utiliser l'algorithme unifié (Pearson Square avec données réelles)
+      const autoRationResult = await generateAutoRation(race, phase, quantity);
+
+      if (!autoRationResult || !autoRationResult.ration) {
+        console.error('[RationAdvisor] Échec de generateAutoRation');
         return null;
       }
 
-      // 2. Optimiser composition des ingrédients
-      const optimizedIngredients = await this.optimizeIngredientComposition(
-        standards.nutritional_targets,
-        constraints
-      );
+      // Convertir le résultat au format RationFormula attendu par le reste du système
+      const ingredientsFormatted = autoRationResult.ingredients.map((ing: any) => ({
+        ingredient_id: ing.id || `ing_${ing.name.replace(/\s+/g, '_').toLowerCase()}`,
+        name: ing.name,
+        percentage: ing.percentage,
+        cost_per_kg: ing.cost_per_kg || 0, // Si le coût n'est pas dans la DB, on met 0
+        quantity_per_bag: ((ing.quantityKg / parseFloat(autoRationResult.totalKg)) * 50).toFixed(2), // Ajout pour l'affichage
+        total_phase_kg: (autoRationResult.totalKg * (ing.percentage / 100)).toFixed(1), // Ajout pour l'affichage
+        nutritional_value: {
+          protein: ing.protein || ing.protein_percent || 0,
+          energy: ing.energy || ing.energy_kcal || 0,
+          calcium: 0 // Pas dispo dans le retour simple pour l'instant
+        }
+      }));
 
-      // 3. Calculer coûts et métriques
-      const totalCost = optimizedIngredients.reduce(
-        (sum, ing) => sum + (ing.cost_per_kg * ing.percentage / 100), 0
-      );
-
-      const efficiencyScore = this.calculateRationEfficiency(optimizedIngredients, standards);
-
-      // 4. Créer formule complète
       const ration: RationFormula = {
         id: `ration_${race}_${phase}_${Date.now()}`,
         name: `Ration ${race} - ${phase}`,
         race,
         phase,
         age_range: this.getAgeRangeForPhase(phase),
-        ingredients: optimizedIngredients,
-        nutritional_targets: standards.nutritional_targets!,
-        total_cost_per_kg: totalCost,
-        efficiency_score: efficiencyScore,
+        ingredients: ingredientsFormatted,
+        nutritional_targets: {
+          protein_min: autoRationResult.protein,
+          protein_max: autoRationResult.protein,
+          energy_min: autoRationResult.energy,
+          energy_max: autoRationResult.energy
+        },
+        total_cost_per_kg: 0, // À calculer si on a les prix
+        efficiency_score: 85, // Score par défaut pour le calcul Pearson (considéré comme optimal)
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
 
       // 5. Sauvegarder pour apprentissage
-      await this.saveRationFormula(ration);
+      // await this.saveRationFormula(ration); // Désactivé temporairement pour éviter doublons
 
       return ration;
     } catch (error) {
@@ -579,7 +596,7 @@ class RationAdvisor {
     }
 
     if (targets.calcium_min && totalNutrition.calcium >= targets.calcium_min &&
-        (!targets.calcium_max || totalNutrition.calcium <= targets.calcium_max)) {
+      (!targets.calcium_max || totalNutrition.calcium <= targets.calcium_max)) {
       score += 20;
     }
 
@@ -650,6 +667,7 @@ class RationAdvisor {
       'démarrage': { min: 0, max: 21 },
       'croissance': { min: 22, max: 42 },
       'finition': { min: 43, max: 56 },
+      'pré-ponte': { min: 120, max: 139 },
       'ponte': { min: 140, max: 500 }
     };
     return ranges[phase] || { min: 0, max: 100 };

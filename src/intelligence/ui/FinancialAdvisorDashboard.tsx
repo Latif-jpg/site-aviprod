@@ -14,12 +14,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../../../styles/commonStyles';
 import Icon from '../../../components/Icon';
 import { useFinancialAdvisor } from '../agents/FinancialAdvisor';
+import { usePremiumFeature } from '../../../hooks/usePremiumFeature';
+import { useProfile } from '../../../contexts/ProfileContext';
+import { useSubscription } from '../../../contexts/SubscriptionContext';
+import SmartTunnelModal from '../../../components/SmartTunnelModal';
 
 const { width } = Dimensions.get('window');
 
 interface FinancialAdvisorDashboardProps {
   farmId: string;
   onClose?: () => void;
+  summary?: {
+    revenue: number;
+    expenses: number;
+    profit: number;
+    profitMargin: number;
+  };
+  records?: any[];
+  period?: string;
+  budgetStatus?: any;
+  onPeriodChange?: (period: any) => void;
 }
 
 interface AnalysisResult {
@@ -80,23 +94,51 @@ interface AnalysisResult {
 
 export default function FinancialAdvisorDashboard({
   farmId,
-  onClose
+  onClose,
+  summary,
+  records,
+  period: initialPeriod,
+  budgetStatus,
+  onPeriodChange
 }: FinancialAdvisorDashboardProps) {
   const { analyzeFinances } = useFinancialAdvisor();
   // Correction: Le type period doit correspondre aux options disponibles
-  const [period, setPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
+  const [period, setPeriod] = useState<'week' | 'month' | 'quarter' | 'semester' | 'year'>((initialPeriod as any) || 'month');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const { requestAccess, showTunnel, tunnelProps, isLoading: accessLoading, isReady } = usePremiumFeature({
+    featureKey: 'financial_advisor',
+    featureName: 'Conseiller Financier IA',
+    cost: 10,
+  });
+
+  // DEBUG contexts
+  const { profile } = useProfile();
+  const { subscription } = useSubscription();
+
   useEffect(() => {
-    loadAnalysis();
-  }, [farmId, period]);
+    if (isReady) {
+      loadAnalysis();
+    }
+  }, [farmId, period, isReady]);
+
+  useEffect(() => {
+    if (initialPeriod) setPeriod(initialPeriod as any);
+  }, [initialPeriod]);
 
   const loadAnalysis = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+
+      // --- PROTECTION PREMIUM ---
+      const access = await requestAccess();
+      if (!access.granted) {
+        setLoading(false);
+        return;
+      }
 
       const result = await analyzeFinances(farmId, period);
       if (result) {
@@ -147,37 +189,45 @@ export default function FinancialAdvisorDashboard({
   const sections = useMemo(() => {
     if (!analysis) return [];
 
+    // Recalcul de la balance actuelle selon la logique utilisateur : Budget Restant + Revenus
+    let cashFlowData = { ...analysis.cashFlow };
+    if (budgetStatus && summary) {
+      const remainingBudget = Number(budgetStatus.remaining_budget) || 0;
+      const revenue = Number(summary.revenue) || 0;
+      cashFlowData.current_balance = remainingBudget + revenue;
+    }
+
     const data = [
       { type: 'profitability', data: analysis.profitability },
       analysis.anomalies.total_anomalies > 0 && { type: 'anomalies', data: analysis.anomalies },
-      { type: 'cashFlow', data: analysis.cashFlow },
+      { type: 'cashFlow', data: cashFlowData },
       { type: 'tax', data: analysis.taxOptimization },
       { type: 'investments', data: analysis.investments },
     ].filter(Boolean); // Filtrer les sections non affichées (ex: anomalies s'il n'y en a pas)
 
     return data as Array<{ type: string; data: any }>;
-  }, [analysis]);
+  }, [analysis, budgetStatus, summary]);
 
   const renderSection = useCallback(({ item }: { item: { type: string; data: any } }) => {
     switch (item.type) {
       case 'profitability':
         return <ProfitabilitySection
-                  data={item.data}
-                  formatCurrency={formatCurrency}
-                  getTrendColor={getTrendColor}
-                />;
+          data={item.data}
+          formatCurrency={formatCurrency}
+          getTrendColor={getTrendColor}
+        />;
       case 'anomalies':
         return <AnomaliesSection
-                  data={item.data}
-                  formatCurrency={formatCurrency}
-                  getSeverityColor={getSeverityColor}
-                />;
+          data={item.data}
+          formatCurrency={formatCurrency}
+          getSeverityColor={getSeverityColor}
+        />;
       case 'cashFlow':
         return <CashFlowSection
-                  data={item.data}
-                  formatCurrency={formatCurrency}
-                  getRiskColor={getRiskColor}
-                />;
+          data={item.data}
+          formatCurrency={formatCurrency}
+          getRiskColor={getRiskColor}
+        />;
       case 'tax':
         return <TaxSection data={item.data} formatCurrency={formatCurrency} />;
       case 'investments':
@@ -213,21 +263,25 @@ export default function FinancialAdvisorDashboard({
           { key: 'week', label: 'Semaine' },
           { key: 'month', label: 'Mois' },
           { key: 'quarter', label: 'Trimestre' },
+          { key: 'semester', label: 'Semestre' },
           { key: 'year', label: 'Année' },
-        ].map((p) => (
+        ].map((periodOption) => (
           <TouchableOpacity
-            key={p.key}
+            key={periodOption.key}
             style={[
               styles.periodButton,
-              period === p.key && styles.periodButtonActive,
+              period === periodOption.key && styles.periodButtonActive,
             ]}
-            onPress={() => setPeriod(p.key as any)}
+            onPress={() => {
+              setPeriod(periodOption.key as any);
+              if (onPeriodChange) onPeriodChange(periodOption.key as any);
+            }}
           >
             <Text style={[
               styles.periodButtonText,
-              period === p.key && styles.periodButtonTextActive,
+              period === periodOption.key && styles.periodButtonTextActive,
             ]}>
-              {p.label}
+              {periodOption.label}
             </Text>
           </TouchableOpacity>
         ))}
@@ -274,11 +328,12 @@ export default function FinancialAdvisorDashboard({
         data={sections}
         renderItem={renderSection}
         keyExtractor={(item) => item.type}
-        ListHeaderComponent={renderHeader}
+        ListHeaderComponent={renderHeader()}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollView}
         ListFooterComponent={<View style={styles.bottomPadding} />}
       />
+      <SmartTunnelModal {...tunnelProps} />
     </SafeAreaView>
   );
 }
@@ -300,7 +355,7 @@ const ProfitabilitySection = ({ data, formatCurrency, getTrendColor }: { data: A
       <Text style={styles.sectionTitle}>Analyse de Rentabilité</Text>
       <View style={[styles.scoreBadge, {
         backgroundColor: data.profitability_score > 70 ? '#10996E' :
-                       data.profitability_score > 50 ? '#FF9800' : '#E53935'
+          data.profitability_score > 50 ? '#FF9800' : '#E53935'
       }]}>
         <Text style={styles.scoreText}>{data.profitability_score}/100</Text>
       </View>
@@ -317,7 +372,7 @@ const ProfitabilitySection = ({ data, formatCurrency, getTrendColor }: { data: A
       <View style={styles.breakdown}>
         <Text style={styles.breakdownTitle}>Répartition des dépenses</Text>
         {Object.entries(data.breakdown_by_category)
-          .sort(([,a], [,b]) => b - a)
+          .sort(([, a], [, b]) => b - a)
           .slice(0, 5)
           .map(([category, amount]) => (
             <View key={category} style={styles.breakdownItem}>
@@ -348,8 +403,8 @@ const AnomaliesSection = ({ data, formatCurrency, getSeverityColor }: { data: An
         <View style={styles.anomalyHeader}>
           <Text style={styles.anomalyType}>
             {anomaly.type === 'expense_spike' ? '💸 Pic de dépenses' :
-             anomaly.type === 'revenue_drop' ? '📉 Chute revenus' :
-             '🔄 Pattern inhabituel'}
+              anomaly.type === 'revenue_drop' ? '📉 Chute revenus' :
+                '🔄 Pattern inhabituel'}
           </Text>
           <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(anomaly.severity) }]}>
             <Text style={styles.severityText}>{anomaly.severity.toUpperCase()}</Text>
@@ -378,7 +433,14 @@ const CashFlowSection = ({ data, formatCurrency, getRiskColor }: { data: Analysi
       </View>
     </View>
     <View style={styles.cashFlowGrid}>
-      <MetricCard label="Balance actuelle" value={formatCurrency(data.current_balance)} valueColor={data.current_balance >= 0 ? '#10996E' : '#E53935'} />
+      <MetricCard
+        label="Balance actuelle"
+        value={formatCurrency(data.current_balance)}
+        valueColor={data.current_balance >= 0 ? '#10996E' : '#E53935'}
+        description="Budget restant + Revenus"
+      />
+      <MetricCard label="Entrées (30j)" value={formatCurrency(data.expected_inflows)} valueColor="#10996E" description="Revenus estimés" />
+      <MetricCard label="Sorties (30j)" value={formatCurrency(data.expected_outflows)} valueColor="#E53935" description="Dépenses estimées" />
       <MetricCard label="Prévision 30j" value={formatCurrency(data.forecast_30_days)} valueColor={data.forecast_30_days >= 0 ? '#10996E' : '#E53935'} />
       <MetricCard label="Prévision 60j" value={formatCurrency(data.forecast_60_days)} valueColor={data.forecast_60_days >= 0 ? '#10996E' : '#E53935'} />
       <MetricCard label="Prévision 90j" value={formatCurrency(data.forecast_90_days)} valueColor={data.forecast_90_days >= 0 ? '#10996E' : '#E53935'} />
@@ -432,14 +494,14 @@ const TaxSection = ({ data, formatCurrency }: { data: AnalysisResult['taxOptimiz
 const InvestmentsSection = ({ data, formatCurrency }: { data: AnalysisResult['investments'], formatCurrency: (amount: number) => string }) => (
   <View style={styles.section}>
     <View style={[styles.sectionHeader, { marginBottom: 8 }]}>
-        <Icon name="bulb" size={24} color={colors.primary} />
-        <View style={styles.sectionTitleContainer}>
-            <Text style={styles.sectionTitle}>Recommandations d'Investissement</Text>
-        </View>
+      <Icon name="bulb" size={24} color={colors.primary} />
+      <View style={styles.sectionTitleContainer}>
+        <Text style={styles.sectionTitle}>Recommandations d'Investissement</Text>
+      </View>
     </View>
     <View style={styles.budgetBadge}>
-        <Icon name="wallet" size={16} color={colors.white} />
-        <Text style={styles.budgetText}>Budget disponible: {formatCurrency(data.budget_available)}</Text>
+      <Icon name="wallet" size={16} color={colors.white} />
+      <Text style={styles.budgetText}>Budget disponible: {formatCurrency(data.budget_available)}</Text>
     </View>
 
     {data.priority_investments.length > 0 ? (
@@ -448,8 +510,8 @@ const InvestmentsSection = ({ data, formatCurrency }: { data: AnalysisResult['in
           <View style={styles.investmentHeader}>
             <Text style={styles.investmentCategory}>{investment.category}</Text>
             <View style={[styles.priorityBadge, {
-                backgroundColor: investment.priority_score > 80 ? '#10996E' :
-                                 investment.priority_score > 60 ? '#FF9800' : '#E53935'
+              backgroundColor: investment.priority_score > 80 ? '#10996E' :
+                investment.priority_score > 60 ? '#FF9800' : '#E53935'
             }]}>
               <Text style={styles.priorityText}>Priorité {investment.priority_score}</Text>
             </View>

@@ -1,0 +1,29 @@
+{
+    "cleanUrls": true,
+    "trailingSlash": false,
+    "rewrites": [
+        {
+            "source": "/auth/login",
+            "destination": "/auth.html"
+        },
+        {
+            "source": "/(assets|static|favicon|_expo)(.*)",
+            "destination": "/$1$2"
+        }
+    ],
+    "headers": [
+        {
+            "source": "/(.*).ttf",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "font/ttf"
+                },
+                {
+                    "key": "Access-Control-Allow-Origin",
+                    "value": "*"
+                }
+            ]
+        }
+    ]
+}

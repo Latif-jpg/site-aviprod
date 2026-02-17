@@ -15,6 +15,7 @@ export type Product = {
   location?: string
   city?: string
   region?: string
+  country?: string
   in_stock?: boolean
   rating?: number
   seller_id?: string

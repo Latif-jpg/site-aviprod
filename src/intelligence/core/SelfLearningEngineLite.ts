@@ -75,8 +75,13 @@ class SelfLearningEngineLite {
 
     // Note: Binding not needed for direct method calls
 
-    this.initializeUser();
-    this.loadMemory();
+    // CORRECTION: Ne pas initialiser côté serveur (SSR) pour éviter les erreurs "window not defined"
+    if (typeof window !== 'undefined') {
+      this.initializeUser();
+      this.loadMemory();
+    } else {
+      console.log('[SelfLearningLite] Mode Serveur (SSR) détecté: Initialisation reportée.');
+    }
   }
 
   public static getInstance(config?: Partial<LearningConfig>): SelfLearningEngineLite {
@@ -290,11 +295,11 @@ class SelfLearningEngineLite {
 
     const mostReliable = entries.reduce((best, [action, m]) =>
       m.successRate > (this.metrics[best]?.successRate || 0) ? action : best
-    , entries[0][0]);
+      , entries[0][0]);
 
     const fastest = entries.reduce((best, [action, m]) =>
       m.avgResponseTime < (this.metrics[best]?.avgResponseTime || Infinity) ? action : best
-    , entries[0][0]);
+      , entries[0][0]);
 
     return {
       totalActions: entries.length,

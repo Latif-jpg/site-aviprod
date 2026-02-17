@@ -209,13 +209,31 @@ export default function AddLotForm({ onSubmit, onCancel }: AddLotFormProps) {
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
+      // --- CORRECTION : Calculer l'âge initial à la date d'entrée ---
+      // Si l'utilisateur saisit une date passée, l'âge qu'il donne est l'âge ACTUEL.
+      // On doit donc remonter le temps pour trouver l'âge qu'ils avaient à l'entrée.
+      const entryDateObj = new Date(entryDate);
+      const today = new Date();
+      entryDateObj.setHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
+
+      const daysSinceEntry = Math.max(0, Math.floor((today.getTime() - entryDateObj.getTime()) / (1000 * 60 * 60 * 24)));
+      const calculatedInitialAge = Math.max(0, parseInt(age) - daysSinceEntry);
+
+      console.log('Correction Âge:', {
+        saisi: parseInt(age),
+        dateEntree: entryDate,
+        joursEcoulés: daysSinceEntry,
+        ageInitialStocké: calculatedInitialAge
+      });
+
       const lotData = {
         name: name.trim(),
         bird_type: birdType,
         breed: breed.trim(),
         quantity: parseInt(quantity),
         initial_quantity: parseInt(quantity),
-        age: parseInt(age),
+        age: calculatedInitialAge, // On stocke l'âge qu'ils avaient le jour de l'entrée
         entry_date: entryDate,
         target_sale_date: targetSaleDate || null,
         target_weight: targetWeight ? parseFloat(targetWeight) : null

@@ -38,6 +38,7 @@ export default function OrderPaymentScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionRef, setTransactionRef] = useState('');
   const [paymentNumber, setPaymentNumber] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'OM' | 'WAVE'>('OM');
   const [paymentType, setPaymentType] = useState<'order' | 'subscription' | 'avicoins'>('order');
 
 
@@ -66,6 +67,7 @@ export default function OrderPaymentScreen() {
             setPaymentType(pendingPayment.paymentType);
             setTransactionRef(pendingPayment.transactionRef);
             setPaymentNumber(pendingPayment.paymentNumber || '');
+            if (pendingPayment.paymentMethod) setPaymentMethod(pendingPayment.paymentMethod);
             setLoading(false);
             return; // Arrêter ici si la restauration a réussi
           }
@@ -112,10 +114,10 @@ export default function OrderPaymentScreen() {
   // Sauvegarder l'état dans AsyncStorage à chaque changement
   useEffect(() => {
     if (order) {
-      const dataToSave = { order, paymentType, transactionRef, paymentNumber };
+      const dataToSave = { order, paymentType, transactionRef, paymentNumber, paymentMethod };
       AsyncStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, JSON.stringify(dataToSave));
     }
-  }, [order, paymentType, transactionRef, paymentNumber]);
+  }, [order, paymentType, transactionRef, paymentNumber, paymentMethod]);
 
   const loadOrderDetails = async (id: string) => {
     try {
@@ -176,7 +178,7 @@ export default function OrderPaymentScreen() {
 
   const handleSubmitProof = async () => {
     if (!transactionRef.trim()) {
-      Alert.alert('Erreur', 'Veuillez saisir l\'ID de la transaction Orange Money.');
+      Alert.alert('Erreur', `Veuillez saisir l'ID de la transaction ${paymentMethod === 'OM' ? 'Orange Money' : 'Wave'}.`);
       return;
     }
     if (!paymentNumber.trim()) {
@@ -202,7 +204,7 @@ export default function OrderPaymentScreen() {
         amount: order.total_price,
         payment_number: paymentNumber.trim(),
         transaction_reference: transactionRef.trim(),
-        payment_method: 'Orange Money',
+        payment_method: paymentMethod === 'OM' ? 'Orange Money' : 'Wave',
         status: 'pending',
         // Rendre les notes plus claires
         notes: paymentType === 'avicoins'
@@ -265,17 +267,19 @@ export default function OrderPaymentScreen() {
       const successMessage = paymentType === 'order'
         ? 'Votre preuve de paiement a été soumise. Nous la vérifierons dans les plus brefs délais. Vous serez notifié une fois la commande confirmée.'
         : paymentType === 'subscription'
-        ? 'Votre preuve de paiement d\'abonnement a été soumise. Nous l\'activerons après vérification.'
-        : 'Votre preuve de paiement d\'avicoins a été soumise. Ils seront crédités après vérification.';
+          ? 'Votre preuve de paiement d\'abonnement a été soumise. Nous l\'activerons après vérification.'
+          : 'Votre preuve de paiement d\'avicoins a été soumise. Ils seront crédités après vérification.';
 
       const redirectRoute = paymentType === 'order' ? '/order-tracking' : '/profile';
 
       Alert.alert(
         'Preuve Soumise ✅',
         successMessage,
-        [{ text: 'OK', onPress: () => {
+        [{
+          text: 'OK', onPress: () => {
             router.replace(redirectRoute as any);
-        }}]
+          }
+        }]
       );
 
     } catch (error: any) {
@@ -309,24 +313,24 @@ export default function OrderPaymentScreen() {
   return (
     <SafeAreaView style={commonStyles.container}>
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={async () => {
             // Nettoyer la session en quittant
             await AsyncStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
             router.back();
-          }} 
+          }}
           style={styles.backButton}>
           <Icon name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
           {paymentType === 'order' ? 'Paiement de commande' :
-           paymentType === 'subscription' ? 'Paiement d\'abonnement' :
-           'Achat d\'avicoins'}
+            paymentType === 'subscription' ? 'Paiement d\'abonnement' :
+              'Achat d\'avicoins'}
         </Text>
       </View>
 
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -335,14 +339,14 @@ export default function OrderPaymentScreen() {
           <View style={styles.orderHeader}>
             <Text style={styles.orderTitle}>
               {paymentType === 'order' ? `Commande #${order.id.slice(-8)}` :
-               paymentType === 'subscription' ? `Abonnement ${order.product?.name}` :
-               `Achat ${order.product?.name}`}
+                paymentType === 'subscription' ? `Abonnement ${order.product?.name}` :
+                  `Achat ${order.product?.name}`}
             </Text>
             <View style={[styles.statusBadge, { backgroundColor: colors.primary + '20' }]}>
               <Text style={[styles.statusText, { color: colors.primary }]}>
                 {paymentType === 'order' ? 'Prête pour livraison' :
-                 paymentType === 'subscription' ? 'À activer' :
-                 'À créditer'}
+                  paymentType === 'subscription' ? 'À activer' :
+                    'À créditer'}
               </Text>
             </View>
           </View>
@@ -376,10 +380,31 @@ export default function OrderPaymentScreen() {
           <View style={styles.priceSection}>
             <Text style={styles.priceLabel}>
               {paymentType === 'order' ? 'Montant total' :
-               paymentType === 'subscription' ? 'Prix de l\'abonnement' :
-               'Montant à payer'}
+                paymentType === 'subscription' ? 'Prix de l\'abonnement' :
+                  'Montant à payer'}
             </Text>
             <Text style={styles.priceAmount}>{order.total_price.toLocaleString()} CFA</Text>
+          </View>
+        </View>
+
+        <View style={styles.methodSelectionContainer}>
+          <Text style={styles.instructionsTitle}>Mode de paiement utilisé :</Text>
+          <View style={styles.methodSelector}>
+            <TouchableOpacity
+              style={[styles.methodButton, paymentMethod === 'OM' && styles.omActive]}
+              onPress={() => setPaymentMethod('OM')}
+            >
+              <Icon name="phone-portrait" size={20} color={paymentMethod === 'OM' ? colors.white : colors.orange} />
+              <Text style={[styles.methodButtonText, paymentMethod === 'OM' && styles.textWhite]}>Orange Money</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.methodButton, paymentMethod === 'WAVE' && styles.waveActive]}
+              onPress={() => setPaymentMethod('WAVE')}
+            >
+              <Icon name="water" size={20} color={paymentMethod === 'WAVE' ? colors.white : '#42C9FF'} />
+              <Text style={[styles.methodButtonText, paymentMethod === 'WAVE' && styles.textWhite]}>Wave</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -388,53 +413,64 @@ export default function OrderPaymentScreen() {
           <View style={styles.instructionItem}>
             <Text style={styles.instructionNumber}>1.</Text>
             <Text style={styles.instructionText}>
-              Composez le code USSD suivant sur votre téléphone :
+              {paymentMethod === 'OM'
+                ? "Composez le code USSD suivant sur votre téléphone :"
+                : "Ouvrez votre application Wave et effectuez le transfert vers :"}
             </Text>
           </View>
-          {/* --- MODIFICATION : Remplacer le bouton par du texte sélectionnable --- */}
-          {/* Ceci évite d'utiliser `expo-clipboard` et permet une mise à jour OTA. */}
-          {/* L'utilisateur peut faire un appui long sur le texte pour le copier. */}
-          <View style={styles.ussdCode}>
-            <Text style={styles.ussdText} selectable={true}>
-              *144*2*1*56508709*{order.total_price.toString()}#
-            </Text>
-            <Text style={styles.ussdSubtext}>
-              (Appuyez longuement sur le code pour le copier)
-            </Text>
-          </View>
+
+          {paymentMethod === 'OM' ? (
+            <View style={styles.ussdCode}>
+              <Text style={styles.ussdText} selectable={true}>
+                *144*2*1*56508709*{order.total_price.toString()}#
+              </Text>
+              <Text style={styles.ussdSubtext}>
+                (Appuyez longuement sur le code pour le copier)
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.ussdCode, { borderColor: '#42C9FF', backgroundColor: '#42C9FF10' }]}>
+              <Text style={[styles.ussdText, { color: '#42C9FF' }]} selectable={true}>
+                Numéro Wave : +226 56 50 87 09
+              </Text>
+              <Text style={styles.ussdSubtext}>
+                (Transfert direct vers ce numéro)
+              </Text>
+            </View>
+          )}
 
           <View style={styles.instructionItem}>
             <Text style={styles.instructionNumber}>2.</Text>
             <Text style={styles.instructionText}>
-              <Text style={{ fontWeight: 'bold' }}>Très important :</Text> Incluez le message suivant dans votre transfert :
+              <Text style={{ fontWeight: 'bold' }}>Très important :</Text> {paymentMethod === 'OM' ? "Incluez le message suivant dans votre transfert :" : "Assurez-vous que le montant correspond exactement."}
             </Text>
           </View>
-          {/* --- MODIFICATION : Message de référence dynamique --- */}
-          <View style={styles.referenceBox}>
-            <Text style={styles.referenceText} selectable={true}>
-              {(() => {
-                // Génère la date et l'heure actuelles au format français
-                const now = new Date();
-                const formattedDate = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                const formattedTime = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-                // Construit le détail du paiement
-                let paymentDetail = '';
-                if (paymentType === 'order') {
-                  paymentDetail = `Cmd #${order.id.slice(-6)}`;
-                } else if (paymentType === 'subscription') {
-                  paymentDetail = `Abo ${planName}`;
-                } else if (paymentType === 'avicoins') {
-                  paymentDetail = `Achat ${planName}`;
-                }
+          {paymentMethod === 'OM' && (
+            <View style={styles.referenceBox}>
+              <Text style={styles.referenceText} selectable={true}>
+                {(() => {
+                  const now = new Date();
+                  const formattedDate = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                  const formattedTime = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-                return `Aviprod - ${paymentDetail} - ${formattedDate} ${formattedTime}`;
-              })()}
-            </Text>
-          </View>
+                  let paymentDetail = '';
+                  if (paymentType === 'order') {
+                    paymentDetail = `Cmd #${order.id.slice(-6)}`;
+                  } else if (paymentType === 'subscription') {
+                    paymentDetail = `Abo ${planName}`;
+                  } else if (paymentType === 'avicoins') {
+                    paymentDetail = `Achat ${planName}`;
+                  }
+
+                  return `Aviprod - ${paymentDetail} - ${formattedDate} ${formattedTime}`;
+                })()}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.instructionItem}>
-            <Text style={styles.instructionNumber}>4.</Text>
+            <Text style={styles.instructionNumber}>{paymentMethod === 'OM' ? '4.' : '3.'}</Text>
             <Text style={styles.instructionText}>
               Après le paiement, saisissez l'ID de la transaction reçu par SMS et validez.
             </Text>
@@ -451,7 +487,7 @@ export default function OrderPaymentScreen() {
           />
           <TextInput
             style={styles.input}
-            placeholder="ID de la transaction Orange Money"
+            placeholder={`ID de la transaction ${paymentMethod === 'OM' ? 'Orange Money' : 'Wave'}`}
             value={transactionRef}
             onChangeText={setTransactionRef}
           />
@@ -486,7 +522,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     flex: 1,
-  },  
+  },
   scrollView: {
     flex: 1,
   },
@@ -684,5 +720,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: 16,
+  },
+  methodSelectionContainer: {
+    padding: 20,
+    backgroundColor: colors.backgroundAlt,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  methodSelector: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  methodButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    gap: 8,
+  },
+  omActive: {
+    backgroundColor: colors.orange,
+    borderColor: colors.orange,
+  },
+  waveActive: {
+    backgroundColor: '#42C9FF',
+    borderColor: '#42C9FF',
+  },
+  methodButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  textWhite: {
+    color: colors.white,
   },
 });

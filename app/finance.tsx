@@ -1,23 +1,27 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, Alert, TextInput, Platform, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import { colors } from '../styles/commonStyles';
 import { supabase } from '../config';
 import { useAuth } from '../hooks/useAuth';
-import { useProfile } from '../contexts/ProfileContext'; // --- NOUVEAU : Pour obtenir l'ID de la ferme ---
+import { useSubscription } from '../contexts/SubscriptionContext';
+import { useProfile } from '../contexts/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import FinancialAdvisorDashboard from '../src/intelligence/ui/FinancialAdvisorDashboard'; // --- NOUVEAU : Importer le bon tableau de bord IA ---
-import FinancialRecordCard from './FinancialRecordCard'; // CORRECTION : Le fichier est dans le même dossier 'app'
+import FinancialAdvisorDashboard from '../src/intelligence/ui/FinancialAdvisorDashboard';
+import FinancialRecordCard from './FinancialRecordCard';
+import FinancialBreakdown from './FinancialBreakdown';
 import SimpleBottomSheet from '../components/BottomSheet';
 import AddFinancialRecordForm from '../components/AddFinancialRecordForm';
-import EditFinancialRecordForm from './EditFinancialRecordForm'; // CORRECTION : Le fichier est dans le même dossier 'app'
+import EditFinancialRecordForm from './EditFinancialRecordForm';
 import FloatingActionButton from '../components/FloatingActionButton';
 import { FinancialRecord } from '../types';
 import Icon from '../components/Icon';
+// --- IMPORTS POUR L'EXPORT ---
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
-// --- NOUVEAU : Fonction pour obtenir l'icône de catégorie ---
-// Cette fonction centralise la logique pour choisir la bonne icône en fonction de la catégorie.
+// ... (getCategoryIcon reste inchangé)
 const getCategoryIcon = (category: string): string => {
   const cat = category.toLowerCase();
   if (cat.includes('vente')) return 'cash-outline';
@@ -30,64 +34,66 @@ const getCategoryIcon = (category: string): string => {
   if (cat.includes('service')) return 'construct-outline';
   if (cat.includes('partenariat') || cat.includes('investissement')) return 'business-outline';
   if (cat.includes('autre')) return 'apps-outline';
-
-  // Icône par défaut si aucune correspondance n'est trouvée
   return 'help-circle-outline';
 };
 
 export default function FinanceScreen() {
-  // --- NOUVEAU : État pour le résumé financier ---
-  const { profile } = useProfile(); // --- NOUVEAU ---
+  const { profile } = useProfile();
+  const { subscription } = useSubscription();
   const { user } = useAuth();
   const [records, setRecords] = useState<FinancialRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [recordToEdit, setRecordToEdit] = useState<FinancialRecord | null>(null);
-  const [showAdvisor, setShowAdvisor] = useState(false); // --- NOUVEAU : État pour la modale IA ---
+  const [showAdvisor, setShowAdvisor] = useState(false);
   const [addRecordType, setAddRecordType] = useState<'income' | 'expense'>('expense');
   const [activeTab, setActiveTab] = useState<'all' | 'income' | 'expense'>('all');
-  const [period, setPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
-  const [summary, setSummary] = useState({ revenue: 0, expenses: 0, profit: 0, profitMargin: 0 }); // CORRECTION : Ajout de profitMargin
+  const [period, setPeriod] = useState<'week' | 'month' | 'quarter' | 'semester' | 'year'>('month');
+  const [summary, setSummary] = useState({ revenue: 0, expenses: 0, profit: 0, profitMargin: 0 });
+  const [budgetStatus, setBudgetStatus] = useState<any>(null);
+  const [isBudgetModalVisible, setIsBudgetModalVisible] = useState(false);
+  const [newBudgetAmount, setNewBudgetAmount] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
+  // ... (fetchRecords et la suite restent inchangés)
   const fetchRecords = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // --- CORRECTION : La fonction RPC gère déjà les périodes (mois/semaine).
-      // On simplifie donc la logique ici. On garde le filtre pour la liste des transactions.
       const fromDate = new Date();
       if (period === 'week') {
         fromDate.setDate(fromDate.getDate() - 7);
       } else if (period === 'month') {
-        // La RPC calcule déjà le mois, mais on garde un filtre d'un mois pour la liste.
-        // Pour une meilleure cohérence, on pourrait même aller chercher plus loin (ex: 3 mois)
-        // et laisser les onglets filtrer l'affichage.
-        // Pour l'instant, on garde un filtre d'un mois pour la liste.
         const now = new Date();
-        // On prend le premier jour du mois précédent pour être sûr de tout avoir.
         fromDate.setMonth(now.getMonth() - 1, 1);
         fromDate.setHours(0, 0, 0, 0);
-      } else if (period === 'quarter') { // --- NOUVEAU : Gestion du trimestre ---
+      } else if (period === 'quarter') {
         fromDate.setMonth(fromDate.getMonth() - 3);
-
+      } else if (period === 'semester') {
+        fromDate.setMonth(fromDate.getMonth() - 6);
       } else if (period === 'year') {
         fromDate.setFullYear(fromDate.getFullYear() - 1);
       }
 
-      // --- MODIFICATION : Utiliser une seule requête RPC pour tout récupérer ---
       let query = supabase
-          .from('financial_records')
-          .select('*')
-          .eq('user_id', user.id)
-          // --- CORRECTION : La logique de date est maintenant gérée par la RPC,
-          // mais on garde un filtre large côté client pour la liste.
-          .gte('record_date', fromDate.toISOString())
-          .order('record_date', { ascending: false });
+        .from('financial_records')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('record_date', fromDate.toISOString())
+        .order('record_date', { ascending: false });
 
-      // --- NOUVEAU : Appeler la fonction RPC. Elle calcule déjà toutes les périodes.
       const rpcParams = { p_user_id: user.id };
       const { data: summaryData, error: summaryError } = await supabase.rpc('get_dashboard_financial_summary', rpcParams);
+
+      try {
+        const { data: budgetData, error: budgetError } = await supabase.rpc('get_monthly_budget_status', { p_user_id: user.id });
+        if (!budgetError && budgetData && budgetData.length > 0) {
+          setBudgetStatus(budgetData[0]);
+        }
+      } catch (e) {
+        console.log('Budget RPC not available yet or error', e);
+      }
 
       if (activeTab !== 'all') {
         query = query.eq('type', activeTab);
@@ -98,52 +104,46 @@ export default function FinanceScreen() {
       if (error) throw error;
       if (summaryError) throw summaryError;
 
-      // --- LOG DE DÉBOGAGE : Affiche les données brutes du résumé reçues de la RPC ---
-      console.log('📊 [FinanceScreen] Données brutes du résumé reçues de la RPC:', JSON.stringify(summaryData, null, 2));
-
       setRecords(data || []);
 
-      // On met à jour l'état du résumé avec les données de la RPC.
-      // On choisit les données à afficher (mensuelles ou hebdomadaires) en fonction de la période sélectionnée.
       if (summaryData) {
         let revenue = 0, expenses = 0, profit = 0, profitMargin = 0;
-
-        // --- CORRECTION : La logique est maintenant unifiée et pilotée par la RPC ---
-        // On utilise directement les valeurs retournées, car la RPC gère maintenant tous les cas.
         if (period === 'week') {
-          revenue = summaryData.weeklyrevenue;
-          expenses = summaryData.weeklyexpenses;
-          profit = summaryData.weeklyprofit;
-          profitMargin = summaryData.weeklyprofitmargin;
+          revenue = summaryData.weeklyrevenue || 0;
+          expenses = summaryData.weeklyexpenses || 0;
+          profit = summaryData.weeklyprofit || 0;
+          profitMargin = summaryData.weeklyprofitmargin || 0;
         } else if (period === 'quarter') {
-          revenue = summaryData.quarterlyrevenue;
-          expenses = summaryData.quarterlyexpenses;
-          profit = summaryData.quarterlyprofit;
-          profitMargin = summaryData.quarterlyprofitmargin;
+          revenue = summaryData.quarterlyrevenue || 0;
+          expenses = summaryData.quarterlyexpenses || 0;
+          profit = summaryData.quarterlyprofit || 0;
+          profitMargin = summaryData.quarterlyprofitmargin || 0;
+        } else if (period === 'semester') {
+          revenue = (data || []).filter((r: any) => r.type === 'income').reduce((sum: number, r: any) => sum + r.amount, 0);
+          expenses = (data || []).filter((r: any) => r.type === 'expense').reduce((sum: number, r: any) => sum + r.amount, 0);
+          profit = revenue - expenses;
+          profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
         } else if (period === 'year') {
-          revenue = summaryData.yearlyrevenue;
-          expenses = summaryData.yearlyexpenses;
-          profit = summaryData.yearlyprofit;
-          profitMargin = summaryData.yearlyprofitmargin;
-        } else { // Par défaut, on utilise les données mensuelles (qui sont maintenant sur 30 jours glissants)
-          revenue = summaryData.monthlyrevenue;
-          expenses = summaryData.monthlyexpenses;
-          profit = summaryData.monthlyprofit;
-          profitMargin = summaryData.monthlyprofitmargin;
+          revenue = summaryData.yearlyrevenue || 0;
+          expenses = summaryData.yearlyexpenses || 0;
+          profit = summaryData.yearlyprofit || 0;
+          profitMargin = summaryData.yearlyprofitmargin || 0;
+        } else {
+          revenue = summaryData.revenue || 0;
+          expenses = summaryData.expenses || 0;
+          profit = summaryData.monthlyprofit || 0;
+          profitMargin = summaryData.monthlyprofitmargin || 0;
         }
 
-        setSummary({
-          revenue, expenses, profit, profitMargin
-        });
+        setSummary({ revenue, expenses, profit, profitMargin });
       }
     } catch (error: any) {
       console.error("Erreur chargement transactions:", error);
-      // Gérer l'erreur, par exemple avec une alerte
     } finally {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [user, activeTab, period]); // --- NOUVEAU : Ajouter 'period' aux dépendances ---
+  }, [user, activeTab, period]);
 
   useFocusEffect(
     useCallback(() => {
@@ -170,6 +170,29 @@ export default function FinanceScreen() {
     setIsAddModalVisible(true);
   };
 
+  const handleSaveBudget = async () => {
+    if (!newBudgetAmount || isNaN(parseFloat(newBudgetAmount))) {
+      Alert.alert('Erreur', 'Veuillez entrer un montant valide');
+      return;
+    }
+    try {
+      const amount = parseFloat(newBudgetAmount);
+      const monthDate = new Date();
+      monthDate.setDate(1);
+      monthDate.setHours(0, 0, 0, 0);
+
+      const { error } = await supabase
+        .from('budgets')
+        .upsert({ user_id: user.id, amount: amount, month: monthDate.toISOString(), category: 'general' }, { onConflict: 'user_id, month, category' });
+
+      if (error) throw error;
+      setIsBudgetModalVisible(false);
+      fetchRecords();
+      Alert.alert('Succès', 'Budget défini avec succès');
+    } catch (error: any) {
+      Alert.alert('Erreur', 'Impossible de sauvegarder le budget: ' + error.message);
+    }
+  };
 
   const handleDelete = async (recordId: string) => {
     Alert.alert(
@@ -185,7 +208,7 @@ export default function FinanceScreen() {
               const { error } = await supabase.from('financial_records').delete().eq('id', recordId);
               if (error) throw error;
               Alert.alert("Succès", "La transaction a été supprimée.");
-              onRefresh(); // Rafraîchir la liste
+              onRefresh();
             } catch (error: any) {
               Alert.alert("Erreur", "Impossible de supprimer la transaction.");
             }
@@ -194,16 +217,87 @@ export default function FinanceScreen() {
       ]
     );
   };
-  // --- NOUVEAU : Filtrer les enregistrements pour l'analyse ---
+
+  // --- NOUVEAU : Fonction d'exportation CSV SEULEMENT (pour éviter crash PDF) ---
+  const handleExport = async () => {
+    // --- VERIFICATION ABONNEMENT PRO ---
+    const isPro = subscription?.plan?.name === 'pro';
+    if (!isPro) {
+      Alert.alert(
+        'Réservé aux membres Pro',
+        'L\'export du bilan financier est une fonctionnalité exclusive aux abonnés Pro. Veuillez mettre à niveau votre abonnement pour y accéder.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Voir les offres', onPress: () => router.push('/subscription-plans') }
+        ]
+      );
+      return;
+    }
+
+    if (records.length === 0) {
+      Alert.alert('Aucune donnée', 'Il n\'y a aucune transaction à exporter pour cette période.');
+      return;
+    }
+
+    setIsExporting(true);
+
+    // PDF DÉSACTIVÉ POUR ÉVITER LES CRASHS (Module natif manquant)
+    console.log('⚡ Export CSV direct pour stabilité...');
+    await generateAndShareCSV();
+  };
+
+
+
+  const generateAndShareCSV = async () => {
+    try {
+      // Construction du CSV
+      let csvContent = "Date,Type,Categorie,Description,Montant (CFA)\n";
+      records.forEach(r => {
+        const date = new Date(r.record_date).toLocaleDateString('fr-FR');
+        const type = r.type === 'income' ? 'Revenu' : 'Dépense';
+        // Échapper les guillemets pour le format CSV
+        const desc = (r.description || '').replace(/"/g, '""');
+        const amount = r.type === 'expense' ? -r.amount : r.amount;
+        csvContent += `"${date}","${type}","${r.category}","${desc}","${amount}"\n`;
+      });
+
+      // Ajout du résumé à la fin
+      // Utilisation de ?? 0 pour éviter d'afficher "undefined"
+      const safeRevenue = summary.revenue ?? 0;
+      const safeExpenses = summary.expenses ?? 0;
+      const safeProfit = summary.profit ?? 0;
+
+      csvContent += `\nRESUME DE LA PERIODE,,,\n`;
+      csvContent += `TOTAL REVENUS,,,,"${safeRevenue}"\n`;
+      csvContent += `TOTAL DEPENSES,,,,"${safeExpenses}"\n`;
+      csvContent += `MARGE NETTE (PROFIT),,,,"${safeProfit}"\n`;
+
+      const fileName = `Bilan_Finance_${new Date().getTime()}.csv`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
+      console.log('✅ CSV généré:', fileUri);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Exporter vers Excel' });
+      } else {
+        Alert.alert('Succès', 'Fichier CSV généré dans vos documents.');
+      }
+    } catch (e: any) {
+      console.error('❌ Erreur export CSV:', e);
+      Alert.alert('Erreur', 'Impossible de générer le fichier CSV.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+
   const filteredRecordsForBreakdown = useMemo(() => {
     if (activeTab === 'all') {
-      // Pour l'analyse, il est souvent plus utile de voir les dépenses
       return records.filter(r => r.type === 'expense');
     }
     return records.filter(r => r.type === activeTab);
   }, [records, activeTab]);
-
-  const breakdownTitle = activeTab === 'income' ? "Répartition des Revenus" : "Répartition des Dépenses";
 
   const renderContent = () => {
     if (loading) {
@@ -218,10 +312,10 @@ export default function FinanceScreen() {
       );
     }
     return records.map(record => (
-      <FinancialRecordCard 
-        key={record.id} 
-        record={record} 
-        onEdit={() => handleEdit(record)} 
+      <FinancialRecordCard
+        key={record.id}
+        record={record}
+        onEdit={() => handleEdit(record)}
         onDelete={() => handleDelete(record.id)}
       />
     ));
@@ -229,7 +323,6 @@ export default function FinanceScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* --- NOUVEL EN-TÊTE --- */}
       <LinearGradient
         colors={['#1e3a8a', '#1e293b']}
         style={styles.headerGradient}
@@ -239,24 +332,31 @@ export default function FinanceScreen() {
             <Icon name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Finances</Text>
+          {/* BOUTON EXPORT DANS LE HEADER */}
+          <TouchableOpacity
+            style={styles.exportButton}
+            onPress={handleExport}
+            disabled={isExporting}
+          >
+            {isExporting ? <ActivityIndicator color="#fff" size="small" /> : <Icon name="download-outline" size={24} color="#fff" />}
+          </TouchableOpacity>
         </View>
         <View style={styles.summaryContainer}>
           <Text style={styles.summaryLabel}>
-            Profit Net ({period === 'week' ? 'Semaine' : period === 'month' ? 'Mois' : period === 'quarter' ? 'Trimestre' : 'Année'})
+            Profit Net ({period === 'week' ? 'Semaine' : period === 'month' ? 'Mois' : period === 'quarter' ? 'Trimestre' : period === 'semester' ? 'Semestre' : 'Année'})
           </Text>
           <Text style={styles.summaryProfitValue}>
             {summary.profit >= 0 ? '+' : ''}{(summary.profit ?? 0).toLocaleString()} CFA
           </Text>
           <View style={styles.summaryDetails}>
             <View style={styles.summaryDetailItem}>
-              <Icon name="arrow-down-outline" size={16} color={colors.success} />
+              <Icon name="arrow-up-outline" size={16} color={colors.success} />
               <Text style={styles.summaryDetailText}>Revenus: {(summary.revenue ?? 0).toLocaleString()} CFA</Text>
             </View>
             <View style={styles.summaryDetailItem}>
-              <Icon name="arrow-up-outline" size={16} color={colors.error} />
+              <Icon name="arrow-down-outline" size={16} color={colors.error} />
               <Text style={styles.summaryDetailText}>Dépenses: {(summary.expenses ?? 0).toLocaleString()} CFA</Text>
             </View>
-            {/* CORRECTION : Le bloc pour afficher la marge bénéficiaire était manquant */}
             <View style={styles.summaryDetailItem}>
               <Icon name="pie-chart-outline" size={16} color={summary.profitMargin >= 15 ? colors.success : colors.warning} />
               <Text style={styles.summaryDetailText}>Marge: {(summary.profitMargin ?? 0).toFixed(1)}%</Text>
@@ -271,16 +371,15 @@ export default function FinanceScreen() {
         style={styles.scrollView}
       >
         <View style={styles.content}>
-          {/* --- NOUVEAU : Sélecteur de période --- */}
           <View style={styles.periodSelector}>
-            {['week', 'month', 'quarter', 'year'].map((p) => (
+            {['week', 'month', 'quarter', 'semester', 'year'].map((periodKey) => (
               <TouchableOpacity
-                key={p}
-                style={[styles.periodButton, period === p && styles.periodButtonActive]}
-                onPress={() => setPeriod(p as 'week' | 'month' | 'quarter' | 'year')}
+                key={periodKey}
+                style={[styles.periodButton, period === periodKey && styles.periodButtonActive, periodKey === 'semester' && { minWidth: 50 }]}
+                onPress={() => setPeriod(periodKey as any)}
               >
-                <Text style={[styles.periodButtonText, period === p && styles.periodButtonTextActive]}>
-                  {p === 'week' ? '7j' : p === 'month' ? 'Mois' : p === 'quarter' ? '3M' : 'An'}
+                <Text style={[styles.periodButtonText, period === periodKey && styles.periodButtonTextActive]}>
+                  {periodKey === 'week' ? '7j' : periodKey === 'month' ? 'Mois' : periodKey === 'quarter' ? '3M' : periodKey === 'semester' ? '6M' : 'An'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -302,6 +401,74 @@ export default function FinanceScreen() {
               </View>
             </LinearGradient>
           </TouchableOpacity>
+
+          {/* --- NOUVEAU : Carte Budget de Fonctionnement --- */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Budget de Fonctionnement (Mois)</Text>
+              <TouchableOpacity onPress={() => {
+                setNewBudgetAmount(budgetStatus?.total_budget?.toString() || '');
+                setIsBudgetModalVisible(true);
+              }}>
+                <Icon name="create-outline" size={20} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.budgetCard}>
+              <View style={styles.budgetHeader}>
+                <Text style={styles.budgetLabel}>Budget défini</Text>
+                <Text style={styles.budgetAmount}>{(budgetStatus?.total_budget || 0).toLocaleString()} CFA</Text>
+              </View>
+
+              {/* Barre de progression */}
+              <View style={styles.progressBarContainer}>
+                <View style={[styles.progressBar, {
+                  width: `${Math.min(((budgetStatus?.total_spent || 0) / (budgetStatus?.total_budget || 1)) * 100, 100)}%`,
+                  backgroundColor: (budgetStatus?.budget_health === 'danger') ? colors.error : (budgetStatus?.budget_health === 'warning') ? colors.warning : colors.success
+                }]} />
+              </View>
+
+              <View style={styles.budgetFooter}>
+                <Text style={styles.budgetSpent}>Dépensé: {(budgetStatus?.total_spent || 0).toLocaleString()} CFA</Text>
+                <Text style={[styles.budgetRemaining, { color: (budgetStatus?.remaining_budget < 0) ? colors.error : colors.success }]}>
+                  Restant: {(budgetStatus?.remaining_budget || 0).toLocaleString()} CFA
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Boutons d'Ajout Rapide */}
+          <View style={styles.quickActionsContainer}>
+            <TouchableOpacity
+              style={[styles.quickActionButton, { backgroundColor: colors.success }]}
+              onPress={() => handleAddRecord('income')}
+            >
+              <Icon name="add-circle" size={20} color="#fff" />
+              <Text style={styles.quickActionText}>Ajouter un Revenu</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.quickActionButton, { backgroundColor: colors.error }]}
+              onPress={() => handleAddRecord('expense')}
+            >
+              <Icon name="remove-circle" size={20} color="#fff" />
+              <Text style={styles.quickActionText}>Ajouter une Dépense</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Répartition des Dépenses */}
+          <FinancialBreakdown
+            title="Répartition des Dépenses"
+            records={records.filter(r => r.type === 'expense')}
+            type="expense"
+          />
+
+          {/* Répartition des Revenus */}
+          <FinancialBreakdown
+            title="Répartition des Revenus"
+            records={records.filter(r => r.type === 'income')}
+            type="income"
+          />
 
           {/* Le titre est maintenant plus discret */}
           <Text style={styles.sectionTitle}>Transactions Récentes</Text>
@@ -334,7 +501,7 @@ export default function FinanceScreen() {
       </ScrollView>
 
       {/* Le bouton flottant pour ajouter une transaction */}
-      <FloatingActionButton 
+      <FloatingActionButton
         onAddIncome={() => handleAddRecord('income')}
         onAddExpense={() => handleAddRecord('expense')}
       />
@@ -372,10 +539,35 @@ export default function FinanceScreen() {
           <FinancialAdvisorDashboard
             farmId={profile.id} // L'ID du profil est utilisé comme ID de ferme
             onClose={() => setShowAdvisor(false)}
+            summary={summary}
+            records={records}
+            period={period}
+            budgetStatus={budgetStatus}
+            onPeriodChange={setPeriod}
           />
         )}
       </SimpleBottomSheet>
-    </SafeAreaView>
+
+      {/* --- NOUVEAU : Modale pour définir le budget --- */}
+      <SimpleBottomSheet isVisible={isBudgetModalVisible} onClose={() => setIsBudgetModalVisible(false)}>
+        <View style={{ padding: 20 }}>
+          <Text style={styles.sectionTitle}>Définir le Budget Mensuel</Text>
+          <Text style={{ color: colors.textSecondary, marginBottom: 16 }}>
+            Fixez une limite pour vos dépenses de fonctionnement ce mois-ci.
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Montant (CFA)"
+            keyboardType="numeric"
+            value={newBudgetAmount}
+            onChangeText={setNewBudgetAmount}
+          />
+          <TouchableOpacity style={styles.saveButton} onPress={handleSaveBudget}>
+            <Text style={styles.saveButtonText}>Enregistrer</Text>
+          </TouchableOpacity>
+        </View>
+      </SimpleBottomSheet>
+    </SafeAreaView >
   );
 }
 
@@ -403,6 +595,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '900',
     color: '#fff',
+    flex: 1, // Permet au titre de prendre l'espace
+  },
+  exportButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)', // Fond semi-transparent
   },
   summaryContainer: {
     marginTop: 20,
@@ -480,7 +678,7 @@ const styles = StyleSheet.create({
   // --- NOUVEAUX STYLES POUR LE SÉLECTEUR DE PÉRIODE ---
   periodSelector: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between', // Mieux réparti avec 5 éléments
     gap: 12,
     marginBottom: 24,
   },
@@ -491,6 +689,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    minWidth: 45, // Assurer une taille minimale
+    alignItems: 'center',
   },
   periodButtonActive: {
     backgroundColor: colors.primary,
@@ -504,11 +704,16 @@ const styles = StyleSheet.create({
   periodButtonTextActive: {
     color: '#fff',
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 16,
   },
   emptyState: {
     alignItems: 'center',
@@ -548,5 +753,81 @@ const styles = StyleSheet.create({
   },
   activeTabText: {
     color: colors.white,
+  },
+  // --- STYLES BUDGET ---
+  section: {
+    marginBottom: 24,
+  },
+  budgetCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  budgetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  budgetLabel: { fontSize: 14, color: colors.textSecondary },
+  budgetAmount: { fontSize: 18, fontWeight: '700', color: colors.text },
+  progressBarContainer: {
+    height: 10,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 5,
+    marginVertical: 12,
+    overflow: 'hidden',
+  },
+  progressBar: { height: '100%', borderRadius: 5 },
+  budgetFooter: { flexDirection: 'row', justifyContent: 'space-between' },
+  budgetSpent: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  budgetRemaining: { fontSize: 13, fontWeight: '700' },
+  input: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  saveButton: {
+    backgroundColor: colors.primary,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  saveButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  // --- STYLES POUR LES BOUTONS D'AJOUT RAPIDE ---
+  quickActionsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  quickActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  quickActionText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

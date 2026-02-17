@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, Dimensions, Alert, Animated } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, Dimensions, Alert, Animated, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // NOTE: J'ai supposé que 'colors' et 'useThemeColors' existent et fournissent un fond clair (background)
 import { colors, commonStyles, useThemeColors } from '../styles/commonStyles';
@@ -18,13 +18,16 @@ import { useNotifications } from '../components/NotificationContext';
 import AviprodLogo from '../components/AviprodLogo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AdBanner from '../components/AdBanner';
+import GoogleAdBanner from '../components/GoogleAdBanner';
 import { useAuth } from '../hooks/useAuth';
 import { marketingAgent, Product } from '../lib/marketingAgent'; // Import marketingAgent and Product type
 import { Drawer } from 'react-native-drawer-layout';
 import { useDataCollector } from '../src/hooks/useDataCollector';
+import { useRewardedAd } from '../components/AdRewarded'; // --- AJOUT : Importer le hook de publicité récompensée ---
 import { stockOptimizerAgent, OptimizationSuggestion } from '../src/intelligence/agents/StockOptimizerAgent'; // --- NOUVEAU : Importer l'agent d'optimisation ---
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 
 // --- IMPORTANT : Force l'affichage de la notification même si l'app est ouverte ---
 Notifications.setNotificationHandler({
@@ -37,7 +40,7 @@ Notifications.setNotificationHandler({
 
 
 const getDefaultImageForCategory = (category: string | undefined) => {
-  return 'https://via.placeholder.com/150x120?text=Aviprod';
+  return 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&h=300&fit=crop';
 };
 
 // Définir les dimensions de l'écran pour les calculs de grille
@@ -200,7 +203,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // --- Titre de Section (Aperçu Rapide / Modules) ---
+  // --- Titre de Section (Aperçu Rapide / Fonctionnalités) ---
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -220,19 +223,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-    paddingHorizontal: 0, // Déjà dans sectionContainer
   },
   kpiBlock: {
-    // Calcul pour garantir 2 blocs par ligne avec un gap de 10px
     width: (screenWidth - 40 - 10) / 2,
     padding: 16,
     borderRadius: 8,
     borderWidth: 1,
     backgroundColor: 'white',
-    // Suppression des ombres pour le look minimaliste de Notion
-    shadowOpacity: 0,
-    elevation: 0,
-    alignItems: 'center', // <-- AJOUT POUR CENTRER LE CONTENU
+    alignItems: 'center',
+    marginBottom: 10,
   },
   kpiIcon: {
     fontSize: 22,
@@ -252,15 +251,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // --- Grille Modules (3 Colonnes) ---
+  // --- Grille Fonctionnalités (3 Colonnes) ---
   modulesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-    paddingHorizontal: 0, // Déjà dans sectionContainer
   },
   moduleLink: {
-    // Calcul pour garantir 3 blocs par ligne avec un gap de 10px
     width: (screenWidth - 40 - 2 * 10) / 3,
     padding: 12,
     borderRadius: 8,
@@ -268,18 +265,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'white',
-
     // --- Styles d'ombre pour iOS ---
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.15, // Une ombre plus subtile
-    shadowRadius: 3.84,  // Un flou plus doux
-
+    shadowOpacity: 0.15,
+    shadowRadius: 3.84,
     // --- Style d'ombre pour Android ---
-    elevation: 5, // Une élévation visuelle pour Android
+    elevation: 5,
   },
   moduleEmoji: {
     fontSize: 24,
@@ -474,6 +469,41 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
+  // --- NOUVEAU : Styles pour les publicités récompensées (Drawer) ---
+  rewardAdContainer: {
+    gap: 12,
+  },
+  rewardAdHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  rewardAdTextContainer: {
+    flex: 1,
+  },
+  rewardAdTitle: {
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  rewardAdSubtitle: {
+    fontSize: 11,
+  },
+  rewardAdButton: {
+    backgroundColor: colors.warning,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 8,
+  },
+  rewardAdButtonDisabled: {
+    backgroundColor: colors.textSecondary,
+    opacity: 0.5,
+  },
+  rewardAdButtonText: {
+    fontWeight: '700',
+    color: colors.white,
+  },
 });
 
 // --- Composant de module animé ---
@@ -484,6 +514,49 @@ import { Lot } from '../types'; // Assurez-vous que le type Lot est importé
 // ... (le reste des imports)
 
 // ... (le reste du fichier jusqu'au composant)
+
+// --- NOUVEAU : Composant pour les cartes de modules avec infobulle ---
+const ModuleCard = ({
+  title,
+  emoji,
+  path,
+  description,
+  badgeCount,
+  dynamicColors
+}: {
+  title: string,
+  emoji: string,
+  path: any,
+  description: string,
+  badgeCount?: number,
+  dynamicColors: any
+}) => (
+  <TouchableOpacity
+    style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border, position: 'relative' }]}
+    onPress={() => router.push(path)}
+  >
+    {/* Icône d'aide (Infobulle) */}
+    <TouchableOpacity
+      style={{ position: 'absolute', top: 4, right: 4, zIndex: 10, padding: 4 }}
+      onPress={(e) => {
+        e.stopPropagation();
+        Alert.alert(title, description);
+      }}
+    >
+      <Icon name="help-circle-outline" size={16} color={dynamicColors.textSecondary} />
+    </TouchableOpacity>
+
+    <View style={styles.iconWrapper}>
+      <Text style={styles.moduleEmoji}>{emoji}</Text>
+      {badgeCount && badgeCount > 0 ? (
+        <View style={[styles.badge, { backgroundColor: colors.error, top: -8, right: -12 }]}>
+          <Text style={styles.badgeText}>{badgeCount}</Text>
+        </View>
+      ) : null}
+    </View>
+    <Text style={[styles.moduleText, { color: dynamicColors.text }]}>{title}</Text>
+  </TouchableOpacity>
+);
 
 function FarmerDashboard() {
   // --- LOG 1: Détecter le montage du composant ---
@@ -515,33 +588,51 @@ function FarmerDashboard() {
   const lastNotificationTime = useRef<number>(0); // Garder lastNotificationTime
   const NOTIFICATION_COOLDOWN = 30000; // 30 secondes entre les notifications // Garder NOTIFICATION_COOLDOWN
 
-  useEffect(() => {
-    // Définir l'animation de clignotement par opacité
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(sirenAnim, {
-          toValue: 0.3, // Devient presque transparent
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(sirenAnim, {
-          toValue: 1, // Revient à pleine opacité
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.delay(200), // Pause entre les clignotements
-      ])
-    );
+  const {
+    unreadCount: unreadNotificationsCount,
+    unreadMessagesCount,
+    notifications: allNotifications,
+    fetchNotifications: refreshGlobalNotifications, // --- AJOUT : Récupérer la fonction de refresh ---
+    fetchUnreadMessagesCount,
+  } = useNotifications();
 
-    if (criticalAlertsCount?.count > 0) {
-      animation.start(); // Démarrer l'animation s'il y a des alertes
-    } else {
-      animation.stop(); // Arrêter l'animation sinon
-      sirenAnim.setValue(1); // S'assurer que l'icône est visible
+
+
+  // --- NOUVEAU : Vérifier et proposer les mises à jour OTA ---
+  const checkForUpdates = async (isManual = false) => {
+    if (__DEV__ || Platform.OS === 'web') {
+      if (isManual && __DEV__) Alert.alert('Mode DEV', 'Les mises à jour EAS ne fonctionnent pas en mode développement.');
+      return;
     }
+    try {
+      const update = await Updates.checkForUpdateAsync();
+      if (update.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        Alert.alert(
+          'Mise à jour disponible',
+          'Une nouvelle version est disponible. Voulez-vous redémarrer pour l\'appliquer ?',
+          [
+            { text: 'Plus tard', style: 'cancel' },
+            { text: 'Redémarrer', onPress: () => Updates.reloadAsync() }
+          ]
+        );
+      } else if (isManual) {
+        Alert.alert(
+          'Diagnostic Technique',
+          `État : Aucune mise à jour trouvée\n\nChannel: ${Updates.channel || 'null'}\nRuntime: ${Updates.runtimeVersion}\nEmbedded: ${Updates.isEmbeddedUpdate}\nUpdateID: ${Updates.updateId ? Updates.updateId.slice(0, 8) : 'N/A'}`
+        );
+      }
+    } catch (error: any) {
+      console.log('Erreur lors de la vérification des mises à jour:', error);
+      if (isManual) Alert.alert('Erreur', `Impossible de vérifier les mises à jour: ${error.message}`);
+    }
+  };
 
-    return () => animation.stop(); // Nettoyer l'animation
-  }, [criticalAlertsCount?.count]);
+  useEffect(() => {
+    // Vérifier après un court délai (3s) pour ne pas ralentir le démarrage
+    const timer = setTimeout(() => checkForUpdates(false), 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const { user } = useAuth(); // Garder useAuth
 
@@ -568,7 +659,7 @@ function FarmerDashboard() {
   }, []);
 
   const { subscription, loading: subscriptionLoading } = useSubscription(); // Utilise le contexte d'abonnement
-  const { profile, loading: profileLoading } = useProfile(); // Utilise le contexte de profil
+  const { profile, loading: profileLoading, refreshProfile } = useProfile(); // Utilise le contexte de profil
 
   // --- CORRECTION DÉFINITIVE : Remplacement de useFinance par une logique de chargement locale et fiable ---
   // Le hook useFinance retournait des données incorrectes. Nous réintégrons la logique de chargement
@@ -592,16 +683,11 @@ function FarmerDashboard() {
       console.error('Error loading vaccinations:', error);
       setVaccinations([]);
     }
-  }, [user]);
+  }, [user?.id]);
 
-  const {
-    unreadCount: unreadNotificationsCount,
-    unreadMessagesCount,
-    notifications: allNotifications,
-    fetchNotifications: refreshGlobalNotifications, // --- AJOUT : Récupérer la fonction de refresh ---
-    fetchUnreadMessagesCount,
-  } = useNotifications();
+  // useNotifications moved up
   const { ads, isLoading: adsLoading } = useAds();
+  const { showRewardedAd, canWatchAd, isLoading: adLoading, nextAvailableTime, checkEligibility } = useRewardedAd(); // --- AJOUT : Hook rewarded ad ---
   const [healthOverview, setHealthOverview] = useState<any | null>(null);
 
   const loadHealthOverview = useCallback(async () => {
@@ -614,12 +700,13 @@ function FarmerDashboard() {
       console.error('Error loading health overview:', error);
       setHealthOverview(null); // Set to null on error
     }
-  }, [user]);
+  }, [user?.id]);
 
   // --- NOUVEAU : Fonction de chargement des lots locale au dashboard ---
   const loadDashboardLots = useCallback(async () => {
     if (!user) {
       // --- CORRECTION : Retourner une promesse résolue pour Promise.allSettled ---
+      setLots([]); // S'assurer que les lots sont vides si pas d'utilisateur
       return Promise.resolve();
     }
     try {
@@ -665,7 +752,203 @@ function FarmerDashboard() {
       console.error('❌ Error in loadDashboardLots:', error);
       // Ne pas réinitialiser les lots pour éviter les scintillements en cas d'erreur de rafraîchissement
     }
-  }, [user]);
+  }, [user?.id]);
+
+  const loadOverdueVaccinations = useCallback(async () => {
+    // Ne charge les vaccins que si l'utilisateur a accès à la fonctionnalité
+    if (!subscription || !subscription.plan?.features?.sanitary_prophylaxis) {
+      setOverdueVaccinations([]);
+      return;
+    }
+    try {
+      const today = new Date().toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('vaccinations')
+        .select('*')
+        .eq('user_id', user?.id)
+        .lt('due_date', today) // En retard
+        .eq('status', 'pending'); // Pas encore fait
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        console.log(`⚠️ ${data.length} vaccinations en retard trouvées.`);
+        setOverdueVaccinations(data);
+      } else {
+        setOverdueVaccinations([]);
+      }
+    } catch (error) {
+      console.error("❌ Erreur chargement vaccinations en retard:", error);
+      setOverdueVaccinations([]);
+    }
+  }, [user?.id, subscription]);
+
+  // --- NOUVEAU : Charger les produits du marketplace ---
+  const loadMarketplaceProducts = useCallback(async () => {
+    if (!user) return;
+    try {
+      console.log('🛒 Dashboard: Loading marketplace products...');
+      const { data, error } = await supabase
+        .from('marketplace_products')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      console.log(`✅ Dashboard: Loaded ${data?.length || 0} marketplace products.`);
+      setMarketplaceProducts(data || []);
+    } catch (error) {
+      console.error('❌ Dashboard: Error loading marketplace products:', error);
+    }
+  }, [user?.id]);
+
+  const loadFinancialSummary = useCallback(async () => {
+    if (!user) {
+      console.log("⏳ [loadFinancialSummary] Attente de l'utilisateur...");
+      setFinanceLoading(false);
+      return;
+    }
+    console.log('💰 [Dashboard] Chargement du résumé financier...');
+    setFinanceLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_dashboard_financial_summary', {
+        p_user_id: user.id,
+      });
+
+      if (error) throw error;
+
+      if (data) {
+        const normalizedData: { [key: string]: any } = {};
+        for (const key in data) {
+          normalizedData[key.toLowerCase()] = data[key];
+        }
+        console.log('✅ [Dashboard] Données financières normalisées reçues:', JSON.stringify(normalizedData, null, 2));
+        setFinancialSummary(normalizedData);
+      } else {
+        console.log('⚠️ [Dashboard] Aucune donnée financière reçue.');
+        setFinancialSummary(null);
+      }
+
+    } catch (error: any) {
+      console.error("❌ Erreur chargement résumé financier pour le dashboard:", error);
+      setFinancialSummary(null);
+    } finally {
+      setFinanceLoading(false);
+    }
+  }, [user?.id]);
+
+
+
+  // --- STATISTIQUES ET CALCULS (DÉPLACÉS POUR ÉVITER LE HOISTING) ---
+
+  const { globalHealthScore, activeLots, totalBirds, cumulativeMortalityRate, cumulativeMortalityStatus, healthScoreColor } = useMemo(() => {
+    const activeLots = lots?.filter(lot => lot.status?.toLowerCase() === 'active') || [];
+    const lotsForCalc = activeLots.filter(
+      (lot) => typeof lot.initial_quantity === 'number' && lot.initial_quantity > 0
+    );
+
+    const totalBirds = activeLots.reduce((sum, lot) => sum + (lot.quantity || 0), 0);
+    const totalMortalityCalc = lotsForCalc.reduce((sum, lot) => sum + (lot.mortality || 0), 0);
+    const totalInitialQuantity = lotsForCalc.reduce((sum, lot) => sum + lot.initial_quantity, 0);
+    const cumulativeMortalityRate = totalInitialQuantity > 0 ? (totalMortalityCalc / totalInitialQuantity) * 100 : 0;
+    const cumulativeMortalityStatus = cumulativeMortalityRate > 1 ? 'Élevé' : 'Normal';
+
+    const globalHealthScore = healthOverview?.kpis?.global_health_score;
+
+    const getHealthScoreColor = (score: number | undefined) => {
+      if (score === undefined) return colors.textSecondary;
+      if (score >= 80) return '#10996E';
+      if (score >= 50) return '#FF9800';
+      return '#E53935';
+    };
+    const healthScoreColor = getHealthScoreColor(globalHealthScore);
+
+    return { globalHealthScore, activeLots, totalBirds, cumulativeMortalityRate, cumulativeMortalityStatus, healthScoreColor };
+  }, [lots, healthOverview]);
+
+  // --- CORRECTION : Centralisation du calcul des alertes critiques ---
+  const computedCriticalAlertsCount = useMemo(() => {
+    const criticalNotifs = allNotifications?.filter(n => !n.read && (n.type === 'error' || n.type === 'warning')) || [];
+    const lowStock = stock?.filter(item => item.quantity <= (item.min_threshold || 5)) || [];
+    const overdueVaccineCount = overdueVaccinations?.length || 0;
+
+    const total = criticalNotifs.length + lowStock.length + overdueVaccineCount;
+
+    const getKpiColor = (count: number) => {
+      if (count > 5) return '#E53935'; // Rouge
+      if (count > 0) return '#FF9800'; // Orange
+      return '#10996E'; // Vert
+    };
+
+    const alertDetails = [];
+    if (criticalNotifs.length > 0) alertDetails.push(`${criticalNotifs.length} alerte(s) critique(s)`);
+    if (lowStock.length > 0) alertDetails.push(`${lowStock.length} stock(s) bas`);
+    if (overdueVaccineCount > 0) alertDetails.push(`${overdueVaccineCount} vaccin(s) en retard`);
+
+    const subtitle = alertDetails.length > 0 ? alertDetails.join(', ') : 'Aucune alerte';
+
+    return {
+      count: total,
+      subtitle: subtitle,
+      kpiColor: getKpiColor(total),
+    };
+  }, [allNotifications, stock, overdueVaccinations]);
+
+  // --- CORRECTION : Logique de notification améliorée pour éviter les répétitions ---
+  useEffect(() => {
+    const currentAlertSignature = computedCriticalAlertsCount.subtitle;
+    const now = Date.now();
+
+    const hasNewAlerts = computedCriticalAlertsCount.count > 0;
+    const alertsHaveChanged = currentAlertSignature !== notificationSessionState.lastPushNotificationSignature;
+    const isCooldownOver = (now - lastNotificationTime.current) > NOTIFICATION_COOLDOWN;
+
+    if (hasNewAlerts && alertsHaveChanged && isCooldownOver) {
+      console.log(' [Notification] Nouvelles alertes détectées, envoi de la notification.');
+      sendLocalNotification(
+        '🚨 Alertes Critiques',
+        computedCriticalAlertsCount.subtitle,
+        { type: 'alert', count: computedCriticalAlertsCount.count }
+      );
+      notificationSessionState.lastPushNotificationSignature = currentAlertSignature;
+      lastNotificationTime.current = now;
+    }
+  }, [computedCriticalAlertsCount]);
+
+  useEffect(() => {
+    // Définir l'animation de clignotement par opacité
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(sirenAnim, {
+          toValue: 0.3, // Devient presque transparent
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(sirenAnim, {
+          toValue: 1, // Revient à pleine opacité
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.delay(200), // Pause entre les clignotements
+      ])
+    );
+
+    if (computedCriticalAlertsCount.count > 0) {
+      animation.start(); // Démarrer l'animation s'il y a des alertes
+    } else {
+      animation.stop(); // Arrêter l'animation sinon
+      sirenAnim.setValue(1); // S'assurer que l'icône est visible
+    }
+
+    return () => animation.stop(); // Nettoyer l'animation
+  }, [computedCriticalAlertsCount.count]);
+
+  const trackingNotificationsCount = useMemo(() => {
+    const trackingTypes = ['new_order', 'delivery_request', 'order_confirmed', 'driver_en_route', 'delivery_in_progress', 'package_picked_up'];
+    if (!allNotifications) {
+      return 0;
+    }
+    return allNotifications.filter(n => !n.read && trackingTypes.includes(n.type)).length;
+  }, [allNotifications]);
 
   // --- CORRECTION MAJEURE : Centraliser et fiabiliser le chargement des données ---
   useFocusEffect(
@@ -705,8 +988,9 @@ function FarmerDashboard() {
           }
         };
         loadAllData();
+        checkEligibility(); // --- AJOUT : Vérifier l'éligibilité pour les ads ---
       }
-    }, [user?.id, refreshGlobalNotifications, fetchUnreadMessagesCount, scheduleFeedingReminders]) // --- CORRECTION : Dépendre de user.id et refreshGlobalNotifications ---
+    }, [user?.id, refreshGlobalNotifications, fetchUnreadMessagesCount, scheduleFeedingReminders, checkEligibility, loadDashboardLots, loadStock, loadOverdueVaccinations, loadFinancialSummary, loadMarketplaceProducts, loadHealthOverview]) // --- CORRECTION : Ajouter toutes les dépendances ---
   );
 
   // --- NOUVEAU : MISE EN PLACE DES ABONNEMENTS TEMPS RÉEL ---
@@ -745,7 +1029,7 @@ function FarmerDashboard() {
         profile: profile as any,
         health: {
           score: globalHealthScore,
-          alerts: criticalAlertsCount.subtitle,
+          alerts: computedCriticalAlertsCount.subtitle,
         },
         finance: {
           profitMargin: financialSummary?.monthlyProfitMargin || 0,
@@ -755,8 +1039,8 @@ function FarmerDashboard() {
       try {
         // --- CORRECTION : Filtrer uniquement les produits sponsorisés ---
         // La section "Recommandations" ne doit afficher que les produits boostés/sponsorisés.
-        const sponsoredProducts = marketplaceProducts.filter((p: any) => p.is_sponsored === true);
-        const recs = marketingAgent(agentContext, sponsoredProducts, 4);
+        const sponsoredProducts = marketplaceProducts.filter((product: any) => product.is_sponsored === true);
+        const recs = marketingAgent(agentContext, sponsoredProducts, 10);
         // --- NOUVEAU : Suivi de l'agent marketing ---
         trackAction('ai_marketing_recommendation_generated', {
           recommendationCount: recs.length,
@@ -767,7 +1051,7 @@ function FarmerDashboard() {
         console.error("⚠️ Erreur marketingAgent:", e);
       }
     }
-  }, [profile, marketplaceProducts, globalHealthScore, financialSummary, criticalAlertsCount]); // Ajout des nouvelles dépendances
+  }, [profile, marketplaceProducts, globalHealthScore, financialSummary, computedCriticalAlertsCount]); // Ajout des nouvelles dépendances
 
   // --- NOUVEAU : Générer les suggestions d'optimisation ---
   useEffect(() => {
@@ -796,179 +1080,6 @@ function FarmerDashboard() {
 
     generateOptimizations();
   }, [user, lots, bannerNotifications]); // Se déclenche quand les données sont prêtes
-
-
-  // --- NOUVEAU : Charger les produits du marketplace ---
-  const loadMarketplaceProducts = useCallback(async () => {
-    if (!user) return;
-    try {
-      console.log('🛒 Dashboard: Loading marketplace products...');
-      const { data, error } = await supabase
-        .from('marketplace_products')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      console.log(`✅ Dashboard: Loaded ${data?.length || 0} marketplace products.`);
-      setMarketplaceProducts(data || []);
-    } catch (error) {
-      console.error('❌ Dashboard: Error loading marketplace products:', error);
-    }
-  }, [user]);
-
-
-  const loadOverdueVaccinations = useCallback(async () => {
-    // Ne charge les vaccins que si l'utilisateur a accès à la fonctionnalité
-    if (!subscription || !subscription.plan?.features?.sanitary_prophylaxis) {
-      setOverdueVaccinations([]);
-      return;
-    }
-    if (!user) return;
-    try {
-      const today = new Date().toISOString().split('T')[0];
-
-      const { data, error } = await supabase
-        .from('vaccinations')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'pending')
-        .lt('due_date', today);
-
-      if (error) throw error;
-
-      setOverdueVaccinations(data || []);
-    } catch (error) {
-      console.error('❌ Error loading overdue vaccinations:', error);
-    } finally {
-      // Pas de chargement global pour les vaccins, car ils sont chargés en parallèle
-    }
-  }, [user, subscription]);
-
-  // --- CORRECTION DÉFINITIVE : Déplacer la définition de la fonction AVANT son utilisation ---
-  // La fonction est maintenant définie ici pour être accessible par useFocusEffect.
-  const loadFinancialSummary = useCallback(async () => {
-    if (!user) {
-      console.log("⏳ [loadFinancialSummary] Attente de l'utilisateur...");
-      return;
-    }
-    console.log('💰 [Dashboard] Chargement du résumé financier...');
-    setFinanceLoading(true);
-    try {
-      const { data, error } = await supabase.rpc('get_dashboard_financial_summary', {
-        p_user_id: user.id,
-      });
-
-      if (error) throw error;
-
-      if (data) {
-        const normalizedData: { [key: string]: any } = {};
-        for (const key in data) {
-          normalizedData[key.toLowerCase()] = data[key];
-        }
-        console.log('✅ [Dashboard] Données financières normalisées reçues:', JSON.stringify(normalizedData, null, 2));
-        setFinancialSummary(normalizedData);
-      } else {
-        console.log('⚠️ [Dashboard] Aucune donnée financière reçue.');
-        setFinancialSummary(null);
-      }
-
-    } catch (error: any) {
-      console.error("❌ Erreur chargement résumé financier pour le dashboard:", error);
-      setFinancialSummary(null);
-    } finally {
-      setFinanceLoading(false);
-    }
-  }, [user]);
-
-  const { globalHealthScore, activeLots, totalBirds, cumulativeMortalityRate, cumulativeMortalityStatus, healthScoreColor } = useMemo(() => {
-    const activeLots = lots?.filter(lot => lot.status?.toLowerCase() === 'active') || [];
-    // --- CORRECTION : Définir lotsForCalc avant de l'utiliser.
-    // Cette variable n'était pas définie dans ce scope, ce qui causait une erreur.
-    const lotsForCalc = activeLots.filter(
-      (lot) => typeof lot.initial_quantity === 'number' && lot.initial_quantity > 0
-    );
-
-    const totalBirds = activeLots.reduce((sum, lot) => sum + (lot.quantity || 0), 0);
-    const totalMortalityCalc = lotsForCalc.reduce((sum, lot) => sum + (lot.mortality || 0), 0); // Maintenant, lotsForCalc est défini
-    const totalInitialQuantity = lotsForCalc.reduce((sum, lot) => sum + lot.initial_quantity, 0);
-    const cumulativeMortalityRate = totalInitialQuantity > 0 ? (totalMortalityCalc / totalInitialQuantity) * 100 : 0;
-    const cumulativeMortalityStatus = cumulativeMortalityRate > 1 ? 'Élevé' : 'Normal';
-
-    const globalHealthScore = healthOverview?.kpis?.global_health_score;
-
-    const getHealthScoreColor = (score: number | undefined) => {
-      if (score === undefined) return colors.textSecondary;
-      if (score >= 80) return '#10996E';
-      if (score >= 50) return '#FF9800';
-      return '#E53935';
-    };
-    const healthScoreColor = getHealthScoreColor(globalHealthScore);
-
-    return { globalHealthScore, activeLots, totalBirds, cumulativeMortalityRate, cumulativeMortalityStatus, healthScoreColor };
-  }, [lots, healthOverview]);
-
-  // --- CORRECTION : Centralisation du calcul des alertes critiques ---
-  const criticalAlertsCount = useMemo(() => {
-    const criticalNotifs = allNotifications?.filter(n => !n.read && (n.type === 'error' || n.type === 'warning')) || [];
-    // --- CORRECTION : Utiliser 'stock' (la liste des produits) au lieu de 'bannerNotifications' (les messages) ---
-    const lowStock = stock?.filter(item => item.quantity <= (item.min_threshold || 5)) || [];
-    const overdueVaccineCount = overdueVaccinations?.length || 0;
-
-    const total = criticalNotifs.length + lowStock.length + overdueVaccineCount;
-
-    const getKpiColor = (count: number) => {
-      if (count > 5) return '#E53935'; // Rouge
-      if (count > 0) return '#FF9800'; // Orange
-      return '#10996E'; // Vert
-    };
-
-    const alertDetails = [];
-    if (criticalNotifs.length > 0) alertDetails.push(`${criticalNotifs.length} alerte(s) critique(s)`);
-    if (lowStock.length > 0) alertDetails.push(`${lowStock.length} stock(s) bas`);
-    if (overdueVaccineCount > 0) alertDetails.push(`${overdueVaccineCount} vaccin(s) en retard`);
-
-    const subtitle = alertDetails.length > 0 ? alertDetails.join(', ') : 'Aucune alerte';
-
-    return {
-      count: total,
-      subtitle: subtitle,
-      kpiColor: getKpiColor(total),
-    };
-  }, [allNotifications, stock, overdueVaccinations]); // --- CORRECTION : Dépendance mise à jour ---
-
-  // --- CORRECTION : Logique de notification améliorée pour éviter les répétitions ---
-  useEffect(() => {
-    // 1. Créer une signature unique pour l'état actuel des alertes
-    const currentAlertSignature = criticalAlertsCount.subtitle;
-    const now = Date.now();
-
-    // 2. Conditions pour envoyer une notification
-    const hasNewAlerts = criticalAlertsCount.count > 0;
-    const alertsHaveChanged = currentAlertSignature !== notificationSessionState.lastPushNotificationSignature;
-    const isCooldownOver = (now - lastNotificationTime.current) > NOTIFICATION_COOLDOWN;
-
-    if (hasNewAlerts && alertsHaveChanged && isCooldownOver) {
-      console.log(' [Notification] Nouvelles alertes détectées, envoi de la notification.');
-      sendLocalNotification(
-        '🚨 Alertes Critiques',
-        criticalAlertsCount.subtitle,
-        { type: 'alert', count: criticalAlertsCount.count }
-      );
-      // 3. Mémoriser la signature des alertes qui viennent d'être notifiées
-      notificationSessionState.lastPushNotificationSignature = currentAlertSignature;
-      lastNotificationTime.current = now;
-    }
-  }, [criticalAlertsCount]); // Le hook ne dépend que de l'objet des alertes
-
-  // --- NOUVEAU : Calculer les notifications pour le badge "Suivi" ---
-  const trackingNotificationsCount = useMemo(() => {
-    const trackingTypes = ['new_order', 'delivery_request', 'order_confirmed', 'driver_en_route', 'delivery_in_progress', 'package_picked_up'];
-    if (!allNotifications) {
-      return 0;
-    }
-    return allNotifications.filter(n => !n.read && trackingTypes.includes(n.type)).length;
-  }, [allNotifications]);
 
   const dynamicColors = themeColors || colors; // Utilisation des couleurs du thème avec fallback
 
@@ -1022,54 +1133,97 @@ function FarmerDashboard() {
   const renderDrawerContent = () => (
     <ScrollView style={[styles.drawerContent, { backgroundColor: dynamicColors.background }]}>
       <View style={styles.drawerHeader}>
-        <View style={styles.drawerDivider} />
-        <View style={styles.drawerProfile}>
-          <View style={styles.drawerAvatar}>
-            <Text style={styles.drawerAvatarText}>
-              {getUserDisplayName().charAt(0)?.toUpperCase() || 'U'}
-            </Text>
-          </View>
-          <View style={styles.drawerProfileInfo}>
-            <Text style={[styles.drawerProfileName, { color: dynamicColors.text }]}>{getUserDisplayName()}</Text>
-            <Text style={[styles.drawerProfileEmail, { color: dynamicColors.textSecondary }]}>
-              {user?.email || ''}
-            </Text>
-            <View style={styles.drawerSubscription}>
-              <Text style={[styles.drawerSubscriptionText, { color: dynamicColors.primary }]}>
-                {'Plan: ' + (subscription?.plan?.display_name || 'Freemium')}
+        <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+          <AviprodLogo />
+          {/* Info Utilisateur & Abonnement */}
+          {profile && (
+            <View style={{ alignItems: 'center', marginTop: 15, width: '100%' }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: dynamicColors.text, marginBottom: 5 }}>
+                {profile.full_name || 'Utilisateur'}
               </Text>
-              <View style={styles.drawerAvicoins}>
-                <Icon name="cash" size={14} color={dynamicColors.warning} />
-                <Text style={[styles.drawerAvicoinsText, { color: dynamicColors.warning }]}>
-                  {(profile?.avicoins_balance ?? 0) + ' Avicoins'}
-                </Text>
+
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 5 }}>
+                {/* Badge Abonnement */}
+                <View style={{
+                  backgroundColor: profile.subscription_status === 'active' ? colors.primary + '20' : colors.textSecondary + '20',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: profile.subscription_status === 'active' ? colors.primary : colors.border
+                }}>
+                  <Text style={{
+                    color: profile.subscription_status === 'active' ? colors.primary : dynamicColors.textSecondary,
+                    fontWeight: 'bold',
+                    fontSize: 12
+                  }}>
+                    {subscription?.plan?.display_name || 'Freemium'}
+                  </Text>
+                </View>
+
+                {/* Badge Avicoins */}
+                <View style={{
+                  backgroundColor: colors.warning + '20',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: colors.warning,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4
+                }}>
+                  <Icon name="cash" size={14} color={colors.warning} />
+                  <Text style={{ color: colors.warning, fontWeight: 'bold', fontSize: 12 }}>
+                    {profile.avicoins || 0}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
+          )}
         </View>
+        <View style={styles.drawerDivider} />
       </View>
       <View style={[styles.drawerMenu, { flex: 1 }]}>
         <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); router.push('/profile'); }}>
           <Icon name="person" size={24} color={dynamicColors.text} />
           <Text style={[styles.drawerItemText, { color: dynamicColors.text }]}>Modifier le Profil</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); router.push('/subscription-plans'); }}>
-          <Icon name="card" size={24} color={dynamicColors.text} />
-          <Text style={[styles.drawerItemText, { color: dynamicColors.text }]}>Abonnements</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); }}>
-          <Icon name="settings" size={24} color={dynamicColors.text} />
+          <Icon name="key" size={24} color={dynamicColors.text} />
           <Text style={[styles.drawerItemText, { color: dynamicColors.text }]}>Changer le Mot de Passe</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); router.push('/settings'); }}>
-          <Icon name="settings" size={24} color={dynamicColors.text} />
-          <Text style={[styles.drawerItemText, { color: dynamicColors.text }]}>Paramètres</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); router.push('/help-support'); }}>
-          <Icon name="help-circle" size={24} color={dynamicColors.text} />
-          <Text style={[styles.drawerItemText, { color: dynamicColors.text }]}>Aide & Support</Text>
-        </TouchableOpacity>
 
+        {/* Gestion de l'abonnement - MISE EN AVANT */}
+        <View style={{ marginTop: 10, marginBottom: 10, paddingHorizontal: 0 }}>
+          <TouchableOpacity
+            style={[
+              styles.drawerItem,
+              {
+                backgroundColor: colors.primary, // Fond couleur primaire pour ressortir
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 3,
+                elevation: 4,
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.2)'
+              }
+            ]}
+            onPress={() => {
+              setDrawerOpen(false);
+              router.push('/subscription-plans');
+            }}
+          >
+            <Icon name="diamond" size={24} color="#FFF" />
+            <Text style={[styles.drawerItemText, { color: "#FFF", fontWeight: 'bold', fontSize: 16 }]}>
+              Gérer mon Abonnement
+            </Text>
+            <View style={{ marginLeft: 'auto', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 }}>
+              <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>PRO</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
 
         {profile?.role === 'admin' && (
           <>
@@ -1092,16 +1246,63 @@ function FarmerDashboard() {
             </TouchableOpacity>
           </>
         )}
+
+        {/* --- NOUVEAU : Section Gagner des Avicoins dans le Drawer --- */}
         <View style={styles.drawerDivider} />
-        <TouchableOpacity style={[styles.drawerItem, styles.drawerLogout]} onPress={() => { setDrawerOpen(false); handleLogout(); }}>
-          <Icon name="log-out" size={24} color={dynamicColors.error} />
-          <Text style={[styles.drawerItemText, { color: dynamicColors.error }]}>Déconnexion</Text>
+        <View style={[styles.rewardAdContainer, { paddingHorizontal: 10, marginBottom: 20 }]}>
+          <View style={styles.rewardAdHeader}>
+            <Icon name="gift" size={24} color={colors.warning} />
+            <View style={styles.rewardAdTextContainer}>
+              <Text style={[styles.rewardAdTitle, { color: dynamicColors.text, fontSize: 14 }]}>Gagner des Avicoins</Text>
+              <Text style={[styles.rewardAdSubtitle, { color: dynamicColors.textSecondary, fontSize: 11 }]}>
+                {canWatchAd
+                  ? "Vidéo disponible (+2 🪙)"
+                  : nextAvailableTime
+                    ? `Prochaine prévue à ${nextAvailableTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                    : "Chargement..."}
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.rewardAdButton,
+              (!canWatchAd || adLoading) && styles.rewardAdButtonDisabled,
+              { marginTop: 10, paddingVertical: 10 }
+            ]}
+            onPress={async () => {
+              if (!canWatchAd || adLoading) return;
+              const success = await showRewardedAd();
+              if (success) {
+                if (refreshProfile) await refreshProfile();
+                Alert.alert('Félicitations ! 🎉', 'Vous avez gagné 2 Avicoins !');
+              } else {
+                Alert.alert('Information', 'La publicité est en cours de chargement. Veuillez réessayer dans quelques instants.');
+              }
+            }}
+            disabled={!canWatchAd || adLoading}
+          >
+            <Icon
+              name={adLoading ? "hourglass" : "play-circle"}
+              size={18}
+              color={colors.white}
+            />
+            <Text style={[styles.rewardAdButtonText, { fontSize: 14 }]}>
+              {adLoading ? "Patientez..." : canWatchAd ? "Regarder la vidéo" : "Indisponible"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.drawerDivider} />
+        <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); handleLogout(); }}>
+          <Icon name="log-out" size={24} color={colors.error} />
+          <Text style={[styles.drawerItemText, { color: colors.error }]}>Se déconnecter</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
   );
 
-  const handleLogout = async () => {
+  async function handleLogout() {
     Alert.alert(
       'Déconnexion',
       'Êtes-vous sûr de vouloir vous déconnecter?',
@@ -1124,10 +1325,10 @@ function FarmerDashboard() {
         },
       ]
     );
-  };
+  }
 
   // --- NOUVEAU : Fusionner les publicités et les produits sponsorisés ---
-  const carouselItems = [
+  const carouselItems = useMemo(() => [
     ...ads.map(ad => ({
       id: ad.id,
       title: ad.title, // Garder ad.title
@@ -1158,7 +1359,7 @@ function FarmerDashboard() {
         }),
       };
     })
-  ];
+  ], [ads, sponsoredRecommendations, globalHealthScore, financialSummary]);
 
   return (
     <Drawer
@@ -1230,6 +1431,9 @@ function FarmerDashboard() {
             <AdBanner ads={carouselItems} />
           )}
 
+          {/* Google AdMob Banner */}
+          <GoogleAdBanner />
+
 
 
           {/* 4. Notification d'urgence clignotante */}
@@ -1261,7 +1465,7 @@ function FarmerDashboard() {
             <View style={styles.kpiGrid}>
               {/* NOUVELLE CARTE : Santé Globale */}
               <View style={[styles.kpiBlock, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]}>
-                {isLoading || refreshingData ? (
+                {healthOverview === null ? (
                   <>
                     <SkeletonPlaceholder width={30} height={30} style={{ marginBottom: 8 }} />
                     <SkeletonPlaceholder width="60%" height={22} style={{ marginBottom: 4 }} />
@@ -1282,7 +1486,7 @@ function FarmerDashboard() {
               </View>
 
               <View style={[styles.kpiBlock, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]}>
-                {isLoading || refreshingData ? (
+                {lots === null ? (
                   <>
                     <SkeletonPlaceholder width={30} height={30} style={{ marginBottom: 8 }} />
                     <SkeletonPlaceholder width="40%" height={22} style={{ marginBottom: 4 }} />
@@ -1297,9 +1501,9 @@ function FarmerDashboard() {
                 )}
                 <Text style={[styles.kpiLabel, { color: dynamicColors.text }]}>Lots Actifs</Text>
               </View>
+
               {/* Marge Nette (hebdomadaire / mensuelle) */}
               <View style={[styles.kpiBlock, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]}>
-                {/* pour s'assurer que les données sont prêtes avant de les afficher. */}
                 {financeLoading ? (
                   <>
                     <SkeletonPlaceholder width={30} height={30} style={{ marginBottom: 8 }} />
@@ -1309,10 +1513,6 @@ function FarmerDashboard() {
                 ) : (
                   <>
                     {(() => {
-                      // --- LOG DE DÉBOGAGE ---
-                      console.log('📊 [KPI Marge Nette] Données financières reçues:', JSON.stringify(financialSummary, null, 2));
-
-                      // --- CALCUL DÉFENSIF DE LA MARGE TRIMESTRIELLE ---
                       const quarterlyRevenue = financialSummary?.quarterlyrevenue;
                       const quarterlyExpenses = financialSummary?.quarterlyexpenses;
                       let quarterlyMargin = financialSummary?.quarterlyprofitmargin;
@@ -1325,28 +1525,25 @@ function FarmerDashboard() {
                         <>
                           <Text style={styles.kpiIcon}>📈</Text>
                           <View style={styles.profitContainer}>
-                            {/* Marge mensuelle */}
                             <Text style={[styles.kpiValue, { color: (financialSummary?.monthlyprofitmargin ?? 0) >= 0 ? '#4CAF50' : '#E53935' }]}>
                               {financialSummary && typeof financialSummary.monthlyprofitmargin === 'number' ? `${financialSummary.monthlyprofitmargin >= 0 ? '+' : ''}${financialSummary.monthlyprofitmargin.toFixed(1)}%` : 'N/A'}
                             </Text>
                             <Text style={[styles.profitSeparator, { color: dynamicColors.textSecondary }]}>/</Text>
-                            {/* Marge trimestrielle avec calcul de secours */}
                             <Text style={[styles.kpiValue, { fontSize: 16, color: (quarterlyMargin ?? 0) >= 0 ? '#4CAF50' : '#E53935' }]}>
                               {typeof quarterlyMargin === 'number' ? `${quarterlyMargin.toFixed(1)}%` : 'N/A'}
                             </Text>
                           </View>
-                          <Text style={[styles.kpiDetail, { color: dynamicColors.textSecondary }]}>Marge nette</Text>
                         </>
                       );
                     })()}
                   </>
                 )}
-                {/* CORRECTION : Le libellé reflète maintenant les deux périodes */}
                 <Text style={[styles.kpiLabel, { color: dynamicColors.text }]}>Marge Nette</Text>
               </View>
+
               {/* Alertes Critiques */}
               <View style={[styles.kpiBlock, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]}>
-                {isLoading || refreshingData ? (
+                {isLoading && (!stock || !allNotifications) ? (
                   <>
                     <SkeletonPlaceholder width={30} height={30} style={{ marginBottom: 8 }} />
                     <SkeletonPlaceholder width="30%" height={22} style={{ marginBottom: 4 }} />
@@ -1357,23 +1554,24 @@ function FarmerDashboard() {
                     <Animated.View style={{ opacity: sirenAnim }}>
                       <Text style={styles.kpiIcon}>🚨</Text>
                     </Animated.View>
-                    <Text style={[styles.kpiValue, { color: criticalAlertsCount.kpiColor }]}>{criticalAlertsCount?.count || 0}</Text>
+                    <Text style={[styles.kpiValue, { color: computedCriticalAlertsCount.kpiColor }]}>{computedCriticalAlertsCount.count || 0}</Text>
                     <Text style={[styles.kpiDetail, { color: dynamicColors.textSecondary }]}>
-                      {criticalAlertsCount.subtitle}
+                      {computedCriticalAlertsCount.subtitle}
                     </Text>
                   </>
                 )}
                 <Text style={[styles.kpiLabel, { color: dynamicColors.text }]}>Alertes Critiques</Text>
-              </View></View>
+              </View>
+            </View>
           </View>
 
-          {/* --- NOUVEAU : Section des suggestions d'optimisation --- */}
+          {/* --- Section des suggestions d'optimisation --- */}
           {optimizationSuggestions.length > 0 && (
             <View style={styles.sectionContainer}>
               <View style={[styles.sectionHeader, { borderTopColor: dynamicColors.border }]}>
                 <Text style={[styles.sectionTitle, { color: dynamicColors.text }]}>💡 Pistes d'Optimisation</Text>
               </View>
-              {Array.isArray(optimizationSuggestions) && optimizationSuggestions.map((suggestion, index) => (
+              {optimizationSuggestions.map((suggestion, index) => (
                 <View key={index} style={[styles.suggestionCard, { borderColor: dynamicColors.primary + '50' }]}>
                   <View style={styles.suggestionHeader}>
                     <Icon name="bulb" size={20} color={dynamicColors.primary} />
@@ -1395,63 +1593,88 @@ function FarmerDashboard() {
             </View>
           )}
 
-          {/* 6. Modules - Grille 3 Colonnes Compacte */}
+          {/* 6. Fonctionnalités - Grille 3 Colonnes Compacte */}
           <View style={styles.sectionContainer}>
             <View style={[styles.sectionHeader, { borderTopColor: dynamicColors.border }]}>
-              <Text style={[styles.sectionTitle, { color: dynamicColors.text }]}>Modules</Text>
+              <Text style={[styles.sectionTitle, { color: dynamicColors.text }]}>Fonctionnalités</Text>
             </View>
             <View style={styles.modulesGrid}>
-              <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/lots')}>
-                <Text style={styles.moduleEmoji}>🐔</Text>
-                <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Lots</Text>
-              </TouchableOpacity>
-              {/* --- MODIFICATION : Ajout du badge sur le module Marché/Marketplace --- */}
-              <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/marketplace')}>
-                <View style={styles.iconWrapper}>
-                  <Text style={styles.moduleEmoji}>🛒</Text>
-                  {unreadMessagesCount > 0 && (
-                    <View style={[styles.badge, { backgroundColor: colors.error, top: -8, right: -12 }]}><Text style={styles.badgeText}>{unreadMessagesCount}</Text></View>
-                  )}
-                </View>
-                <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Marché</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/finance')}>
-                <Text style={styles.moduleEmoji}>💰</Text>
-                <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Finance</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/stock')}>
-                <Text style={styles.moduleEmoji}>📦</Text>
-                <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Stock</Text>
-              </TouchableOpacity>
-              {/* --- MODIFICATION : Ajout du badge sur le module Suivi --- */}
-              <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/delivery-dashboard')}>
-                <View style={styles.iconWrapper}>
-                  <Text style={styles.moduleEmoji}>🚚</Text>
-                  {trackingNotificationsCount > 0 && (
-                    <View style={[styles.badge, { backgroundColor: colors.error, top: -8, right: -12 }]}><Text style={styles.badgeText}>{trackingNotificationsCount}</Text></View>
-                  )}
-                </View>
-                <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Livraison</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/feeding')}>
-                <Text style={styles.moduleEmoji}>🍎</Text>
-                <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Aliment</Text>
-              </TouchableOpacity>
+              <ModuleCard
+                title="Lots"
+                emoji="🐔"
+                path="/lots"
+                description="Gérez vos bandes de volailles, suivez la mortalité, la consommation et la santé de vos lots."
+                dynamicColors={dynamicColors}
+              />
+              <ModuleCard
+                title="Marché"
+                emoji="🛒"
+                path="/marketplace"
+                description="Accédez au marché pour acheter des intrants ou vendre vos produits (oeufs, poulets)."
+                badgeCount={unreadMessagesCount}
+                dynamicColors={dynamicColors}
+              />
+              <ModuleCard
+                title="Finance"
+                emoji="💰"
+                path="/finance"
+                description="Suivez vos dépenses, vos revenus et analysez la rentabilité de votre exploitation."
+                dynamicColors={dynamicColors}
+              />
+              <ModuleCard
+                title="Stock"
+                emoji="📦"
+                path="/stock"
+                description="Gérez votre inventaire et votre volume d'achats (aliments, soins). Suivez votre autonomie en temps réel pour éviter les ruptures."
+                dynamicColors={dynamicColors}
+              />
+              <ModuleCard
+                title="Suivi"
+                emoji="🚚"
+                path="/delivery-dashboard"
+                description="Suivez vos ventes, vos achats et l'état de vos livraisons en temps réel."
+                badgeCount={trackingNotificationsCount}
+                dynamicColors={dynamicColors}
+              />
+              <ModuleCard
+                title="Alimentation"
+                emoji="🍎"
+                path="/feeding"
+                description="Consultez et gérez les programmes d'alimentation pour vos lots."
+                dynamicColors={dynamicColors}
+              />
+              <ModuleCard
+                title="Forum"
+                emoji="💬"
+                path="/forum"
+                description="Échangez avec d'autres éleveurs, posez vos questions et partagez vos expériences."
+                dynamicColors={dynamicColors}
+              />
               {subscription?.status === 'active' && (
                 <>
-                  <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/ai-analysis')}>
-                    <Text style={styles.moduleEmoji}>🤖</Text>
-                    <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Diagnostic IA</Text>
-                  </TouchableOpacity>
+                  <ModuleCard
+                    title="Diagnostic IA"
+                    emoji="🤖"
+                    path="/ai-analysis"
+                    description="Analysez la santé de vos volailles grâce à l'intelligence artificielle."
+                    dynamicColors={dynamicColors}
+                  />
+                  <ModuleCard
+                    title="Infos"
+                    emoji="ℹ️"
+                    path="/infos"
+                    description="Accédez aux informations utiles et guides pour votre élevage."
+                    dynamicColors={dynamicColors}
+                  />
                 </>
               )}
-              {/* --- NOUVEAU : Module d'informations --- */}
-              {subscription?.status === 'active' && (
-                <TouchableOpacity style={[styles.moduleLink, { backgroundColor: dynamicColors.background, borderColor: dynamicColors.border }]} onPress={() => router.push('/infos')}>
-                  <Text style={styles.moduleEmoji}>ℹ️</Text>
-                  <Text style={[styles.moduleText, { color: dynamicColors.text }]}>Infos</Text>
-                </TouchableOpacity>
-              )}
+              <ModuleCard
+                title="Profil"
+                emoji="👤"
+                path="/profile"
+                description="Gérez vos informations personnelles, votre abonnement et les paramètres de l'application."
+                dynamicColors={dynamicColors}
+              />
             </View>
           </View>
 

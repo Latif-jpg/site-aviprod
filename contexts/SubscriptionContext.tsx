@@ -1,6 +1,6 @@
-import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../config';
-import { useProfile } from './ProfileContext'; // Importer le hook de profil
+import { useProfile } from './ProfileContext';
 
 export interface SubscriptionPlan {
   id: string;
@@ -30,15 +30,13 @@ interface SubscriptionContextType {
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
 
 export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
-  const { profile, loading: profileLoading } = useProfile(); // Utiliser le profil
+  const { profile, loading: profileLoading } = useProfile();
   const [allPlans, setAllPlans] = useState<SubscriptionPlan[]>([]);
   const [activeSubscription, setActiveSubscription] = useState<ActiveSubscription | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // --- CORRECTION : La fonction dépend maintenant du profil de manière stable et claire ---
   const fetchSubscriptionData = useCallback(async () => {
     try {
-      // 1. Charger tous les plans disponibles
       const { data: plansData, error: plansError } = await supabase
         .from('subscription_plans')
         .select('*')
@@ -47,7 +45,6 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       if (plansError) throw plansError;
       setAllPlans(plansData || []);
 
-      // 2. Utiliser le profil DÉJÀ CHARGÉ par ProfileContext pour déterminer l'abonnement
       if (profile && profile.subscription_status === 'active' && profile.subscription_plan_id) {
         const activePlan = (plansData || []).find(p => p.id === profile.subscription_plan_id);
         setActiveSubscription({
@@ -64,24 +61,37 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error("Erreur lors du chargement des abonnements:", error);
     }
-  }, [profile]); // <-- La dépendance est maintenant 'profile'. Quand le profil change, on recalcule.
+  }, [profile]);
+
+  // Ref pour éviter les rechargements inutiles si le profil change (ex: solde avicoins) mais pas l'abonnement
+  const lastProfileKey = useRef<string>('');
 
   useEffect(() => {
-    // Ne pas charger si le profil est encore en cours de chargement
     if (!profileLoading) {
+      // Générer une clé unique basée uniquement sur les champs pertinents pour l'abonnement
+      const currentProfileKey = profile
+        ? `${profile.id}|${profile.subscription_plan_id}|${profile.subscription_status}`
+        : 'null';
+
+      // Si la clé n'a pas changé, on ne refait pas le fetch (évite le flicker de loading)
+      if (currentProfileKey === lastProfileKey.current) {
+        return;
+      }
+
+      lastProfileKey.current = currentProfileKey;
       setLoading(true);
       fetchSubscriptionData().finally(() => setLoading(false));
     }
-  }, [profile, profileLoading, fetchSubscriptionData]); // <-- Réagit au changement de profil et de son état de chargement.
+  }, [profile, profileLoading, fetchSubscriptionData]);
 
-  const value = {
+  const contextValue = useMemo(() => ({
     subscription: activeSubscription,
     allPlans,
-    loading: loading || profileLoading, // Le chargement est actif si le profil OU les abos chargent
+    loading: loading || profileLoading,
     refreshSubscription: fetchSubscriptionData,
-  };
+  }), [activeSubscription, allPlans, loading, profileLoading, fetchSubscriptionData]);
 
-  return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
+  return <SubscriptionContext.Provider value={contextValue}>{children}</SubscriptionContext.Provider>;
 };
 
 export const useSubscription = () => {

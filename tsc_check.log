@@ -1,0 +1,401 @@
+npm warn Unknown project config "node-linker". This will stop working in the next major version of npm.
+app/AddProductScreen.tsx(14,30): error TS7016: Could not find a declaration file for module 'uuid'. 'C:/Users/tifla/Downloads/elevage-web/node_modules/uuid/dist/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/uuid` if it exists or add a new declaration (.d.ts) file containing `declare module 'uuid';`
+app/AddProductScreen.tsx(176,48): error TS2488: Type 'ImagePickerAsset[] | null' must have a '[Symbol.iterator]()' method that returns an iterator.
+app/AddProductScreen.tsx(260,36): error TS2345: Argument of type 'string | null | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+app/AddProductScreen.tsx(276,38): error TS2345: Argument of type 'string | null | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+app/AddProductScreen.tsx(422,67): error TS2339: Property 'danger' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+app/AddProductScreen.tsx(439,71): error TS2339: Property 'danger' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+app/admin-kyc.tsx(185,77): error TS2339: Property 'error' does not exist on type 'never'.
+app/admin-kyc.tsx(186,28): error TS2339: Property 'error' does not exist on type 'never'.
+app/admin-kyc.tsx(190,79): error TS2339: Property 'error' does not exist on type 'never'.
+app/admin-kyc.tsx(191,29): error TS2339: Property 'error' does not exist on type 'never'.
+app/admin-kyc.tsx(203,42): error TS7006: Parameter 'v' implicitly has an 'any' type.
+app/admin-kyc.tsx(571,9): error TS2322: Type '{ children: Element; isVisible: boolean; onClose: () => void; snapPoints: string[]; }' is not assignable to type 'IntrinsicAttributes & SimpleBottomSheetProps'.
+  Property 'snapPoints' does not exist on type 'IntrinsicAttributes & SimpleBottomSheetProps'.
+app/admin-kyc.tsx(585,33): error TS2551: Property 'actionButtonsTop' does not exist on type '{ container: { flex: number; backgroundColor: string; }; loadingContainer: { flex: number; justifyContent: "center"; alignItems: "center"; backgroundColor: string; gap: number; }; loadingText: { ...; }; ... 78 more ...; imageViewerFooter: { ...; }; }'. Did you mean 'actionButtons'?
+app/admin-kyc.tsx(714,9): error TS2322: Type '{ children: Element; isVisible: boolean; onClose: () => void; snapPoints: string[]; }' is not assignable to type 'IntrinsicAttributes & SimpleBottomSheetProps'.
+  Property 'snapPoints' does not exist on type 'IntrinsicAttributes & SimpleBottomSheetProps'.
+app/connection-check.tsx(280,9): error TS2367: This comparison appears to be unintentional because the types '"success" | "checking"' and '"warning"' have no overlap.
+app/dashboard.tsx(570,5): error TS2339: Property 'notifications' does not exist on type '{ lots: Lot[]; tasks: Task[]; stock: StockItem[]; unreadMessages: number; isLoading: boolean; loadLots: () => Promise<void>; loadTasks: () => Promise<void>; loadStock: () => Promise<...>; refreshUnreadMessages: () => Promise<...>; markMessagesAsRead: () => Promise<...>; runDailyStockConsumption: () => Promise<...>; }'.
+app/dashboard.tsx(572,5): error TS2339: Property 'loadNotifications' does not exist on type '{ lots: Lot[]; tasks: Task[]; stock: StockItem[]; unreadMessages: number; isLoading: boolean; loadLots: () => Promise<void>; loadTasks: () => Promise<void>; loadStock: () => Promise<...>; refreshUnreadMessages: () => Promise<...>; markMessagesAsRead: () => Promise<...>; runDailyStockConsumption: () => Promise<...>; }'.
+app/dashboard.tsx(622,144): error TS2339: Property 'isEmbeddedUpdate' does not exist on type 'typeof import("C:/Users/tifla/Downloads/elevage-web/node_modules/expo-updates/build/index")'.
+app/dashboard.tsx(851,73): error TS18048: 'lot.initial_quantity' is possibly 'undefined'.
+app/dashboard.tsx(871,67): error TS2551: Property 'min_threshold' does not exist on type 'StockItem'. Did you mean 'minThreshold'?
+app/finance.tsx(186,28): error TS18047: 'user' is possibly 'null'.
+app/finance.tsx(536,9): error TS2322: Type '{ children: Element | null; isVisible: boolean; onClose: () => void; snapPoints: string[]; }' is not assignable to type 'IntrinsicAttributes & SimpleBottomSheetProps'.
+  Property 'snapPoints' does not exist on type 'IntrinsicAttributes & SimpleBottomSheetProps'.
+app/finance.tsx(713,3): error TS1117: An object literal cannot have multiple properties with the same name.
+app/health.tsx(74,44): error TS7006: Parameter 'lot' implicitly has an 'any' type.
+app/health.tsx(75,45): error TS7006: Parameter 'lot' implicitly has an 'any' type.
+app/health.tsx(203,44): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ViewProps): SafeAreaView', gave the following error.
+    Type '{ children: Element[]; style: { flex: number; backgroundColor: string; }; edges: string[]; }' is not assignable to type 'IntrinsicAttributes & IntrinsicClassAttributes<SafeAreaView> & Readonly<ViewProps>'.
+      Property 'edges' does not exist on type 'IntrinsicAttributes & IntrinsicClassAttributes<SafeAreaView> & Readonly<ViewProps>'.
+  Overload 2 of 2, '(props: ViewProps, context: any): SafeAreaView', gave the following error.
+    Type '{ children: Element[]; style: { flex: number; backgroundColor: string; }; edges: string[]; }' is not assignable to type 'IntrinsicAttributes & IntrinsicClassAttributes<SafeAreaView> & Readonly<ViewProps>'.
+      Property 'edges' does not exist on type 'IntrinsicAttributes & IntrinsicClassAttributes<SafeAreaView> & Readonly<ViewProps>'.
+app/health.tsx(280,34): error TS2532: Object is possibly 'undefined'.
+app/marketplace.tsx(336,37): error TS2304: Cannot find name 'allProductsData'.
+app/medical-prophylaxis.tsx(21,8): error TS2739: Type '{ onClose: () => void; onAddVaccination: () => void; }' is missing the following properties from type 'MedicalProphylaxisPlanProps': lotId, onBack
+app/payment/cancel.tsx(5,10): error TS2614: Module '"../../components/Icon"' has no exported member 'Icon'. Did you mean to use 'import Icon from "../../components/Icon"' instead?
+app/payment/success.tsx(6,10): error TS2614: Module '"../../components/Icon"' has no exported member 'Icon'. Did you mean to use 'import Icon from "../../components/Icon"' instead?
+app/profile.tsx(77,16): error TS2339: Property 'updated_at' does not exist on type 'Profile'.
+app/profile.tsx(444,32): error TS2339: Property 'city' does not exist on type 'Profile'.
+app/stock.tsx(17,29): error TS2551: Property 'min_threshold' does not exist on type 'StockItem'. Did you mean 'minThreshold'?
+app/stock.tsx(18,32): error TS2339: Property 'initial_quantity' does not exist on type 'StockItem'.
+app/stock.tsx(20,42): error TS2339: Property 'daily_consumption' does not exist on type 'StockItem'.
+app/stock.tsx(20,72): error TS2339: Property 'consuming_lots' does not exist on type 'StockItem'.
+app/stock.tsx(55,52): error TS2339: Property 'days_remaining' does not exist on type 'StockItem'.
+app/stock.tsx(55,76): error TS2339: Property 'days_remaining' does not exist on type 'StockItem'.
+app/stock.tsx(59,22): error TS2339: Property 'days_remaining' does not exist on type 'StockItem'.
+app/stock.tsx(59,48): error TS2339: Property 'days_remaining' does not exist on type 'StockItem'.
+app/stock.tsx(59,92): error TS2339: Property 'days_remaining' does not exist on type 'StockItem'.
+app/stock.tsx(73,39): error TS7006: Parameter 'lot' implicitly has an 'any' type.
+app/stock.tsx(73,44): error TS7006: Parameter 'index' implicitly has an 'any' type.
+app/stock.tsx(114,57): error TS2551: Property 'min_threshold' does not exist on type 'StockItem'. Did you mean 'minThreshold'?
+components/AddFinancialRecordForm.tsx(168,35): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '"" | { borderColor: string; borderWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle<TextStyle> | RecursiveArray<TextStyle | Falsy | RegisteredStyle<TextStyle>> | readonly (TextStyle | ... 1 more ... | RegisteredStyle<...>)[]'.
+      Type '""' is not assignable to type 'TextStyle | Falsy | RegisteredStyle<TextStyle> | RecursiveArray<TextStyle | Falsy | RegisteredStyle<TextStyle>> | readonly (TextStyle | ... 1 more ... | RegisteredStyle<...>)[]'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '"" | { borderColor: string; borderWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle<TextStyle> | RecursiveArray<TextStyle | Falsy | RegisteredStyle<TextStyle>> | readonly (TextStyle | ... 1 more ... | RegisteredStyle<...>)[]'.
+components/AddFinancialRecordForm.tsx(187,52): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '"" | { borderColor: string; borderWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle<TextStyle> | RecursiveArray<TextStyle | Falsy | RegisteredStyle<TextStyle>> | readonly (TextStyle | ... 1 more ... | RegisteredStyle<...>)[]'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '"" | { borderColor: string; borderWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle<TextStyle> | RecursiveArray<TextStyle | Falsy | RegisteredStyle<TextStyle>> | readonly (TextStyle | ... 1 more ... | RegisteredStyle<...>)[]'.
+components/AddFinancialRecordForm.tsx(238,35): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '"" | { borderColor: string; borderWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle<TextStyle> | RecursiveArray<TextStyle | Falsy | RegisteredStyle<TextStyle>> | readonly (TextStyle | ... 1 more ... | RegisteredStyle<...>)[]'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '"" | { borderColor: string; borderWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle<TextStyle> | RecursiveArray<TextStyle | Falsy | RegisteredStyle<TextStyle>> | readonly (TextStyle | ... 1 more ... | RegisteredStyle<...>)[]'.
+components/AutoRationForm.tsx(190,20): error TS2304: Cannot find name 'isPremiumLoading'.
+components/BottomSheet.tsx(213,29): error TS2339: Property 'grey' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+components/DashboardCard.tsx(63,21): error TS2339: Property 'shadow' does not exist on type '{ container: { flex: number; backgroundColor: string; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; }; title: { fontSize: number; fontWeight: "bold"; color: string; }; subtitle: { ...; }; input: { ...; }; button: { ...; }; buttonText: { ...; }; }'.
+components/DeliveryDashboard.tsx(240,32): error TS2339: Property 'total_price' does not exist on type '{ total_price: any; delivery_address: any; }[]'.
+components/DeliveryDashboard.tsx(242,37): error TS2339: Property 'delivery_address' does not exist on type '{ total_price: any; delivery_address: any; }[]'.
+components/DeliveryDashboard.tsx(246,27): error TS2345: Argument of type '{ id: any; order_id: any; status: any; total_amount: any; created_at: any; customer_location: any; items_count: number; }[]' is not assignable to parameter of type 'SetStateAction<RecentDelivery[]>'.
+  Type '{ id: any; order_id: any; status: any; total_amount: any; created_at: any; customer_location: any; items_count: number; }[]' is not assignable to type 'RecentDelivery[]'.
+    Property 'driver_earning' is missing in type '{ id: any; order_id: any; status: any; total_amount: any; created_at: any; customer_location: any; items_count: number; }' but required in type 'RecentDelivery'.
+components/DeliveryDashboard.tsx(270,64): error TS2339: Property 'status' does not exist on type '{ status: any; }[]'.
+components/DeliveryDashboard.tsx(270,134): error TS2339: Property 'status' does not exist on type '{ status: any; }[]'.
+components/DeliveryDashboard.tsx(272,21): error TS2339: Property 'status' does not exist on type '{ status: any; }[]'.
+components/DeliveryDashboard.tsx(287,25): error TS2339: Property 'id' does not exist on type '{ status: any; }[]'.
+components/DeliveryDashboard.tsx(289,29): error TS2339: Property 'status' does not exist on type '{ status: any; }[]'.
+components/DeliveryDashboard.tsx(296,27): error TS2345: Argument of type '{ id: any; order_id: any; status: any; total_amount: any; created_at: any; customer_location: string; items_count: number; }[]' is not assignable to parameter of type 'SetStateAction<RecentDelivery[]>'.
+  Type '{ id: any; order_id: any; status: any; total_amount: any; created_at: any; customer_location: string; items_count: number; }[]' is not assignable to type 'RecentDelivery[]'.
+    Property 'driver_earning' is missing in type '{ id: any; order_id: any; status: any; total_amount: any; created_at: any; customer_location: string; items_count: number; }' but required in type 'RecentDelivery'.
+components/DeliveryDashboard.tsx(340,84): error TS2339: Property 'status' does not exist on type '{ id: any; status: any; }[]'.
+components/DeliveryDashboard.tsx(343,50): error TS2339: Property 'status' does not exist on type '{ id: any; status: any; }[]'.
+components/DeliveryDashboard.tsx(362,29): error TS2304: Cannot find name 'SellerOrder'.
+components/DeliveryDashboard.tsx(396,43): error TS2304: Cannot find name 'SellerOrder'.
+components/DeliveryDashboard.tsx(401,42): error TS2304: Cannot find name 'SellerOrder'.
+components/DeliveryDashboard.tsx(648,95): error TS18048: 'delivery.total_amount' is possibly 'undefined'.
+components/DeliveryDashboard.tsx(720,54): error TS18048: 'delivery.total_amount' is possibly 'undefined'.
+components/DeliveryDriverApp.tsx(540,5): error TS2578: Unused '@ts-expect-error' directive.
+components/DeliveryDriverApp.tsx(623,7): error TS2578: Unused '@ts-expect-error' directive.
+components/DeliveryDriverApp.tsx(626,9): error TS2578: Unused '@ts-expect-error' directive.
+components/DeliveryDriverApp.tsx(629,9): error TS2578: Unused '@ts-expect-error' directive.
+components/DeliveryDriverApp.tsx(1148,43): error TS2339: Property 'historyButton' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; justifyContent: "space-between"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; headerActions: { ...; }; ... 72 more ...; confirmButtonText: { ...; }; }'.
+components/driver-verifications.tsx(5,43): error TS2307: Cannot find module '../integrations/supabase/client' or its corresponding type declarations.
+components/driver-verifications.tsx(6,38): error TS2307: Cannot find module '../../styles/commonStyles' or its corresponding type declarations.
+components/driver-verifications.tsx(7,18): error TS2307: Cannot find module '../../components/Icon' or its corresponding type declarations.
+components/driver-verifications.tsx(8,20): error TS2307: Cannot find module '../../components/Button' or its corresponding type declarations.
+components/driver-verifications.tsx(44,46): error TS7006: Parameter 'v' implicitly has an 'any' type.
+components/driver-verifications.tsx(131,38): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ImageProps): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+      Type 'ViewStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+        Type 'ViewStyle' is not assignable to type 'ImageStyle'.
+          Types of property 'overflow' are incompatible.
+            Type '"scroll" | "visible" | "hidden" | undefined' is not assignable to type '"visible" | "hidden" | undefined'.
+              Type '"scroll"' is not assignable to type '"visible" | "hidden" | undefined'.
+  Overload 2 of 2, '(props: ImageProps, context: any): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+components/driver-verifications.tsx(145,29): error TS2349: This expression is not callable.
+  No constituent of type 'ViewStyle | TextStyle | ImageStyle' is callable.
+components/driver-verifications.tsx(149,57): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ImageProps): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+  Overload 2 of 2, '(props: ImageProps, context: any): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+components/driver-verifications.tsx(150,55): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ImageProps): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+  Overload 2 of 2, '(props: ImageProps, context: any): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+components/driver-verifications.tsx(151,58): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ImageProps): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+  Overload 2 of 2, '(props: ImageProps, context: any): Image', gave the following error.
+    Type 'ViewStyle | TextStyle | ImageStyle' is not assignable to type 'StyleProp<ImageStyle>'.
+components/driver-verifications.tsx(238,3): error TS2322: Type '(status: string) => { fontSize: number; fontWeight: string; paddingHorizontal: number; paddingVertical: number; borderRadius: number; overflow: string; color: any; backgroundColor: string; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+components/EditLotForm.tsx(77,23): error TS2345: Argument of type '{ entryDate: string | null; targetSaleDate: string | null; name: string; quantity: number; breed: string; entry_date: string | null; target_sale_date: string | null; id: string; birdType: "broilers" | ... 1 more ... | "breeders"; ... 17 more ...; user_id?: string | undefined; }' is not assignable to parameter of type 'Partial<Lot>'.
+  Types of property 'entryDate' are incompatible.
+    Type 'string | null' is not assignable to type 'string | undefined'.
+      Type 'null' is not assignable to type 'string | undefined'.
+components/EditLotForm.tsx(88,23): error TS2304: Cannot find name 'Platform'.
+components/health/MedicalProphylaxis.tsx(17,11): error TS2339: Property 'isSubscribed' does not exist on type '{ user: User | null; loading: boolean; }'.
+components/LiveAIRecommendations.tsx(40,52): error TS2339: Property 'danger' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+components/LotDetailView.tsx(348,11): error TS2322: Type '{ title: string; onPress: () => void; style: ({ flex: number; } | { backgroundColor: string; })[]; icon: string; }' is not assignable to type 'IntrinsicAttributes & ButtonProps'.
+  Property 'icon' does not exist on type 'IntrinsicAttributes & ButtonProps'.
+components/LotDetailView.tsx(354,11): error TS2322: Type '{ text: string; onPress: () => void; style: ({ flex: number; } | { backgroundColor: string; })[]; icon: string; }' is not assignable to type 'IntrinsicAttributes & ButtonProps'.
+  Property 'icon' does not exist on type 'IntrinsicAttributes & ButtonProps'.
+components/OrderTracking.tsx(226,31): error TS2339: Property 'driverCardHeader' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(235,31): error TS2339: Property 'driverCardBody' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(236,33): error TS2339: Property 'driverInfo' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(238,35): error TS2339: Property 'driverInfoText' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(240,33): error TS2339: Property 'driverCommission' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(241,35): error TS2339: Property 'driverCommissionLabel' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(242,35): error TS2339: Property 'commissionValueContainer' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(244,37): error TS2339: Property 'driverCommissionValue' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(270,31): error TS2339: Property 'payButton' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'.
+components/OrderTracking.tsx(273,37): error TS2551: Property 'payButtonText' does not exist on type '{ header: { flexDirection: "row"; alignItems: "center"; padding: number; paddingBottom: number; borderBottomWidth: number; borderBottomColor: string; }; backButton: { marginRight: number; }; headerTitle: { ...; }; ... 89 more ...; locationButtonText: { ...; }; }'. Did you mean 'rateButtonText'?
+components/OrderTracking.tsx(517,3): error TS1117: An object literal cannot have multiple properties with the same name.
+components/OrderTracking.tsx(518,3): error TS1117: An object literal cannot have multiple properties with the same name.
+components/OrderTracking.tsx(519,3): error TS1117: An object literal cannot have multiple properties with the same name.
+components/ProductCard.tsx(53,32): error TS18048: 'product.discount_percentage' is possibly 'undefined'.
+components/SellerKYCVerification.tsx(649,11): error TS2322: Type '{ title: string; onPress: () => Promise<void>; disabled: boolean; icon: string | undefined; }' is not assignable to type 'IntrinsicAttributes & ButtonProps'.
+  Property 'icon' does not exist on type 'IntrinsicAttributes & ButtonProps'.
+components/SmartTunnelModal.tsx(28,29): error TS2339: Property 'adLoading' does not exist on type '{ showRewardedAd: () => Promise<boolean>; canWatchAd: boolean; isLoading: boolean; nextAvailableTime: Date | null; checkEligibility: () => Promise<void>; }'.
+components/SmartTunnelModal.tsx(28,40): error TS2339: Property 'adLoaded' does not exist on type '{ showRewardedAd: () => Promise<boolean>; canWatchAd: boolean; isLoading: boolean; nextAvailableTime: Date | null; checkEligibility: () => Promise<void>; }'.
+components/SponsoredSuggestions.tsx(6,48): error TS7031: Binding element 'items' implicitly has an 'any' type.
+components/SponsoredSuggestions.tsx(6,55): error TS7031: Binding element 'onOpenProduct' implicitly has an 'any' type.
+components/SponsoredSuggestions.tsx(17,21): error TS7006: Parameter 'p' implicitly has an 'any' type.
+components/StockCard.tsx(33,44): error TS2551: Property 'min_threshold' does not exist on type 'StockItem'. Did you mean 'minThreshold'?
+components/StockCard.tsx(35,39): error TS2551: Property 'min_threshold' does not exist on type 'StockItem'. Did you mean 'minThreshold'?
+components/StockCard.tsx(40,28): error TS2339: Property 'card' does not exist on type '{ container: { flex: number; backgroundColor: string; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; }; title: { fontSize: number; fontWeight: "bold"; color: string; }; subtitle: { ...; }; input: { ...; }; button: { ...; }; buttonText: { ...; }; }'.
+components/StockCard.tsx(77,24): error TS2551: Property 'min_threshold' does not exist on type 'StockItem'. Did you mean 'minThreshold'?
+components/SubscriptionPlans.tsx(311,69): error TS2345: Argument of type '(plan: SubscriptionPlan) => JSX.Element' is not assignable to parameter of type '(value: SubscriptionPlan, index: number, array: SubscriptionPlan[]) => Element'.
+  Types of parameters 'plan' and 'value' are incompatible.
+    Type 'import("C:/Users/tifla/Downloads/elevage-web/contexts/SubscriptionContext").SubscriptionPlan' is not assignable to type 'SubscriptionPlan'.
+      Types of property 'features' are incompatible.
+        Type 'Record<string, any>' is missing the following properties from type '{ ai_analyses_per_month: number; max_lots: number; auto_feeding: boolean; advanced_feeding?: boolean | undefined; optimized_feeding?: boolean | undefined; product_recommendations?: boolean | undefined; ... 14 more ...; avicoins_allowed?: boolean | undefined; }': ai_analyses_per_month, max_lots, auto_feeding
+components/SubscriptionPlans.tsx(319,68): error TS2345: Argument of type '(plan: SubscriptionPlan) => JSX.Element' is not assignable to parameter of type '(value: SubscriptionPlan, index: number, array: SubscriptionPlan[]) => Element'.
+components/TaskCard.tsx(30,22): error TS2339: Property 'card' does not exist on type '{ container: { flex: number; backgroundColor: string; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; }; title: { fontSize: number; fontWeight: "bold"; color: string; }; subtitle: { ...; }; input: { ...; }; button: { ...; }; buttonText: { ...; }; }'.
+components/WebLandingPage.tsx(49,78): error TS2322: Type '{ name: string; size: number; color: string; style: { marginRight: number; }; }' is not assignable to type 'IntrinsicAttributes & IconProps'.
+  Property 'style' does not exist on type 'IntrinsicAttributes & IconProps'.
+contexts/ThemeContext.tsx(2,47): error TS2306: File 'C:/Users/tifla/Downloads/elevage-web/types/theme.ts' is not a module.
+data/mockData.ts(206,5): error TS2353: Object literal may only specify known properties, and 'date' does not exist in type 'FinancialRecord'.
+data/mockData.ts(215,5): error TS2353: Object literal may only specify known properties, and 'date' does not exist in type 'FinancialRecord'.
+data/mockData.ts(223,5): error TS2353: Object literal may only specify known properties, and 'date' does not exist in type 'FinancialRecord'.
+data/mockData.ts(232,5): error TS2353: Object literal may only specify known properties, and 'date' does not exist in type 'FinancialRecord'.
+data/mockData.ts(240,5): error TS2353: Object literal may only specify known properties, and 'date' does not exist in type 'FinancialRecord'.
+data/mockData.ts(375,5): error TS2353: Object literal may only specify known properties, and 'nextDue' does not exist in type 'SanitaryAction'.
+data/mockData.ts(385,5): error TS2353: Object literal may only specify known properties, and 'nextDue' does not exist in type 'SanitaryAction'.
+data/mockData.ts(395,5): error TS2353: Object literal may only specify known properties, and 'nextDue' does not exist in type 'SanitaryAction'.
+data/mockData.ts(405,5): error TS2353: Object literal may only specify known properties, and 'nextDue' does not exist in type 'SanitaryAction'.
+hooks/useNotifications.ts(115,9): error TS2304: Cannot find name 'trackAction'.
+hooks/useNotifications.ts(126,22): error TS2304: Cannot find name 'trackAction'.
+hooks/usePushNotifications.ts(130,45): error TS1323: Dynamic imports are only supported when the '--module' flag is set to 'es2020', 'es2022', 'esnext', 'commonjs', 'amd', 'system', 'umd', 'node16', or 'nodenext'.
+login.tsx(1,26): error TS2307: Cannot find module '../../config' or its corresponding type declarations.
+login.tsx(4,24): error TS2307: Cannot find module '../../styles/commonStyles' or its corresponding type declarations.
+lots_backup.tsx(6,24): error TS2307: Cannot find module '../styles/commonStyles' or its corresponding type declarations.
+lots_backup.tsx(8,18): error TS2307: Cannot find module '../components/Icon' or its corresponding type declarations.
+lots_backup.tsx(9,21): error TS2307: Cannot find module '../components/LotCard' or its corresponding type declarations.
+lots_backup.tsx(10,31): error TS2307: Cannot find module '../components/BottomSheet' or its corresponding type declarations.
+lots_backup.tsx(11,24): error TS2307: Cannot find module '../components/AddLotForm' or its corresponding type declarations.
+lots_backup.tsx(12,25): error TS2307: Cannot find module '../components/EditLotForm' or its corresponding type declarations.
+lots_backup.tsx(13,34): error TS2307: Cannot find module '../components/FloatingActionButton' or its corresponding type declarations.
+lots_backup.tsx(14,26): error TS2307: Cannot find module '../config' or its corresponding type declarations.
+lots_backup.tsx(15,30): error TS2307: Cannot find module '../components/BottomNavigation' or its corresponding type declarations.
+lots_backup.tsx(16,38): error TS2307: Cannot find module '../src/intelligence/ui/LotIntelligenceDashboard' or its corresponding type declarations.
+lots_backup.tsx(80,15): error TS18047: 'optimalEndDate' is possibly 'null'.
+lots_backup.tsx(572,44): error TS7006: Parameter 'lot' implicitly has an 'any' type.
+lots_backup.tsx(995,21): error TS2339: Property 'category' does not exist on type '{ type: string; title: string; description: string; action: string; icon: string; confidence: number; }'.
+lots_backup.tsx(1155,35): error TS2339: Property 'emptyIconContainer' does not exist on type '{ container: { flex: number; backgroundColor: string; }; header: { paddingBottom: number; }; headerContent: { flexDirection: "row"; alignItems: "center"; paddingHorizontal: number; paddingTop: number; paddingBottom: number; }; ... 50 more ...; loadingText: { ...; }; }'.
+polyfills.ts(2,32): error TS7016: Could not find a declaration file for module 'base-64'. 'C:/Users/tifla/Downloads/elevage-web/node_modules/base-64/base64.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/base-64` if it exists or add a new declaration (.d.ts) file containing `declare module 'base-64';`
+src/components/finance/FinancialDashboard.tsx(102,26): error TS2721: Cannot invoke an object which is possibly 'null'.
+src/components/finance/FinancialDashboard.tsx(102,26): error TS18047: 'analyzeFinances' is possibly 'null'.
+src/components/finance/FinancialDashboard.tsx(128,63): error TS2339: Property 'danger' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(158,46): error TS2339: Property 'danger' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(163,44): error TS2339: Property 'danger' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(341,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(352,19): error TS2339: Property 'danger' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(378,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(395,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(400,29): error TS2551: Property 'cardBackground' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'. Did you mean 'background'?
+src/components/finance/FinancialDashboard.tsx(420,29): error TS2551: Property 'cardBackground' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'. Did you mean 'background'?
+src/components/finance/FinancialDashboard.tsx(438,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(465,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(487,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(519,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(529,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(558,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(579,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/finance/FinancialDashboard.tsx(592,19): error TS2339: Property 'textPrimary' does not exist on type '{ primary: string; primaryDark: string; secondary: string; accent: string; accentSecondary: string; background: string; backgroundAlt: string; surface: string; text: string; textSecondary: string; ... 6 more ...; orange: string; }'.
+src/components/stock/SmartStockManagement.tsx(122,11): error TS2339: Property 'generateUpcomingFeedAlerts' does not exist on type '{ lot: any; insights: any[]; kpis: any; loading: boolean; }'.
+src/components/stock/SmartStockManagement.tsx(122,42): error TS2554: Expected 1 arguments, but got 0.
+src/components/stock/SmartStockManagement.tsx(241,58): error TS2339: Property 'sectionTitleSkeleton' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(242,93): error TS2339: Property 'sectionTitleSkeleton' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(242,137): error TS2339: Property 'refreshIconSkeleton' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(243,93): error TS2339: Property 'sectionTitleSkeleton' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(243,137): error TS2339: Property 'addIconSkeleton' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(244,58): error TS2339: Property 'sectionTitleSkeleton' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(334,139): error TS2339: Property 'emptyStateGradient' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(334,276): error TS2551: Property 'emptyStateTitle' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'. Did you mean 'emptyState'?
+src/components/stock/SmartStockManagement.tsx(334,330): error TS2551: Property 'emptyStateText' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'. Did you mean 'emptyState'?
+src/components/stock/SmartStockManagement.tsx(334,395): error TS2339: Property 'emptyStateSubtext' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(334,511): error TS2339: Property 'emptyStateButton' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(334,660): error TS2339: Property 'emptyStateButtonGradient' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(334,762): error TS2339: Property 'emptyStateButtonText' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/components/stock/SmartStockManagement.tsx(336,146): error TS2339: Property 'stockGridItem' does not exist on type '{ container: { flex: number; backgroundColor: string; }; headerGradient: { paddingTop: number; paddingBottom: number; paddingHorizontal: number; borderBottomLeftRadius: number; borderBottomRightRadius: number; }; ... 57 more ...; retryButtonText: { ...; }; }'.
+src/contexts/UniversalIntelligenceContext.tsx(9,34): error TS1323: Dynamic imports are only supported when the '--module' flag is set to 'es2020', 'es2022', 'esnext', 'commonjs', 'amd', 'system', 'umd', 'node16', or 'nodenext'.
+src/intelligence/agents/FinancialAdvisor.ts(401,45): error TS2339: Property 'created_at' does not exist on type 'UserFinancialProfile'.
+src/intelligence/agents/FinancialAdvisor.ts(401,108): error TS2339: Property 'created_at' does not exist on type 'UserFinancialProfile'.
+src/intelligence/agents/HealthAdvisor.ts(416,26): error TS2339: Property 'alertCriticalHealthIssue' does not exist on type 'SmartAlertSystem'.
+src/intelligence/agents/RationAdvisor.ts(265,26): error TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+src/intelligence/agents/RationAdvisor.ts(839,38): error TS2339: Property 'getCurrentLotRation' does not exist on type 'RationAdvisor'.
+src/intelligence/agents/RationAdvisor.ts(845,52): error TS2339: Property 'getExpectedWeightGain' does not exist on type 'RationAdvisor'.
+src/intelligence/agents/RationAdvisor.ts(847,66): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/intelligence/agents/RationAdvisor.ts(847,71): error TS7006: Parameter 'ing' implicitly has an 'any' type.
+src/intelligence/agents/RationAdvisor.ts(860,64): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/intelligence/agents/RationAdvisor.ts(860,69): error TS7006: Parameter 'ing' implicitly has an 'any' type.
+src/intelligence/agents/StockOptimizerAgent.ts(399,23): error TS2339: Property 'name' does not exist on type '{ quantity: any; }'.
+src/intelligence/core/DataCollector.ts(8,34): error TS1323: Dynamic imports are only supported when the '--module' flag is set to 'es2020', 'es2022', 'esnext', 'commonjs', 'amd', 'system', 'umd', 'node16', or 'nodenext'.
+src/intelligence/core/SmartAlertSystem.ts(8,34): error TS1323: Dynamic imports are only supported when the '--module' flag is set to 'es2020', 'es2022', 'esnext', 'commonjs', 'amd', 'system', 'umd', 'node16', or 'nodenext'.
+src/intelligence/core/SmartAlertSystem.ts(228,5): error TS2353: Object literal may only specify known properties, and 'titleStyle' does not exist in type 'AlertConfig'.
+src/intelligence/index.ts(15,41): error TS2305: Module '"../contexts/UniversalIntelligenceContext"' has no exported member 'useIntelligence'.
+src/intelligence/index.ts(51,13): error TS2304: Cannot find name 'dataCollector'.
+src/intelligence/index.ts(57,13): error TS2304: Cannot find name 'smartAlertSystem'.
+src/intelligence/index.ts(83,46): error TS1323: Dynamic imports are only supported when the '--module' flag is set to 'es2020', 'es2022', 'esnext', 'commonjs', 'amd', 'system', 'umd', 'node16', or 'nodenext'.
+src/intelligence/index.ts(96,35): error TS1323: Dynamic imports are only supported when the '--module' flag is set to 'es2020', 'es2022', 'esnext', 'commonjs', 'amd', 'system', 'umd', 'node16', or 'nodenext'.
+src/intelligence/index.ts(104,41): error TS1323: Dynamic imports are only supported when the '--module' flag is set to 'es2020', 'es2022', 'esnext', 'commonjs', 'amd', 'system', 'umd', 'node16', or 'nodenext'.
+src/intelligence/index.ts(116,39): error TS2304: Cannot find name 'dataCollector'.
+src/intelligence/index.ts(117,37): error TS2304: Cannot find name 'smartAlertSystem'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(143,28): error TS2721: Cannot invoke an object which is possibly 'null'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(143,28): error TS18047: 'analyzeFinances' is possibly 'null'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(143,52): error TS2345: Argument of type '"week" | "month" | "quarter" | "year" | "semester"' is not assignable to parameter of type '"week" | "month" | "quarter" | "year" | undefined'.
+  Type '"semester"' is not assignable to type '"week" | "month" | "quarter" | "year" | undefined'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(145,21): error TS2345: Argument of type '{ profitability: ProfitabilityAnalysis; anomalies: AnomalyDetection; cashFlow: CashFlowForecast; taxOptimization: TaxOptimization; investments: InvestmentRecommendations; }' is not assignable to parameter of type 'SetStateAction<AnalysisResult | null>'.
+  Type '{ profitability: ProfitabilityAnalysis; anomalies: AnomalyDetection; cashFlow: CashFlowForecast; taxOptimization: TaxOptimization; investments: InvestmentRecommendations; }' is not assignable to type 'AnalysisResult'.
+    The types of 'anomalies.detected_anomalies' are incompatible between these types.
+      Type '{ type: "expense_spike" | "revenue_drop" | "unusual_frequency"; category: string; amount: number; expected_amount: number; deviation_percent: number; severity: "low" | "medium" | "high"; explanation: string; }[]' is not assignable to type '{ type: "expense_spike" | "revenue_drop" | "unusual_pattern"; category: string; amount: number; expected_amount: number; deviation_percent: number; severity: "low" | "medium" | "high"; explanation: string; }[]'.
+        Type '{ type: "expense_spike" | "revenue_drop" | "unusual_frequency"; category: string; amount: number; expected_amount: number; deviation_percent: number; severity: "low" | "medium" | "high"; explanation: string; }' is not assignable to type '{ type: "expense_spike" | "revenue_drop" | "unusual_pattern"; category: string; amount: number; expected_amount: number; deviation_percent: number; severity: "low" | "medium" | "high"; explanation: string; }'.
+          Types of property 'type' are incompatible.
+            Type '"expense_spike" | "revenue_drop" | "unusual_frequency"' is not assignable to type '"expense_spike" | "revenue_drop" | "unusual_pattern"'.
+              Type '"unusual_frequency"' is not assignable to type '"expense_spike" | "revenue_drop" | "unusual_pattern"'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(367,62): error TS2339: Property 'profit_margin' does not exist on type '{ total_revenue: number; total_expenses: number; net_profit: number; profit_margin_percent: number; roi: number; trend: "improving" | "stable" | "declining"; profitability_score: number; breakdown_by_category: Record<...>; }'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(367,115): error TS2339: Property 'profit_margin' does not exist on type '{ total_revenue: number; total_expenses: number; net_profit: number; profit_margin_percent: number; roi: number; trend: "improving" | "stable" | "declining"; profitability_score: number; breakdown_by_category: Record<...>; }'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(601,21): error TS2339: Property 'shadow' does not exist on type '{ container: { flex: number; backgroundColor: string; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; }; title: { fontSize: number; fontWeight: "bold"; color: string; }; subtitle: { ...; }; input: { ...; }; button: { ...; }; buttonText: { ...; }; }'.
+src/intelligence/ui/FinancialAdvisorDashboard.tsx(678,21): error TS2339: Property 'shadow' does not exist on type '{ container: { flex: number; backgroundColor: string; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; }; title: { fontSize: number; fontWeight: "bold"; color: string; }; subtitle: { ...; }; input: { ...; }; button: { ...; }; buttonText: { ...; }; }'.
+src/intelligence/ui/index.ts(6,51): error TS2307: Cannot find module './HealthAdvisorDashboard' or its corresponding type declarations.
+supabase/functions/check-critical-alerts/index.ts(3,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/check-critical-alerts/index.ts(22,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/check-critical-alerts/index.ts(22,19): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase/functions/check-critical-alerts/index.ts(29,29): error TS2304: Cannot find name 'Deno'.
+supabase/functions/check-critical-alerts/index.ts(30,28): error TS2304: Cannot find name 'Deno'.
+supabase/functions/check-critical-alerts/index.ts(158,27): error TS7006: Parameter 'p' implicitly has an 'any' type.
+supabase/functions/claim-delivery/index.ts(4,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/claim-delivery/index.ts(5,29): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/claim-delivery/index.ts(9,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/claim-delivery/index.ts(9,19): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase/functions/claim-delivery/index.ts(20,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/claim-delivery/index.ts(21,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/claim-delivery/index.ts(27,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/claim-delivery/index.ts(28,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/claim-delivery/index.ts(152,88): error TS18046: 'error' is of type 'unknown'.
+supabase/functions/consume-avicoins/index.ts(1,30): error TS2307: Cannot find module 'npm:@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/consume-avicoins/index.ts(2,24): error TS2307: Cannot find module 'npm:jsonwebtoken@9.0.0' or its corresponding type declarations.
+supabase/functions/consume-avicoins/index.ts(9,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/consume-avicoins/index.ts(15,29): error TS2304: Cannot find name 'Deno'.
+supabase/functions/consume-avicoins/index.ts(16,29): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(1,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase/functions/create-payment/index.ts(2,29): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/create-payment/index.ts(14,14): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase/functions/create-payment/index.ts(32,33): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(33,34): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(34,33): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(35,28): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(36,31): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(47,25): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(48,32): error TS2304: Cannot find name 'Deno'.
+supabase/functions/create-payment/index.ts(140,91): error TS2339: Property 'entries' does not exist on type 'Headers'.
+supabase/functions/gemini-health-analysis/index.ts(2,30): error TS2307: Cannot find module 'jsr:@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/gemini-health-analysis/index.ts(5,27): error TS7006: Parameter 'images' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(5,35): error TS7006: Parameter 'symptoms' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(5,45): error TS7006: Parameter 'description' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(23,30): error TS7006: Parameter 'apiKey' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(23,38): error TS7006: Parameter 'images' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(23,46): error TS7006: Parameter 'symptoms' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(23,56): error TS7006: Parameter 'description' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(107,47): error TS18046: 'error' is of type 'unknown'.
+supabase/functions/gemini-health-analysis/index.ts(113,30): error TS7006: Parameter 'apiKey' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(113,38): error TS7006: Parameter 'images' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(113,46): error TS7006: Parameter 'symptoms' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(113,56): error TS7006: Parameter 'description' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(215,53): error TS18046: 'error' is of type 'unknown'.
+supabase/functions/gemini-health-analysis/index.ts(227,33): error TS7006: Parameter 'diagnosis' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(268,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(268,19): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(288,25): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(289,25): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(377,23): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(381,21): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(391,9): error TS7034: Variable 'analysisResult' implicitly has type 'any' in some locations where its type cannot be determined.
+supabase/functions/gemini-health-analysis/index.ts(393,9): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(394,44): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(398,28): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(400,44): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gemini-health-analysis/index.ts(437,54): error TS7005: Variable 'analysisResult' implicitly has an 'any' type.
+supabase/functions/gemini-health-analysis/index.ts(502,14): error TS18046: 'error' is of type 'unknown'.
+supabase/functions/payment-webhook/index.ts(1,28): error TS2307: Cannot find module 'https://deno.land/std@0.177.0/node/crypto.ts' or its corresponding type declarations.
+supabase/functions/payment-webhook/index.ts(26,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/payment-webhook/index.ts(26,19): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase/functions/payment-webhook/index.ts(57,33): error TS2304: Cannot find name 'Deno'.
+supabase/functions/payment-webhook/index.ts(58,25): error TS2304: Cannot find name 'Deno'.
+supabase/functions/payment-webhook/index.ts(59,32): error TS2304: Cannot find name 'Deno'.
+supabase/functions/payment-webhook/index.ts(276,40): error TS18046: 'error' is of type 'unknown'.
+supabase/functions/payment-webhook/index.ts(276,55): error TS18046: 'error' is of type 'unknown'.
+supabase/functions/payment-webhook/index.ts(277,83): error TS18046: 'error' is of type 'unknown'.
+supabase/functions/payment-webhook/useSubscription.ts(2,43): error TS2307: Cannot find module '../app/integrations/supabase/client' or its corresponding type declarations.
+supabase/functions/payment-webhook/useSubscription.ts(3,25): error TS2307: Cannot find module './useAuth' or its corresponding type declarations.
+supabase/functions/send-push-notification/index.ts(3,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase/functions/send-push-notification/index.ts(4,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/send-push-notification/index.ts(12,5): error TS2304: Cannot find name 'Deno'.
+supabase/functions/send-push-notification/index.ts(13,5): error TS2304: Cannot find name 'Deno'.
+supabase/functions/send-push-notification/index.ts(111,59): error TS18046: 'err' is of type 'unknown'.
+supabase/functions/send-push-notification/index.ts(113,71): error TS18046: 'err' is of type 'unknown'.
+supabase/functions/update-delivery-status/index.ts(4,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/update-delivery-status/index.ts(5,29): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/update-delivery-status/index.ts(9,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/update-delivery-status/index.ts(9,19): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase/functions/update-delivery-status/index.ts(20,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/update-delivery-status/index.ts(21,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/update-delivery-status/index.ts(27,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/update-delivery-status/index.ts(28,7): error TS2304: Cannot find name 'Deno'.
+supabase/functions/update-delivery-status/index.ts(206,88): error TS18046: 'error' is of type 'unknown'.
+supabase_backup/functions/claim-delivery/index.ts(2,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase_backup/functions/claim-delivery/index.ts(3,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase_backup/functions/claim-delivery/index.ts(10,14): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase_backup/functions/claim-delivery/index.ts(17,7): error TS2304: Cannot find name 'Deno'.
+supabase_backup/functions/claim-delivery/index.ts(18,7): error TS2304: Cannot find name 'Deno'.
+supabase_backup/functions/claim-delivery/index.ts(100,30): error TS7006: Parameter 'str' implicitly has an 'any' type.
+supabase_backup/functions/claim-delivery/index.ts(132,49): error TS18046: 'error' is of type 'unknown'.
+supabase_backup/functions/gemini-health-analysis/index.ts(2,30): error TS2307: Cannot find module 'jsr:@supabase/supabase-js@2' or its corresponding type declarations.
+supabase_backup/functions/gemini-health-analysis/index.ts(5,27): error TS7006: Parameter 'images' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(5,35): error TS7006: Parameter 'symptoms' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(5,45): error TS7006: Parameter 'description' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(23,30): error TS7006: Parameter 'apiKey' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(23,38): error TS7006: Parameter 'images' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(23,46): error TS7006: Parameter 'symptoms' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(23,56): error TS7006: Parameter 'description' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(105,47): error TS18046: 'error' is of type 'unknown'.
+supabase_backup/functions/gemini-health-analysis/index.ts(111,30): error TS7006: Parameter 'apiKey' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(111,38): error TS7006: Parameter 'images' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(111,46): error TS7006: Parameter 'symptoms' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(111,56): error TS7006: Parameter 'description' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(212,53): error TS18046: 'error' is of type 'unknown'.
+supabase_backup/functions/gemini-health-analysis/index.ts(219,86): error TS2339: Property 'message' does not exist on type '{}'.
+supabase_backup/functions/gemini-health-analysis/index.ts(223,33): error TS7006: Parameter 'diagnosis' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(264,1): error TS2304: Cannot find name 'Deno'.
+supabase_backup/functions/gemini-health-analysis/index.ts(264,19): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase_backup/functions/gemini-health-analysis/index.ts(284,25): error TS2304: Cannot find name 'Deno'.
+supabase_backup/functions/gemini-health-analysis/index.ts(285,25): error TS2304: Cannot find name 'Deno'.
+supabase_backup/functions/gemini-health-analysis/index.ts(356,23): error TS2304: Cannot find name 'Deno'.
+supabase_backup/functions/gemini-health-analysis/index.ts(360,21): error TS2304: Cannot find name 'Deno'.
+supabase_backup/functions/gemini-health-analysis/index.ts(424,14): error TS18046: 'error' is of type 'unknown'.

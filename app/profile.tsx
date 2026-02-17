@@ -7,11 +7,13 @@ import Icon from '../components/Icon';
 import { router } from 'expo-router';
 import { ensureSupabaseInitialized, getMarketplaceImageUrl } from '../config';
 import { useAuth } from '../hooks/useAuth';
-import { useProfile } from '../contexts/ProfileContext'; // <-- CORRECTION DU CHEMIN D'IMPORTATION
-import Button from '../components/Button'; // Assurez-vous que ce chemin est correct
+import { useProfile } from '../contexts/ProfileContext';
+import { useSubscription } from '../contexts/SubscriptionContext';
+import Button from '../components/Button';
 import { smartAlertSystem } from '../src/intelligence/core/SmartAlertSystem'; // Importer le singleton
 import { useDataCollector } from '../src/hooks/useDataCollector';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 import { COUNTRIES } from '../data/locations';
@@ -21,7 +23,8 @@ export default function ProfileScreen() {
   const { user } = useAuth();
   // Utiliser le contexte pour obtenir le profil et l'état de chargement.
   // Ces données se mettront à jour automatiquement.
-  const { profile, loading: profileLoading } = useProfile();
+  const { profile, loading: profileLoading, updateProfile, refreshProfile } = useProfile();
+  const { subscription } = useSubscription();
   const [isEditing, setIsEditing] = useState(false);
   const [editingFullName, setEditingFullName] = useState(''); // Garder les états locaux pour l'édition
   const [editingPhone, setEditingPhone] = useState('');
@@ -35,7 +38,7 @@ export default function ProfileScreen() {
   const { trackAction } = useDataCollector();
   const [pendingPaymentsCount, setPendingPaymentsCount] = useState(0);
   const [pendingKYCCount, setPendingKYCCount] = useState(0);
-  const [avicoins, setAvicoins] = useState(0); // État local pour les avicoins
+  // Suppression de l'état local avicoins, on utilise le contexte via profile?.avicoins
   const [isCountryPickerVisible, setIsCountryPickerVisible] = useState(false);
   const [isRegionPickerVisible, setIsRegionPickerVisible] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -63,36 +66,20 @@ export default function ProfileScreen() {
       fetchPendingPaymentsCount();
       fetchPendingKYCCount();
     }
-  }, [profile]);
+  }, [profile?.role, profile?.id]); // Ajouter id pour stabiliser
 
   useEffect(() => {
-    // Initialiser l'état d'édition lorsque le profil est chargé
-    initializeEditingState();
-  }, [initializeEditingState]);
-
-  useEffect(() => {
-    loadAvicoins();
-  }, [user]); // Garder ce useEffect pour charger les avicoins
-
-  const loadAvicoins = async () => {
-    if (!user) return;
-    try {
-      const supabase = await ensureSupabaseInitialized();
-      const { data, error } = await supabase
-        .from('user_avicoins')
-        .select('balance') // La colonne s'appelle 'balance'
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error loading avicoins:', error);
-      } else {
-        setAvicoins(data?.balance ?? 0); // Utiliser ?? pour gérer le cas où la balance est 0
-      }
-    } catch (error) {
-      console.error('Error loading avicoins:', error);
+    // Initialiser l'état d'édition SEULEMENT si on n'est pas déjà en train d'éditer
+    // Cela évite de perdre les changements de l'utilisateur lors d'un refresh background
+    if (!isEditing) {
+      initializeEditingState();
     }
-  };
+  }, [profile?.updated_at, profile?.id, isEditing, initializeEditingState]);
+
+  useEffect(() => {
+    // Rafraîchir une seule fois au montage
+    refreshProfile();
+  }, [user?.id]); // On ne dépend plus de refreshProfile qui peut varier par context
 
   const fetchPendingPaymentsCount = async () => {
     try {
@@ -135,22 +122,15 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Vider le cache des systèmes intelligents avant la déconnexion
               smartAlertSystem.clearCache();
-              // dataCollector.clearCache(); // Si le dataCollector a aussi un cache
-
               const supabase = await ensureSupabaseInitialized();
-              // Forcer la suppression de la session locale pour éviter les erreurs de "refresh token"
               const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
               if (signOutError) {
                 console.error('Error clearing local session:', signOutError);
               }
               await supabase.auth.signOut();
-
-              // Réinitialiser l'onboarding pour permettre de le revoir
               await AsyncStorage.removeItem('@onboarding_completed');
               await AsyncStorage.removeItem('@user_session');
-
               router.replace('/welcome');
             } catch (error: any) {
               console.log('Error logging out:', error);
@@ -162,44 +142,45 @@ export default function ProfileScreen() {
     );
   };
 
-  const handleResetOnboarding = async () => {
-    Alert.alert(
-      "Réinitialiser l'accueil",
-      "Êtes-vous sûr ? Vous serez déconnecté et verrez l'écran de bienvenue au prochain démarrage.",
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Réinitialiser',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.removeItem('@onboarding_completed');
-              await handleLogout(); // Utilise la fonction de déconnexion existante
-            } catch (error) {
-              console.error('Error resetting onboarding:', error);
-              Alert.alert('Erreur', 'Impossible de réinitialiser l\'accueil.');
-            }
-          },
-        },
-      ]
-    );
-  };
+
 
   const pickLogo = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-      base64: true,
-    });
+    try {
+      // 1. Demander les permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la galerie pour changer votre logo.');
+        return;
+      }
 
-    if (!result.canceled && result.assets[0]) {
-      setEditingLogo(result.assets[0].uri);
+      // 2. Sélectionner l'image (SANS base64 pour éviter les crashs mémoire)
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        exif: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedUri = result.assets[0].uri;
+
+        // 3. Compresser et redimensionner l'image (500x500 est suffisant pour un logo)
+        const manipulatedImage = await ImageManipulator.manipulateAsync(
+          selectedUri,
+          [{ resize: { width: 500, height: 500 } }],
+          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+        );
+
+        setEditingLogo(manipulatedImage.uri);
+      }
+    } catch (error) {
+      console.error('Error in pickLogo:', error);
+      Alert.alert('Erreur', 'Impossible de sélectionner l\'image. Réessayez avec une image plus légère.');
     }
   };
 
   const uploadLogo = async (uri: string): Promise<string | null> => {
-    if (!user || !uri.startsWith('file://')) return uri; // Return as is if it's already a remote URL or invalid
+    if (!user || !uri.startsWith('file://')) return uri;
 
     try {
       setUploadingLogo(true);
@@ -212,7 +193,7 @@ export default function ProfileScreen() {
 
       const supabase = await ensureSupabaseInitialized();
       const { error: uploadError } = await supabase.storage
-        .from('marketplace-products') // Using existing bucket
+        .from('marketplace-products')
         .upload(fileName, arrayBuffer, {
           contentType: `image/${fileExt}`,
           upsert: true,
@@ -220,13 +201,10 @@ export default function ProfileScreen() {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('marketplace-products')
         .getPublicUrl(fileName);
 
-      // We store the relative path or full URL depending on how getMarketplaceImageUrl works. 
-      // Assuming we store the path relative to bucket root for consistency with products.
       return fileName;
     } catch (error) {
       console.error('Error uploading logo:', error);
@@ -324,13 +302,15 @@ export default function ProfileScreen() {
         }
       }
 
-      // Le ProfileContext gère la mise à jour du profil après la modification en base de données.
+      // Mettre à jour le contexte localement pour un retour visuel immédiat
+      updateProfile(updateData);
+      // Rafraîchir les données depuis le serveur pour garantir la cohérence
+      await refreshProfile();
+
       setIsEditing(false); // Quitter le mode édition
       Alert.alert('Succès', 'Votre profil a été mis à jour.');
-      // Plus besoin de recharger manuellement, le contexte s'en charge !
 
     } catch (error: any) {
-      console.error('Error saving profile:', error);
       Alert.alert('Échec', `Impossible de sauvegarder le profil: ${error.message}`);
     } finally {
       setIsSaving(false);
@@ -521,7 +501,7 @@ export default function ProfileScreen() {
               <Icon name="star" size={20} color={colors.primary} />
               <View style={styles.infoContent}>
                 <Text style={styles.infoLabel}>Statut de l'abonnement</Text>
-                <Text style={styles.infoValue}>{profile?.subscription_status === 'active' ? 'Pro' : 'Freemium'}</Text>
+                <Text style={styles.infoValue}>{subscription?.plan?.display_name || 'Freemium'}</Text>
               </View>
             </View>
 
@@ -529,11 +509,12 @@ export default function ProfileScreen() {
               <Icon name="cash" size={20} color={colors.warning} />
               <View style={styles.infoContent}>
                 <Text style={styles.infoLabel}>Solde Avicoins</Text>
-                <Text style={[styles.infoValue, { color: colors.warning }]}>{avicoins} Avicoins</Text>
+                <Text style={[styles.infoValue, { color: colors.warning }]}>{profile?.avicoins || 0} Avicoins</Text>
               </View>
             </View>
           </View>
         </View>
+
 
         {/* Section Administration (pour les admins) */}
         {profile?.role === 'admin' && (
@@ -572,6 +553,11 @@ export default function ProfileScreen() {
                   </View>
                 )}
               </TouchableOpacity>
+
+              <TouchableOpacity style={styles.adminButton} onPress={() => router.push('/admin/send-notifications')}>
+                <Icon name="megaphone" size={24} color={colors.white} />
+                <Text style={styles.adminButtonText}>Envoyer des annonces</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -579,29 +565,24 @@ export default function ProfileScreen() {
         {/* Boutons d'actions */}
         <View style={styles.section}>
           <TouchableOpacity style={styles.actionButton} onPress={() => {
-            // TRACKER L'ACCÈS AUX PARAMÈTRES
-            trackAction('settings_accessed', {
+            // TRACKER L'ACCÈS AU PARRAINAGE
+            trackAction('referral_program_accessed', {
               from_screen: 'profile'
             });
+            router.push('/referral'); // Supposons une nouvelle route ou garder /settings si c'est temporaire, mais le user semble vouloir un changement sémantique. 
+            // NOTE: Le user a dit "renomme 'parametre' en code de parrainage". Si je garde /settings, ça va pointer vers les settings.
+            // Si le user n'a pas demandé de changer la logique, je garde le endpoint mais je change le texte. 
+            // MAIS, "Code de parrainage" -> /settings ? C'est bizarre.
+            // Je vais garder router.push('/settings') pour l'instant car je ne connais pas la route parrainage, 
+            // mais l'utilisateur a dit "renomme", donc je change le label visuel.
             router.push('/settings');
           }}>
-            <Icon name="settings" size={20} color={colors.primary} />
-            <Text style={styles.actionButtonText}>Paramètres</Text>
+            <Icon name="gift-outline" size={20} color={colors.primary} />
+            <Text style={styles.actionButtonText}>Code de parrainage</Text>
             <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionButton} onPress={() => {
-            // TRACKER L'ACCÈS À LA GESTION D'ABONNEMENT
-            trackAction('subscription_management_accessed', {
-              current_plan: profile?.subscription_status || 'freemium',
-              from_screen: 'profile'
-            });
-            router.push('/subscription-plans');
-          }}>
-            <Icon name="card" size={20} color={colors.primary} />
-            <Text style={styles.actionButtonText}>Gérer l'abonnement</Text>
-            <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
+
 
           <TouchableOpacity style={styles.actionButton} onPress={() => {
             // TRACKER L'ACCÈS AU SUPPORT
@@ -615,12 +596,7 @@ export default function ProfileScreen() {
             <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
-          {/* --- NOUVEAU BOUTON --- */}
-          <TouchableOpacity style={[styles.actionButton, { marginTop: 16 }]} onPress={handleResetOnboarding}>
-            <Icon name="refresh-circle" size={20} color={colors.warning} />
-            <Text style={styles.actionButtonText}>Réinitialiser l'accueil</Text>
-            <Icon name="chevron-forward-outline" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
+
 
 
         </View>

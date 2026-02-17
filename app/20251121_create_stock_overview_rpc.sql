@@ -70,6 +70,49 @@ GRANT EXECUTE ON FUNCTION public.get_stock_overview(UUID) TO authenticated;
 
 COMMENT ON FUNCTION public.get_stock_overview(UUID) IS 'Fournit un aperçu complet et calculé du stock pour un utilisateur, incluant la consommation journalière, les jours restants et les KPIs globaux.';
 
+CREATE OR REPLACE FUNCTION public.upsert_lot_assignment(
+    p_user_id UUID,
+    p_lot_id UUID,
+    p_stock_item_id UUID,
+    p_daily_quantity NUMERIC,
+    p_feed_type TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO public.lot_stock_assignments (
+        user_id,
+        lot_id,
+        stock_item_id,
+        daily_quantity_per_bird,
+        feed_type,
+        is_active,
+        last_updated
+    )
+    VALUES (
+        p_user_id,
+        p_lot_id,
+        p_stock_item_id,
+        p_daily_quantity,
+        p_feed_type,
+        true,
+        NOW()
+    )
+    ON CONFLICT (lot_id, stock_item_id)
+    DO UPDATE SET
+        daily_quantity_per_bird = EXCLUDED.daily_quantity_per_bird,
+        feed_type = EXCLUDED.feed_type,
+        is_active = true,
+        last_updated = NOW();
+
+    RETURN jsonb_build_object('status', 'success');
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.upsert_lot_assignment(UUID, UUID, UUID, NUMERIC, TEXT) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.apply_daily_stock_deduction()
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -77,29 +120,76 @@ SECURITY DEFINER
 AS $$
 DECLARE
     assignment_record RECORD;
-    daily_deduction_kg NUMERIC;
-    total_deducted NUMERIC := 0;
-    assignments_processed INT := 0;
+    v_quantity_consumed NUMERIC;
+    v_total_deducted NUMERIC := 0;
+    v_count INT := 0;
+    v_audit_id UUID;
 BEGIN
+    -- 1. Créer une entrée d'audit (si la table existe, sinon on ignore cette partie pour l'instant)
+    -- On va créer la table dans une migration séparée juste après
+    
     FOR assignment_record IN
-        SELECT la.lot_id, la.stock_item_id, la.daily_quantity_per_bird, l.quantity
+        SELECT 
+            la.lot_id, 
+            la.stock_item_id, 
+            la.daily_quantity_per_bird, 
+            la.user_id,
+            l.quantity as bird_count,
+            l.name as lot_name
         FROM public.lot_stock_assignments la
         JOIN public.lots l ON la.lot_id = l.id
-        WHERE la.is_active = true AND l.status = 'active'
+        WHERE la.is_active = true 
+          AND l.status = 'active'
     LOOP
-        daily_deduction_kg := COALESCE(assignment_record.quantity, 0) * COALESCE(assignment_record.daily_quantity_per_bird, 0);
+        -- PROTECTION : Vérifier si une déduction automatique a déjà été faite aujourd'hui pour ce lot/stock
+        IF NOT EXISTS (
+            SELECT 1 FROM public.stock_consumption_tracking 
+            WHERE lot_id = assignment_record.lot_id 
+              AND stock_item_id = assignment_record.stock_item_id 
+              AND date = CURRENT_DATE 
+              AND entry_type = 'automatic'
+        ) THEN
+            -- Calculer la consommation totale du lot pour aujourd'hui
+            v_quantity_consumed := COALESCE(assignment_record.bird_count, 0) * COALESCE(assignment_record.daily_quantity_per_bird, 0);
 
-        UPDATE public.stock 
-        SET quantity = GREATEST(0, quantity - daily_deduction_kg)
-        WHERE id = assignment_record.stock_item_id;
+            IF v_quantity_consumed > 0 THEN
+                -- Insérer dans le tracking (ceci déclenchera le trigger de déduction du stock réel)
+                INSERT INTO public.stock_consumption_tracking (
+                    lot_id,
+                    stock_item_id,
+                    user_id,
+                    date,
+                    quantity_consumed,
+                    quantity_planned,
+                    entry_type
+                ) VALUES (
+                    assignment_record.lot_id,
+                    assignment_record.stock_item_id,
+                    assignment_record.user_id,
+                    CURRENT_DATE,
+                    v_quantity_consumed,
+                    v_quantity_consumed,
+                    'automatic'
+                );
 
-        UPDATE public.lots SET feed_consumption = COALESCE(feed_consumption, 0) + daily_deduction_kg WHERE id = assignment_record.lot_id;
+                -- Mise à jour directe de la consommation accumulée sur le lot
+                UPDATE public.lots 
+                SET feed_consumption = COALESCE(feed_consumption, 0) + v_quantity_consumed 
+                WHERE id = assignment_record.lot_id;
 
-        total_deducted := total_deducted + daily_deduction_kg;
-        assignments_processed := assignments_processed + 1;
+                v_total_deducted := v_total_deducted + v_quantity_consumed;
+                v_count := v_count + 1;
+            END IF;
+        END IF;
     END LOOP;
 
-    RETURN jsonb_build_object('status', 'success', 'assignments_processed', assignments_processed, 'total_feed_deducted_kg', total_deducted);
+    -- Notifier dans l'audit (si implémenté plus tard)
+    RETURN jsonb_build_object(
+        'status', 'success', 
+        'assignments_processed', v_count, 
+        'total_kg_deducted', v_total_deducted,
+        'timestamp', NOW()
+    );
 END;
 $$;
 

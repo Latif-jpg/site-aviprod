@@ -7,20 +7,36 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuth } from '../hooks/useAuth'; // Importer le hook d'authentification
 import { supabase } from '../config'; // Importer le client Supabase
 import Toast from 'react-native-toast-message'; // Pour afficher les notifications
-import { Alert, AppState } from 'react-native';
+import { Alert, AppState, View, Text, ActivityIndicator, Platform } from 'react-native';
+import { colors, commonStyles } from '../styles/commonStyles';
 import Constants from 'expo-constants';
 import Icon from '../components/Icon'; // Importer Icon
 // import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
+import * as Font from 'expo-font';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import { logInfo, logError } from '../utils/sendLog'; // --- AJOUT : Importer notre logger ---
 import * as SplashScreen from 'expo-splash-screen';
+import { initializeAdMob } from '../services/adMobService'; // --- AJOUT : Importer notre service AdMob (compatible web) ---
+import ErrorBoundary from '../components/ErrorBoundary';
+import InstallPWAButton from '../components/InstallPWAButton';
 // import { usePushNotifications } from '../hooks/usePushNotifications'; // --- AJOUT : Importer le hook de notifications push ---
 
 // Maintenir le Splash Screen visible jusqu'à ce que l'app soit prête
 SplashScreen.preventAutoHideAsync().catch(() => {
   /* reloading the app might trigger some race conditions, ignore them */
 });
+
+// --- AJOUT : Initialisation AdMob immédiate (via le service) ---
+console.log('⚙️ [AdMob] Pre-initializing SDK...');
+initializeAdMob()
+  .then(adapterStatuses => {
+    console.log('✅ [AdMob] SDK Pre-initialized:', adapterStatuses);
+  })
+  .catch(error => {
+    console.error('❌ [AdMob] SDK Pre-initialization FAILED:', error);
+  });
 
 const RealtimeNotificationHandler = () => {
   const { user } = useAuth();
@@ -34,7 +50,13 @@ const RealtimeNotificationHandler = () => {
     console.log(`🔔 [Realtime] Abonnement au canal de notifications pour l'utilisateur: ${user.id}`);
 
     // S'abonner au canal privé de l'utilisateur
-    const channel = supabase.channel(`user:${user.id}:notifications`, {
+    const channelName = `user:${user.id}:notifications`;
+    if (!user.id) {
+      console.warn('⚠️ [Realtime] user.id est vide, impossible de créer le canal de notifications.');
+      return;
+    }
+
+    const channel = supabase.channel(channelName, {
       config: {
         broadcast: {
           self: true, // Recevoir les messages que l'on envoie soi-même (utile pour le test)
@@ -121,7 +143,14 @@ const MainLayout = () => {
 
   // Afficher un écran de chargement pendant que l'authentification et le profil se chargent
   if (authLoading || profileLoading) {
-    return null; // Ou un écran de chargement
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={{ marginTop: 20 }}>Chargement du profil utilisateur...</Text>
+        {authLoading && <Text style={{ fontSize: 10, color: 'gray' }}>Auth Loading...</Text>}
+        {profileLoading && <Text style={{ fontSize: 10, color: 'gray' }}>Profile Loading...</Text>}
+      </View>
+    );
   }
 
   // Si l'utilisateur est connecté, afficher la navigation principale
@@ -147,6 +176,9 @@ const MainLayout = () => {
       <Tabs.Screen name="auth" options={{ href: null }} />
       <Tabs.Screen name="seller-orders" options={{ href: null }} />
       <Tabs.Screen name="delivery-driver" options={{ href: null }} />
+      <Tabs.Screen name="forum" options={{ href: null }} />
+      <Tabs.Screen name="forum/[categoryId]" options={{ href: null }} />
+      <Tabs.Screen name="forum/topic/[topicId]" options={{ href: null }} />
     </Tabs>
   );
 };
@@ -168,8 +200,8 @@ const hideSplash = async () => {
    OTA – version sécurisée
 ----------------------------------------------------------------- */
 const checkAndApplyUpdate = async () => {
-  if (__DEV__) {
-    console.log('Mode dev : OTA désactivé');
+  if (__DEV__ || Platform.OS === 'web') {
+    console.log('Mode dev ou Web : OTA désactivé');
     return;
   }
   try {
@@ -196,7 +228,7 @@ const checkAndApplyUpdate = async () => {
             try {
               logInfo('🔄 [OTA] Redémarrage de l\'application pour appliquer la mise à jour...');
               await Updates.reloadAsync();
-            } catch (e) {
+            } catch (e: any) {
               logError('❌ [OTA] Erreur au redémarrage.', {
                 message: e.message,
                 stack: e.stack
@@ -206,7 +238,7 @@ const checkAndApplyUpdate = async () => {
         },
       ]
     );
-  } catch (error) {
+  } catch (error: any) {
     console.warn(`⚠️ [OTA] Erreur lors de la vérification : ${error}`);
     logError('❌ [OTA] Erreur lors de la vérification.', {
       message: error.message,
@@ -218,10 +250,25 @@ const checkAndApplyUpdate = async () => {
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
+  const [fontsLoaded] = Font.useFonts({
+    ...Ionicons.font,
+    ...MaterialIcons.font,
+  });
 
-  // 1. Gérer le splash screen et l'état de préparation de l'app
+  // 1. Initialiser AdMob et gérer le splash screen
   useEffect(() => {
     logInfo('🚀 Application en cours de démarrage...');
+
+    // Initialiser AdMob via le service
+    console.log('⚙️ [AdMob] Initializing SDK...');
+    initializeAdMob()
+      .then(adapterStatuses => {
+        console.log('✅ [AdMob] SDK Initialized successfully:', adapterStatuses);
+      })
+      .catch(error => {
+        console.error('❌ [AdMob] SDK Initialization FAILED:', error);
+      });
+
     hideSplash().then(() => setIsReady(true));
   }, []);
 
@@ -232,20 +279,37 @@ export default function RootLayout() {
     }
   }, [isReady]);
 
+  // Fallback visible si le contenu principal plante
+  if (!isReady || !fontsLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={{ marginTop: 10 }}>Chargement des ressources...</Text>
+      </View>
+    );
+  }
+
+  const RootContainer = Platform.OS === 'web' ? View : GestureHandlerRootView;
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider>
-        <ProfileProvider>
-          <NotificationProvider>
-            <SubscriptionProvider>
-              <RealtimeNotificationHandler />
-              {/* Slot rendra soit MainLayout (Tabs) soit un autre écran comme Auth */}
-              <Slot />
-              <Toast />
-            </SubscriptionProvider>
-          </NotificationProvider>
-        </ProfileProvider>
-      </ThemeProvider>
-    </GestureHandlerRootView>
+    <RootContainer style={{ flex: 1 }}>
+      <ErrorBoundary>
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          <ThemeProvider>
+            <ProfileProvider>
+              <NotificationProvider>
+                <SubscriptionProvider>
+                  <RealtimeNotificationHandler />
+                  {/* Slot rendra soit MainLayout (Tabs) soit un autre écran comme Auth */}
+                  <Slot />
+                  <InstallPWAButton />
+                  <Toast />
+                </SubscriptionProvider>
+              </NotificationProvider>
+            </ProfileProvider>
+          </ThemeProvider>
+        </View>
+      </ErrorBoundary>
+    </RootContainer>
   );
 }

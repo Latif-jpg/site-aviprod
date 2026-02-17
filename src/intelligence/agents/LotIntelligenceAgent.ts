@@ -1,7 +1,7 @@
- // src/intelligence/agents/LotIntelligenceAgent.ts
+// src/intelligence/agents/LotIntelligenceAgent.ts
 // --- CORRECTION : Utiliser une seule instance de Supabase ---
 import { supabase } from '../../../config';
-
+import { useState, useEffect } from 'react';
 import { smartAlertSystem } from '../core/SmartAlertSystem';
 import { dataCollector } from '../core/DataCollector';
 
@@ -23,11 +23,14 @@ interface LotData {
   race: string;
   bird_type: string;
   quantity: number;
+  initial_quantity?: number;
   age: number;
   poids_moyen?: number;
+  mortality?: number;
   entry_date: string;
-  created_at: string; 
+  created_at: string;
   user_id: string;
+  farm_id?: string;
 }
 
 interface GrowthPrediction {
@@ -122,7 +125,7 @@ const BREED_STANDARDS: Record<string, {
 class LotIntelligenceAgent {
   private static instance: LotIntelligenceAgent;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): LotIntelligenceAgent {
     if (!LotIntelligenceAgent.instance) {
@@ -175,20 +178,19 @@ class LotIntelligenceAgent {
     // Poids actuel (estimé ou réel)
     const currentWeight = lot.poids_moyen || this.estimateCurrentWeight(lot.age, standards);
 
-    // Prédiction ML simplifiée (version heuristique)
-    const daysRemaining = (42 - lot.age); // 6 semaines standard
-    const predictedGrowth = daysRemaining * standards.growth_rate_per_day / 1000;
-    const predictedFinalWeight = currentWeight + predictedGrowth;
+    // Prédiction basée sur la courbe biologique
+    const predictedFinalWeight = this.estimateCurrentWeight(42, standards);
 
-    // Ajustement selon historique
-    const historicalFactor = historicalData.avg_final_weight / standards.target_weight_6weeks;
-    const adjustedPrediction = predictedFinalWeight * historicalFactor;
+    // Ajustement selon le poids actuel (si le lot est en retard ou en avance)
+    const expectedWeightAtCurrentAge = this.estimateCurrentWeight(lot.age, standards);
+    const performanceFactor = currentWeight / expectedWeightAtCurrentAge;
+    const adjustedPrediction = predictedFinalWeight * performanceFactor;
 
     // Calcul confiance
     const confidenceScore = this.calculatePredictionConfidence(lot, historicalData);
 
     // Fenêtre de vente optimale
-    const optimalSaleWindow = this.calculateOptimalSaleWindow(
+    const optimalSaleWindow = await this.calculateOptimalSaleWindow(
       lot,
       adjustedPrediction,
       standards
@@ -201,19 +203,9 @@ class LotIntelligenceAgent {
       standards
     );
 
+    const daysRemaining = Math.max(0, 42 - lot.age);
     const predictedSaleTimestamp = Date.now() + daysRemaining * 24 * 60 * 60 * 1000;
-    let predictedSaleDateObj: Date;
-
-    if (isNaN(predictedSaleTimestamp) || predictedSaleTimestamp < 0) {
-      predictedSaleDateObj = new Date(Date.now() + 42 * 24 * 60 * 60 * 1000);
-    } else {
-      predictedSaleDateObj = new Date(predictedSaleTimestamp);
-      if (isNaN(predictedSaleDateObj.getTime())) {
-        predictedSaleDateObj = new Date(Date.now() + 42 * 24 * 60 * 60 * 1000);
-      }
-    }
-
-    const predictedSaleDateString = predictedSaleDateObj.toISOString();
+    const predictedSaleDateString = new Date(predictedSaleTimestamp).toISOString();
 
     return {
       current_weight: currentWeight,
@@ -232,10 +224,13 @@ class LotIntelligenceAgent {
     const standards = this.getBreedStandards(lot.race);
     const currentWeight = lot.poids_moyen || this.estimateCurrentWeight(lot.age, standards);
 
-    const feedPerBirdPerDay = currentWeight * 0.025;
+    // Consommation dynamique: les oiseaux mangent entre 5% et 9% de leur poids vif selon l'âge
+    // Plus ils sont jeunes, plus le ratio est élevé
+    const consumptionRatio = Math.max(0.05, 0.12 - (lot.age * 0.0015));
+    const feedPerBirdPerDay = currentWeight * consumptionRatio;
     const totalDailyFeed = feedPerBirdPerDay * lot.quantity;
 
-    const actualConsumption = await this.getActualFeedConsumption(lot.id);
+    const actualConsumption = await this.getActualFeedConsumption(lot.id, lot);
 
     const ic = actualConsumption.total_feed > 0 && currentWeight > 0 && lot.quantity > 0 ? actualConsumption.total_feed / (currentWeight * lot.quantity) : 0;
     const efficiency = (standards.fcr_target / ic) * 100;
@@ -245,6 +240,20 @@ class LotIntelligenceAgent {
       standards.fcr_target,
       efficiency
     );
+
+    // --- NOUVEAU : Vérifier si le prix du stock est manquant ---
+    try {
+      const { data: stockData } = await supabase
+        .from('stock')
+        .select('prix_unitaire')
+        .eq('user_id', lot.user_id)
+        .ilike('nom', '%aliment%')
+        .limit(1);
+
+      if (!stockData || stockData.length === 0 || !stockData[0].prix_unitaire) {
+        recommendations.unshift('💡 Ajoutez le prix de votre aliment en stock pour des calculs de marge précis');
+      }
+    } catch (e) { }
 
     return {
       current_consumption: actualConsumption.daily_average,
@@ -260,8 +269,36 @@ class LotIntelligenceAgent {
    */
   private async analyzeHealth(lot: LotData): Promise<HealthAnalysis> {
     const standards = this.getBreedStandards(lot.race);
-    const mortalityRate = 0;
+
+    // Récupérer l'historique de mortalité des 30 derniers jours
     const mortalityHistory = await this.getMortalityHistory(lot.id);
+
+    // Calculer le taux de mortalité moyen à partir de l'historique
+    let mortalityRate = 0;
+    if (mortalityHistory && mortalityHistory.length > 0) {
+      // Filtrer les 30 derniers jours
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const recentHistory = mortalityHistory.filter(record => {
+        const recordDate = new Date(record.date);
+        return recordDate >= thirtyDaysAgo;
+      });
+
+
+      if (recentHistory.length > 0) {
+        const totalMortality = recentHistory.reduce((sum, record) => sum + (record.mortalite || 0), 0);
+        mortalityRate = (lot.initial_quantity && lot.initial_quantity > 0) ? (totalMortality / lot.initial_quantity) * 100 : 0;
+        console.log(`[LotAgent] Taux de mortalité calculé pour lot ${lot.id}: ${mortalityRate.toFixed(2)}% (${recentHistory.length} jours de données)`);
+      }
+    }
+
+    // Fallback : utiliser le taux de mortalité du lot si aucune donnée d'historique
+    if (mortalityRate === 0 && lot.mortality && lot.initial_quantity) {
+      mortalityRate = (lot.mortality / lot.initial_quantity) * 100;
+      console.log(`[LotAgent] Utilisation du taux de mortalité du lot: ${mortalityRate.toFixed(2)}%`);
+    }
+
     const mortalityTrend = this.analyzeMortalityTrend(mortalityHistory);
     const riskLevel = this.calculateHealthRiskLevel(
       mortalityRate,
@@ -284,7 +321,7 @@ class LotIntelligenceAgent {
   private async benchmarkLot(lot: LotData): Promise<LotBenchmark> {
     const { data: similarLots } = await supabase
       .from('lots')
-      .select('*') 
+      .select('*')
       .eq('user_id', lot.user_id)
       .eq('race', lot.race)
       .eq('archived', true)
@@ -454,7 +491,7 @@ class LotIntelligenceAgent {
 
       await supabase.from('predictions').insert({
         user_id: user.id,
-        farm_id: lot.farm_id,
+        farm_id: lot.farm_id || lot.user_id,
         prediction_type: 'lot_growth',
         target_entity_type: 'lot',
         target_entity_id: lot.id,
@@ -481,9 +518,6 @@ class LotIntelligenceAgent {
       .from('lots')
       .select('id, name, breed, bird_type, quantity, age, target_weight, entry_date, created_at, user_id')
       .eq('id', lotId)
-      // --- CORRECTION : Utiliser maybeSingle() au lieu de single() ---
-      // single() génère une erreur si aucune ligne n'est trouvée (PGRST116).
-      // maybeSingle() retourne simplement null, ce qui est plus sûr et évite le plantage.
       .maybeSingle();
 
     if (error) {
@@ -491,7 +525,6 @@ class LotIntelligenceAgent {
       return null;
     }
 
-    // --- AJOUT : Gérer le cas où aucun lot n'est trouvé ---
     if (!data) {
       console.warn(`[LotIntelligenceAgent] Aucun lot trouvé pour l'ID: ${lotId}`);
       return null;
@@ -518,8 +551,16 @@ class LotIntelligenceAgent {
     return BREED_STANDARDS[normalized] || BREED_STANDARDS['default'];
   }
 
+  /**
+   * ESTIMATION DU POIDS BASÉ SUR UNE COURBE SIGMOÏDE (GOMPERTZ SIMPLIFIÉE)
+   * Plus réaliste que la croissance linéaire.
+   */
   private estimateCurrentWeight(ageDays: number, standards: any): number {
-    return (standards.growth_rate_per_day * ageDays) / 1000;
+    const k = 0.08;
+    const m = 28;
+    const targetWeight = standards.target_weight_8weeks || 2.8;
+    const weight = targetWeight / (1 + Math.exp(-k * (ageDays - m)));
+    return Math.max(0.040, weight);
   }
 
   private async getHistoricalGrowthData(userId: string, race: string) {
@@ -549,16 +590,70 @@ class LotIntelligenceAgent {
     return Math.min(confidence, 95);
   }
 
-  private calculateOptimalSaleWindow(lot: LotData, predictedWeight: number, standards: any) {
-    const targetWeight = standards.target_weight_6weeks;
-    const daysToTarget = ((targetWeight - (lot.poids_moyen || 0.5)) / (standards.growth_rate_per_day / 1000));
-    const startDate = new Date(Date.now() + (daysToTarget - 2) * 24 * 60 * 60 * 1000);
-    const endDate = new Date(Date.now() + (daysToTarget + 3) * 24 * 60 * 60 * 1000);
-    const estimatedMargin = 15;
+  private async calculateOptimalSaleWindow(lot: LotData, predictedWeight: number, standards: any) {
+    let sellingPricePerKg = 2500;
+    let feedCostPerKg = 400;
+    let isDefaultPrice = true;
+
+    // --- NOUVEAU : Récupération dynamique du prix de l'aliment en stock ---
+    try {
+      const { data: stockData } = await supabase
+        .from('stock')
+        .select('prix_unitaire')
+        .eq('user_id', lot.user_id)
+        .ilike('nom', '%aliment%')
+        .order('updated_at', { ascending: false })
+        .limit(1);
+
+      if (stockData && stockData.length > 0 && stockData[0].prix_unitaire > 0) {
+        feedCostPerKg = stockData[0].prix_unitaire;
+        isDefaultPrice = false;
+        console.log(`💰 [IA Agent] Prix aliment réel trouvé : ${feedCostPerKg} CFA/kg`);
+      }
+    } catch (e) {
+      console.warn('Impossible de récupérer le prix de stock, utilisation du défaut.');
+    }
+
+    let currentWeight = lot.poids_moyen || this.estimateCurrentWeight(lot.age, standards);
+    let optimalStartDate: Date | null = null;
+    let optimalEndDate: Date | null = null;
+
+    const expectedAtCurrentAge = this.estimateCurrentWeight(lot.age, standards);
+    const performanceFactor = currentWeight / (expectedAtCurrentAge || 0.1);
+
+    for (let i = 0; i < 45; i++) {
+      const simulatedAge = lot.age + i;
+      const weightToday = this.estimateCurrentWeight(simulatedAge, standards) * performanceFactor;
+      const weightTomorrow = this.estimateCurrentWeight(simulatedAge + 1, standards) * performanceFactor;
+      const dailyWeightGainKg = weightTomorrow - weightToday;
+
+      const consumptionRatio = Math.max(0.05, 0.12 - (simulatedAge * 0.0015));
+      const dailyFeedCost = weightToday * consumptionRatio * feedCostPerKg;
+      const dailyRevenueGain = dailyWeightGainKg * sellingPricePerKg;
+
+      if (dailyRevenueGain > dailyFeedCost && !optimalStartDate && simulatedAge >= 35) {
+        optimalStartDate = new Date(Date.now() + i * 24 * 60 * 60 * 1000);
+      }
+
+      if (dailyRevenueGain < dailyFeedCost && optimalStartDate && !optimalEndDate) {
+        optimalEndDate = new Date(Date.now() + i * 24 * 60 * 60 * 1000);
+        break;
+      }
+    }
+
+    if (!optimalStartDate) {
+      optimalStartDate = new Date(Date.now() + Math.max(0, 42 - lot.age) * 24 * 60 * 60 * 1000);
+      optimalEndDate = new Date(optimalStartDate.getTime() + 5 * 24 * 60 * 60 * 1000);
+    } else if (!optimalEndDate) {
+      optimalEndDate = new Date(optimalStartDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
+
     return {
-      start_date: startDate.toISOString(),
-      end_date: endDate.toISOString(),
-      estimated_margin: estimatedMargin,
+      start_date: optimalStartDate.toISOString(),
+      end_date: optimalEndDate.toISOString(),
+      estimated_margin: (sellingPricePerKg * predictedWeight) - (feedCostPerKg * predictedWeight * 1.7),
+      use_default_price: isDefaultPrice,
+      used_feed_price: feedCostPerKg,
     };
   }
 
@@ -572,7 +667,6 @@ class LotIntelligenceAgent {
     return 'critical';
   }
 
-  // --- NOUVEAU : Fonction utilitaire pour déterminer le stade ---
   private getStageFromAge(birdType: string, age: number): 'starter' | 'grower' | 'finisher' | 'layer' | 'pre-layer' {
     const type = birdType?.toLowerCase() || 'broiler';
     if (type === 'broiler' || type === 'poulet de chair') {
@@ -580,14 +674,69 @@ class LotIntelligenceAgent {
       if (age <= 32) return 'grower';
       return 'finisher';
     }
-    // Ajouter la logique pour les pondeuses ici si nécessaire
     return 'starter';
   }
 
-  private async getActualFeedConsumption(lotId: string) {
+  /**
+   * Obtenir la consommation alimentaire réelle du lot
+   * Interroge stock_consumption_tracking pour les 7 derniers jours
+   * Fallback vers calcul théorique si aucune donnée n'existe
+   */
+  private async getActualFeedConsumption(lotId: string, lot: LotData) {
+    try {
+      // Tenter de récupérer les données réelles de consommation des 7 derniers jours
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const { data: consumptionData, error } = await supabase
+        .from('stock_consumption_tracking')
+        .select('quantity_consumed, date')
+        .eq('lot_id', lotId)
+        .gte('date', sevenDaysAgo.toISOString().split('T')[0])
+        .order('date', { ascending: false });
+
+      if (!error && consumptionData && consumptionData.length > 0) {
+        // Calculer la moyenne journalière à partir des données réelles
+        const totalConsumed = consumptionData.reduce((sum, record) => sum + (record.quantity_consumed || 0), 0);
+        const daysWithData = consumptionData.length;
+        const dailyAverage = totalConsumed / daysWithData;
+
+        console.log(`[LotAgent] Consommation réelle trouvée pour lot ${lotId}: ${dailyAverage.toFixed(2)} kg/jour (${daysWithData} jours de données)`);
+
+        return {
+          daily_average: dailyAverage,
+          total_feed: totalConsumed,
+        };
+      }
+
+      // Fallback : Aucune donnée réelle, utiliser le calcul théorique avec les données du lot déjà disponibles
+      console.log(`[LotAgent] Aucune donnée de consommation réelle pour lot ${lotId}, utilisation du calcul théorique`);
+
+      const standards = this.getBreedStandards(lot.bird_type || 'broilers');
+      const currentWeight = lot.poids_moyen || this.estimateCurrentWeight(lot.age, standards);
+
+      // Calcul théorique : 5-12% du poids vif selon l'âge
+      const consumptionRatio = Math.max(0.05, 0.12 - (lot.age * 0.0015));
+      const feedPerBirdPerDay = (currentWeight / 1000) * consumptionRatio; // Convertir g en kg
+      const dailyAverage = feedPerBirdPerDay * lot.quantity;
+      const totalFeed = dailyAverage * 7; // Estimation sur 7 jours
+
+      console.log(`[LotAgent] Calcul théorique - Âge: ${lot.age}j, Poids: ${currentWeight}g, Ratio: ${(consumptionRatio * 100).toFixed(1)}%, Conso/oiseau: ${feedPerBirdPerDay.toFixed(3)}kg, Total: ${dailyAverage.toFixed(2)}kg/jour`);
+
+      return {
+        daily_average: dailyAverage,
+        total_feed: totalFeed,
+      };
+
+    } catch (error) {
+      console.error('[LotAgent] Erreur lors de la récupération de la consommation:', error);
+    }
+
+    // Fallback ultime : valeurs par défaut (ne devrait jamais arriver)
+    console.warn(`[LotAgent] Utilisation du fallback ultime (50kg/jour) pour lot ${lotId}`);
     return {
       daily_average: 50,
-      total_feed: 1500,
+      total_feed: 350,
     };
   }
 
@@ -751,11 +900,73 @@ export const lotIntelligenceAgent = LotIntelligenceAgent.getInstance();
 // Export wrapper pour l'interface commune
 export const lotIntelligenceAgentWrapper = new LotIntelligenceAgentWrapper();
 
-// Hook React
-export const useLotIntelligence = () => {
+// Hook pour les actions de l'agent
+export const useLotIntelligenceActions = () => {
   return {
     analyzeLot: (lotId: string) => lotIntelligenceAgent.analyzeLot(lotId),
     monitorAllLots: (userId: string) => lotIntelligenceAgent.monitorAllLots(userId),
-    generateUpcomingFeedAlerts: (userId: string) => lotIntelligenceAgent.generateUpcomingFeedAlerts(userId),
+    generateUpcomingFeedAlerts: (userId: string) => lotIntelligenceAgent.monitorAllLots(userId), // Placeholder
   };
+};
+
+/* --- NOUVEAU : Hook d'observation standard pour le Dashboard --- */
+export const useLotIntelligence = (lotId: string) => {
+  const [lot, setLot] = useState<any>(null);
+  const [insights, setInsights] = useState<any[]>([]);
+  const [kpis, setKpis] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!lotId) {
+      setLoading(false);
+      return;
+    }
+
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const result = await lotIntelligenceAgent.analyzeLot(lotId);
+
+        // Récupérer les données fraîches du lot
+        const { data: lotData } = await supabase
+          .from('lots')
+          .select('*, taux_mortalite')
+          .eq('id', lotId)
+          .single();
+
+        setLot(lotData);
+
+        if (result) {
+          // Transformer le résultat de l'agent pour correspondre au format attendu par l'UI
+          setInsights([
+            ...(result.growth as any).recommendations || [],
+            ...result.feed.recommendations || [],
+            ...result.health.predicted_issues.map((i: any) => ({
+              category: 'health_prediction',
+              title: i.issue,
+              probability: i.probability,
+              days_to_occurrence: i.days_to_occurrence
+            }))
+          ]);
+
+          setKpis({
+            ...result.growth,
+            ...result.feed,
+            ...result.health,
+            ic: result.feed.indice_de_consommation,
+            efficiency_score: result.feed.efficiency_score,
+            benchmark: result.benchmark
+          });
+        }
+      } catch (error) {
+        console.error('Erreur useLotIntelligence:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [lotId]);
+
+  return { lot, insights, kpis, loading };
 };

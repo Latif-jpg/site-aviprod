@@ -8,7 +8,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Dimensions,
-  Alert
+  Alert,
+  Switch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Picker } from '@react-native-picker/picker';
@@ -17,6 +18,8 @@ import Icon from '../../../components/Icon';
 import Button from '../../../components/Button';
 import { useRationAdvisor } from '../agents/RationAdvisor';
 import { supabase } from '../../../config';
+import { usePremiumFeature } from '../../../hooks/usePremiumFeature';
+import SmartTunnelModal from '../../../components/SmartTunnelModal';
 
 const { width } = Dimensions.get('window');
 
@@ -31,6 +34,8 @@ interface EnrichedRationAnalysis {
     name: string;
     percentage: number;
     quantity_kg_per_day: number;
+    quantity_per_bag?: number;
+    total_phase_kg?: number;
   }>;
   nutritional_values: {
     protein_percentage: number;
@@ -63,27 +68,36 @@ export default function RationAdvisorDashboard({
   const [currentRation, setCurrentRation] = useState<EnrichedRationAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // États pour la gestion du stock
   const [feedStock, setFeedStock] = useState<any[]>([]);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
+  const [createNewStock, setCreateNewStock] = useState(true); // Toggle par défaut sur Création
   const [isSaving, setIsSaving] = useState(false);
+
+  const { requestAccess, showTunnel, tunnelProps, isLoading: accessLoading } = usePremiumFeature({
+    featureKey: 'ration_advisor',
+    featureName: 'Conseiller de Ration IA',
+    cost: 10,
+  });
 
   // Charger le stock d'aliments
   useEffect(() => {
     const loadFeedStock = async () => {
-        if (!lot) return;
-        try {
-            const { data, error: stockError } = await supabase
-              .from('stock')
-              .select('id, name')
-              .eq('category', 'feed');
-            if (stockError) throw stockError;
-            setFeedStock(data || []);
-            if (data && data.length > 0) {
-              setSelectedFeedId(data[0].id);
-            }
-        } catch (err) {
-            console.error("Erreur chargement du stock d'aliments:", err);
+      if (!lot) return;
+      try {
+        const { data, error: stockError } = await supabase
+          .from('stock')
+          .select('id, name, quantity, unit')
+          .eq('category', 'feed');
+        if (stockError) throw stockError;
+        setFeedStock(data || []);
+        if (data && data.length > 0) {
+          setSelectedFeedId(data[0].id);
         }
+      } catch (err) {
+        console.error("Erreur chargement du stock d'aliments:", err);
+      }
     };
     loadFeedStock();
   }, [lot]);
@@ -98,7 +112,7 @@ export default function RationAdvisorDashboard({
     try {
       setLoading(true);
       setError(null);
-      
+
       // 🔍 DEBUG - Afficher les données du lot
       console.log('🔍 DEBUG Lot:', {
         name: lot.name,
@@ -113,6 +127,7 @@ export default function RationAdvisorDashboard({
         if (['layers', 'pondeuse', 'breeders'].includes(type)) {
           if (age <= 42) return 'démarrage';
           if (age <= 119) return 'croissance';
+          if (age <= 140) return 'pré-ponte';
           return 'ponte';
         }
         if (age <= 21) return 'démarrage';
@@ -123,15 +138,18 @@ export default function RationAdvisorDashboard({
       const phase = getPhaseFromAge(lot.bird_type, lot.age);
 
       const breedKey = ['layers', 'pondeuse', 'breeders'].includes(lot.bird_type?.toLowerCase() || '') ? 'layer' : 'broiler';
-      const stageKey = phase === 'démarrage' ? 'starter' : phase === 'croissance' ? 'grower' : phase === 'ponte' ? 'layer' : 'finisher';
-      
+      const stageKey = phase === 'démarrage' ? 'starter' :
+        phase === 'croissance' ? 'grower' :
+          phase === 'pré-ponte' ? 'pre-layer' :
+            phase === 'ponte' ? 'layer' : 'finisher';
+
       const { data: rationStandards, error: standardsError } = await supabase
         .from('feed_rations')
         .select('daily_consumption_per_bird_grams')
         .eq('breed', breedKey)
         .eq('stage', stageKey)
         .single();
-        
+
       if (standardsError && standardsError.code !== 'PGRST116') throw standardsError;
 
       // ✅ CORRECTION : Récupérer la valeur par oiseau depuis la base
@@ -142,6 +160,13 @@ export default function RationAdvisorDashboard({
         dailyFeedPerBird: `${dailyFeedPerBird}g/oiseau/jour`,
         source: rationStandards ? 'Base de données' : 'Valeur par défaut'
       });
+
+      // --- PROTECTION PREMIUM ---
+      const access = await requestAccess();
+      if (!access.granted) {
+        setLoading(false);
+        return;
+      }
 
       const baseRation = await formulateRation(lot.bird_type, phase, lot.quantity);
       if (!baseRation) throw new Error(`L'IA n'a pas pu formuler de ration pour le lot ${lot.name}.`);
@@ -156,9 +181,9 @@ export default function RationAdvisorDashboard({
         totalDaily: `${totalDailyKg.toFixed(2)}kg`,
         calculation: `(${dailyFeedPerBird}g × ${lot.quantity} oiseaux) ÷ 1000 = ${totalDailyKg.toFixed(2)}kg`
       });
-      
+
       const STAGE_END_DAYS = {
-        layer: { 'démarrage': 42, 'croissance': 119, 'ponte': 540 },
+        layer: { 'démarrage': 42, 'croissance': 119, 'pré-ponte': 140, 'ponte': 540 },
         broiler: { 'démarrage': 21, 'croissance': 32, 'finition': 45 }
       };
       const stageEndDay = STAGE_END_DAYS[breedKey as keyof typeof STAGE_END_DAYS][phase as keyof typeof STAGE_END_DAYS[typeof breedKey]] || lot.age + 1;
@@ -176,6 +201,8 @@ export default function RationAdvisorDashboard({
           name: ing.name,
           percentage: ing.percentage,
           quantity_kg_per_day: (ing.percentage / 100) * totalDailyKg,
+          quantity_per_bag: (ing as any).quantity_per_bag, // Récupéré du calcul unifié
+          total_phase_kg: (ing as any).total_phase_kg // Récupéré du calcul unifié
         })),
         nutritional_values: {
           protein_percentage: baseRation.ingredients.reduce((sum, ing) => sum + (ing.nutritional_value.protein * ing.percentage / 100), 0),
@@ -215,61 +242,78 @@ export default function RationAdvisorDashboard({
   }, [loadRationAnalysis]);
 
   const handleSave = async () => {
-    if (!currentRation || !lot || !selectedFeedId) {
-      Alert.alert("Erreur", "Veuillez générer une ration et sélectionner un aliment avant d'enregistrer.");
+    if (!currentRation || !lot) {
+      Alert.alert("Erreur", "Données manquantes.");
+      return;
+    }
+
+    // Si mode manuel et rien sélectionné
+    if (!createNewStock && !selectedFeedId) {
+      Alert.alert("Erreur", "Veuillez sélectionner un aliment existant ou choisir la création automatique.");
       return;
     }
 
     setIsSaving(true);
     try {
-      const rationName = `Ration IA (${currentRation.phase}) - ${currentRation.race}`;
-      
-      // 🔍 DEBUG - Vérifier les valeurs avant sauvegarde
-      console.log('💾 Sauvegarde ration:', {
-        rationName,
-        dailyPerBird: `${currentRation.daily_feed_per_bird}g`,
-        protein: `${currentRation.nutritional_values.protein_percentage.toFixed(1)}%`,
-        energy: `${Math.round(currentRation.nutritional_values.energy_kcal)} kcal`
-      });
+      let targetStockId = selectedFeedId;
+      const stockName = `Ration IA ${currentRation.phase} - ${currentRation.race}`;
 
+      // 1. Si mode Création Automatique : Créer l'article
+      if (createNewStock) {
+        const { data: newStock, error: stockError } = await supabase
+          .from('stock')
+          .insert({
+            user_id: userId,
+            name: stockName,
+            category: 'feed',
+            quantity: currentRation.cycle.total_kg,
+            initial_quantity: currentRation.cycle.total_kg, // Ajout pour le calcul de progression
+            unit: 'kg',
+            cost: currentRation.total_cost_per_kg,
+            min_threshold: 50,
+            feed_type: currentRation.phase,
+            description: `Généré automatiquement par Ration Advisor le ${new Date().toLocaleDateString()}`
+          })
+          .select()
+          .single();
+
+        if (stockError) throw new Error(`Erreur création stock: ${stockError.message}`);
+        targetStockId = newStock.id;
+      }
+
+      // 2. Enregistrer la ration personnalisée
       const { error: rationError } = await supabase
         .from("custom_feed_rations")
         .insert({
           user_id: userId,
           lot_id: lot.id,
-          name: rationName,
-          daily_consumption_per_bird_grams: currentRation.daily_feed_per_bird, // ✅ Valeur correcte
+          name: stockName,
+          daily_consumption_per_bird_grams: currentRation.daily_feed_per_bird,
           protein_percentage: currentRation.nutritional_values.protein_percentage,
           energy_kcal: Math.round(currentRation.nutritional_values.energy_kcal),
-          notes: `Ration IA générée. Phase: ${currentRation.phase}. Total cycle: ${currentRation.cycle.total_kg.toFixed(2)} kg (${currentRation.cycle.total_bags} sacs). Jours restants: ${currentRation.cycle.days_remaining}.`,
+          notes: `Ration IA. Phase: ${currentRation.phase}. Stock: ${createNewStock ? 'Nouveau' : 'Existant'}.`,
         });
 
       if (rationError) throw new Error(`Impossible d'enregistrer la ration: ${rationError.message}`);
 
-      const dailyQuantityPerBirdKg = currentRation.daily_feed_per_bird / 1000; // ✅ Conversion correcte
-      
-      // 🔍 DEBUG - Vérifier l'assignation
-      console.log('🔗 Assignation:', {
-        dailyPerBirdKg: dailyQuantityPerBirdKg,
-        dailyPerBirdGrams: currentRation.daily_feed_per_bird,
-        feedId: selectedFeedId
-      });
+      // 3. Assigner au lot
+      const dailyQuantityPerBirdKg = currentRation.daily_feed_per_bird / 1000;
 
       const { error: rpcError } = await supabase.rpc('upsert_lot_assignment', {
         p_user_id: userId,
         p_lot_id: lot.id,
-        p_stock_item_id: selectedFeedId,
-        p_daily_quantity: dailyQuantityPerBirdKg, // ✅ En kg par oiseau
+        p_stock_item_id: targetStockId,
+        p_daily_quantity: dailyQuantityPerBirdKg,
         p_feed_type: currentRation.phase
       });
 
       if (rpcError) throw new Error(`Impossible d'assigner la ration: ${rpcError.message}`);
-      
+
       Alert.alert(
-        "✅ Succès", 
-        `Ration enregistrée:\n• ${currentRation.daily_feed_per_bird}g/oiseau/jour\n• ${currentRation.total_daily_kg.toFixed(2)}kg/jour total\n• ${currentRation.cycle.total_bags} sacs pour la phase`
+        "✅ Succès",
+        `Ration enregistrée avec succès !\n\n• Stock: ${createNewStock ? 'Créé' : 'Mis à jour'}\n• Ration: ${currentRation.daily_feed_per_bird}g / oiseau`
       );
-      
+
       if (onSaveSuccess) onSaveSuccess();
       if (onClose) onClose();
 
@@ -280,7 +324,7 @@ export default function RationAdvisorDashboard({
       setIsSaving(false);
     }
   };
-  
+
   const getEfficiencyColor = (score: number) => {
     if (score >= 80) return '#10b981';
     if (score >= 40) return '#f59e0b';
@@ -303,7 +347,6 @@ export default function RationAdvisorDashboard({
               </View>
             </View>
 
-            {/* ✅ CORRECTION : Affichage clair des valeurs */}
             <View style={styles.rationGrid}>
               <View style={styles.metricCard}>
                 <Text style={styles.metricLabel}>Par oiseau/jour</Text>
@@ -318,62 +361,103 @@ export default function RationAdvisorDashboard({
                 <Text style={styles.metricValue}>{currentRation.total_cost_per_kg.toFixed(0)} F</Text>
               </View>
             </View>
-            
+
             <View style={styles.cycleSection}>
-                <Text style={styles.cycleTitle}>📦 Prévision phase: {currentRation.phase} ({currentRation.cycle.days_remaining} j. restants)</Text>
-                <View style={styles.cycleGrid}>
-                    <View style={styles.cycleItem}>
-                      <Text style={styles.cycleLabel}>Total Requis</Text>
-                      <Text style={styles.cycleValue}>{currentRation.cycle.total_kg.toFixed(1)} kg</Text>
-                    </View>
-                    <View style={styles.cycleItem}>
-                      <Text style={styles.cycleLabel}>Sacs de 50kg</Text>
-                      <Text style={styles.cycleValue}>{currentRation.cycle.total_bags}</Text>
-                    </View>
+              <Text style={styles.cycleTitle}>📦 Prévision phase: {currentRation.phase} ({currentRation.cycle.days_remaining} j. restants)</Text>
+              <View style={styles.cycleGrid}>
+                <View style={styles.cycleItem}>
+                  <Text style={styles.cycleLabel}>Total Requis</Text>
+                  <Text style={styles.cycleValue}>{currentRation.cycle.total_kg.toFixed(1)} kg</Text>
                 </View>
+                <View style={styles.cycleItem}>
+                  <Text style={styles.cycleLabel}>Sacs de 50kg</Text>
+                  <Text style={styles.cycleValue}>{currentRation.cycle.total_bags}</Text>
+                </View>
+              </View>
             </View>
 
             <View style={styles.ingredientsSection}>
-              <Text style={styles.ingredientsTitle}>📋 Composition de la ration</Text>
-              {currentRation.ingredients.map((ing, index) => (
-                <View key={index} style={styles.ingredientRow}>
-                  <Text style={styles.ingredientName}>{ing.name}</Text>
-                  <View style={styles.ingredientValues}>
-                    <Text style={styles.ingredientPercentage}>{ing.percentage.toFixed(1)}%</Text>
-                    <Text style={styles.ingredientQuantity}>{ing.quantity_kg_per_day.toFixed(2)} kg/j</Text>
+              <Text style={styles.ingredientsTitle}>📋 Composition (Base 100kg)</Text>
+              {currentRation.ingredients
+                .filter((ing: any) => ing.percentage > 0)
+                .map((ing: any, index: number) => (
+                  <View key={index} style={styles.ingredientRow}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={styles.ingredientName}>{ing.name}</Text>
+                        <Text style={styles.ingredientPercentage}>{ing.percentage.toFixed(1)}%</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                        <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+                          Pour 100kg: <Text style={{ fontWeight: '600', color: colors.text }}>{ing.percentage.toFixed(1)} kg</Text>
+                        </Text>
+                        <Text style={{ fontSize: 13, color: colors.primary }}>
+                          Total Achat: <Text style={{ fontWeight: '600' }}>{ing.total_phase_kg ? ing.total_phase_kg + ' kg' : '--'}</Text>
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                </View>
-              ))}
+                ))}
+              <View style={{ marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border, alignItems: 'center', backgroundColor: colors.backgroundAlt, borderRadius: 12, padding: 16 }}>
+                <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 4 }}>📦 STOCK À PRÉVOIR (Phase)</Text>
+                <Text style={{ fontSize: 28, fontWeight: 'bold', color: colors.primary }}>{currentRation.cycle.total_bags} sacs <Text style={{ fontSize: 16, fontWeight: 'normal', color: colors.textSecondary }}>(50kg)</Text></Text>
+                <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 4 }}>Soit {currentRation.cycle.total_kg.toFixed(0)} kg d'aliment au total</Text>
+              </View>
             </View>
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Assigner cette ration</Text>
-            <Text style={styles.label}>Sélectionner l'aliment du stock qui correspond</Text>
-            <View style={styles.pickerContainer}>
-              <Picker 
-                selectedValue={selectedFeedId} 
-                onValueChange={(itemValue) => setSelectedFeedId(itemValue)} 
-                style={styles.picker}
-              >
-                {feedStock.length > 0 ? 
-                  feedStock.map(feed => <Picker.Item key={feed.id} label={feed.name} value={feed.id} />) 
-                  : <Picker.Item label="Aucun aliment en stock..." value={null} />
-                }
-              </Picker>
+            <Text style={styles.sectionTitle}>Enregistrement et Stock</Text>
+
+            <View style={styles.stockChoiceContainer}>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Créer nouveau stock</Text>
+                <Switch
+                  value={createNewStock}
+                  onValueChange={setCreateNewStock}
+                  trackColor={{ false: "#767577", true: colors.primary }}
+                  thumbColor={createNewStock ? "#fff" : "#f4f3f4"}
+                />
+              </View>
+
+              <Text style={styles.choiceDescription}>
+                {createNewStock
+                  ? "Un nouvel article sera créé dans votre stock avec la quantité calculée ci-dessus."
+                  : "Associer cette ration à un aliment existant de votre stock."}
+              </Text>
+
+              {!createNewStock && (
+                <View style={styles.pickerContainer}>
+                  <Text style={styles.label}>Sélectionner un stock existant :</Text>
+                  <View style={styles.pickerWrapper}>
+                    <Picker
+                      selectedValue={selectedFeedId}
+                      onValueChange={(itemValue) => setSelectedFeedId(itemValue)}
+                      style={styles.picker}
+                    >
+                      <Picker.Item label="-- Choisir un aliment --" value={null} />
+                      {feedStock.map(feed => (
+                        <Picker.Item key={feed.id} label={`${feed.name} (${feed.quantity} ${feed.unit})`} value={feed.id} />
+                      ))}
+                    </Picker>
+                  </View>
+                  {feedStock.length === 0 && <Text style={styles.warningText}>⚠️ Aucun aliment trouvé dans le stock.</Text>}
+                </View>
+              )}
             </View>
-            <Button 
-              text={isSaving ? "Enregistrement..." : "Enregistrer et Assigner"} 
-              onPress={handleSave} 
-              disabled={isSaving || !selectedFeedId} 
-              style={{marginTop: 16}}
+
+            <Button
+              text={isSaving ? "Enregistrement..." : "Enregistrer et Assigner"}
+              onPress={handleSave}
+              disabled={isSaving || (!createNewStock && !selectedFeedId)}
+              style={{ marginTop: 16 }}
             />
           </View>
         </ScrollView>
       );
     }
     return null;
-  }
+  };
 
   return (
     <SafeAreaView style={commonStyles.container}>
@@ -390,6 +474,7 @@ export default function RationAdvisorDashboard({
         </TouchableOpacity>
       </View>
       {renderContent()}
+      <SmartTunnelModal {...tunnelProps} />
     </SafeAreaView>
   );
 }
@@ -402,7 +487,7 @@ const styles = StyleSheet.create({
   errorSubtext: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center' },
   retryButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, marginTop: 16 },
   retryButtonText: { fontSize: 16, fontWeight: '600', color: colors.white },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom:10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   backButton: { padding: 8, marginLeft: -8 },
   title: { fontSize: 20, fontWeight: '700', color: colors.text },
@@ -428,10 +513,16 @@ const styles = StyleSheet.create({
   ingredientsTitle: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
   ingredientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
   ingredientName: { fontSize: 15, color: colors.text, flex: 2 },
-  ingredientValues: { flexDirection: 'row', flex: 1, justifyContent: 'space-between'},
+  ingredientValues: { flexDirection: 'row', flex: 1, justifyContent: 'space-between' },
   ingredientPercentage: { fontSize: 15, color: colors.primary, fontWeight: '600', textAlign: 'right' },
-  ingredientQuantity: { fontSize: 13, color: colors.textSecondary, textAlign: 'right'},
+  ingredientQuantity: { fontSize: 13, color: colors.textSecondary, textAlign: 'right' },
   pickerContainer: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, marginTop: 4, backgroundColor: "#fff" },
-  picker: { height: 50 },
+  pickerWrapper: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, backgroundColor: colors.backgroundAlt, overflow: 'hidden' },
+  picker: { height: 50, width: '100%' },
   label: { fontWeight: "600", marginTop: 10, marginBottom: 4, color: colors.text },
+  stockChoiceContainer: { backgroundColor: colors.backgroundAlt, padding: 16, borderRadius: 12, marginBottom: 8 },
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  switchLabel: { fontSize: 16, fontWeight: '600', color: colors.text },
+  choiceDescription: { fontSize: 13, color: colors.textSecondary, marginBottom: 12, fontStyle: 'italic' },
+  warningText: { color: '#d97706', fontSize: 12, marginTop: 6 },
 });

@@ -2,31 +2,23 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { colors } from '../styles/commonStyles';
-import Icon from '../components/Icon'; // Importation corrigée
-import Button from '../components/Button'; // Importation corrigée
-import { supabase } from '../config'; // Utiliser le client Supabase consolidé
-import { useSubscription } from '../contexts/SubscriptionContext';
 import { router } from 'expo-router';
+import { supabase } from '../config';
+import { colors } from '../styles/commonStyles';
+import Icon from '../components/Icon';
+import Button from '../components/Button';
+import { useSubscription } from '../contexts/SubscriptionContext';
+import { useProfile } from '../contexts/ProfileContext'; // Importer useProfile
+import { consumeAvicoins } from '../lib/avicoins'; // Importer la nouvelle fonction
 import { useDataCollector } from '../src/hooks/useDataCollector';
-
-// Hook personnalisé pour gérer les Avicoins
-const useAvicoins = () => {
-  const refreshAvicoins = () => {
-    // Émettre un événement personnalisé pour rafraîchir les Avicoins
-    // Utiliser DeviceEventEmitter pour React Native
-    const { DeviceEventEmitter } = require('react-native');
-    DeviceEventEmitter.emit('refreshAvicoins');
-  };
-
-  return { refreshAvicoins };
-};
 
 const COMMON_SYMPTOMS = [
   "Léthargie", "Perte d'appétit", "Diarrhée", "Toux", "Éternuements",
   "Difficulté respiratoire", "Yeux gonflés", "Écoulement yeux/nez",
   "Boiterie", "Baisse de ponte", "Crête pâle", "Plumes ébouriffées"
 ];
+
+const AI_ANALYSIS_COST = 5; // Coût fixe de 5 Avicoins
 
 export default function AIHealthAnalysis() {
   const [images, setImages] = useState<string[]>([]);
@@ -37,24 +29,20 @@ export default function AIHealthAnalysis() {
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Utiliser le hook d'abonnement pour vérifier les limites
-  const { subscription, hasAccess } = useSubscription();
-  const { refreshAvicoins } = useAvicoins();
+  const { subscription } = useSubscription();
+  const { profile, updateProfile } = useProfile(); // Utiliser le contexte de profil
   const { trackAIAnalysis } = useDataCollector();
 
   const handleImagePick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission refusée', 'L\'accès à la galerie est nécessaire pour ajouter des photos.');
+      Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
-
       allowsMultipleSelection: true,
       quality: 1,
     });
-
     if (!result.canceled) {
       setImages(prev => [...prev, ...result.assets.map(a => a.uri)]);
     }
@@ -67,8 +55,6 @@ export default function AIHealthAnalysis() {
   };
 
   const compressImage = async (uri: string): Promise<string> => {
-    // For now, return the original URI
-    // Image compression will be implemented when expo-image-manipulator is properly installed
     console.log('Image compression placeholder - URI:', uri);
     return uri;
   };
@@ -79,106 +65,76 @@ export default function AIHealthAnalysis() {
       return;
     }
 
-    // Variables pour suivre l'état des vérifications
-    let hasUnlimitedAccess = false;
-    let usageAllowed = true;
-
-    // Vérifier les limites d'utilisation avant de procéder
+    setIsLoading(true);
+    setLoadingMessage("Vérification des limites d'utilisation...");
 
     try {
-      // Vérifier d'abord si l'utilisateur a un abonnement payant avec analyses illimitées
-      hasUnlimitedAccess = subscription?.plan?.features?.ai_analyses_per_month === -1;
+      const hasUnlimitedAccess = subscription?.plan?.features?.ai_analyses_per_month === -1;
 
-      if (!hasUnlimitedAccess) {
-        // Vérifier les limites d'utilisation pour les plans freemium/premium
-        const { data: usageCheckResult, error: usageError } = await supabase.rpc('check_usage_limit', {
-          feature_key: 'ai_analyses_per_month'
-        });
+      if (hasUnlimitedAccess) {
+        await performAnalysis();
+        return;
+      }
 
-        if (usageError) {
-          console.error('❌ Error checking usage limit:', usageError);
-          Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
-          return;
-        }
+      const { data: usageAllowed, error: usageError } = await supabase.rpc('check_usage_limit', {
+        feature_key: 'ai_analyses_per_month'
+      });
 
-        usageAllowed = usageCheckResult;
+      if (usageError) throw new Error("Impossible de vérifier les limites d'utilisation.");
 
-        if (!usageAllowed) {
-          // Vérifier si l'utilisateur a des Avicoins pour payer
-          const { data: avicoinsData, error: avicoinsError } = await supabase
-            .from('user_avicoins')
-            .select('balance')
-            .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
-            .maybeSingle();
-
-          if (avicoinsError) {
-            console.error('❌ Error checking avicoins:', avicoinsError);
-          }
-
-          const avicoinsBalance = avicoinsData?.balance || 0;
-          const aiAnalysisCost = 5; // Coût fixe de 5 Avicoins par analyse IA
-
-          if (avicoinsBalance >= aiAnalysisCost) {
-            // Demander confirmation pour utiliser les Avicoins
-            Alert.alert(
-              'Limite atteinte - Utiliser Avicoins',
-              `Vous avez atteint votre limite mensuelle d'analyses IA.\n\nCoût: ${aiAnalysisCost} Avicoins\nSolde actuel: ${avicoinsBalance} Avicoins\n\nConfirmer l'utilisation d'Avicoins pour cette analyse ?`,
-              [
-                { text: 'Annuler', style: 'cancel' },
-                {
-                  text: 'Utiliser Avicoins',
-                  onPress: () => {
-                    // Continuer avec l'analyse en utilisant les Avicoins
-                    performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
-                  }
-                }
-              ]
-            );
-            return;
-          } else {
-            // Pas assez d'Avicoins, proposer mise à niveau ou achat
-            const currentPlan = subscription?.plan?.name || 'freemium';
-            const limit = subscription?.plan?.features?.ai_analyses_per_month || 2;
-
-            Alert.alert(
-              'Limite atteinte',
-              `Vous avez atteint la limite de ${limit} analyses IA par mois pour le plan ${currentPlan}.\n\nSolde Avicoins insuffisant (${avicoinsBalance} disponibles, ${aiAnalysisCost} requis).\n\nPassez à un plan supérieur ou achetez des Avicoins.`,
-              [
-                { text: 'Annuler', style: 'cancel' },
-                {
-                  text: 'Voir les plans',
-                  onPress: () => router.push('/subscription-plans')
-                },
-                {
-                  text: 'Acheter Avicoins',
-                  onPress: () => router.push('/subscription-plans')
-                }
-              ]
-            );
-            return;
-          }
+      if (usageAllowed) {
+        await performAnalysis();
+      } else {
+        // Limite atteinte, vérifier le solde d'avicoins
+        const avicoinsBalance = profile?.avicoins_balance || 0;
+        if (avicoinsBalance >= AI_ANALYSIS_COST) {
+          Alert.alert(
+            'Limite atteinte - Utiliser Avicoins',
+            `Vous avez atteint votre limite mensuelle.\nCoût: ${AI_ANALYSIS_COST} Avicoins | Solde: ${avicoinsBalance}\n\nConfirmer pour continuer ?`,
+            [
+              { text: 'Annuler', style: 'cancel', onPress: () => setIsLoading(false) },
+              {
+                text: 'Utiliser Avicoins',
+                onPress: () => performAnalysisWithAvicoins(),
+              }
+            ]
+          );
+        } else {
+          // Pas assez d'avicoins
+          Alert.alert(
+            'Limite et solde insuffisants',
+            `Vous avez atteint votre limite mensuelle et votre solde d'Avicoins est insuffisant (${avicoinsBalance} / ${AI_ANALYSIS_COST} requis).`,
+            [
+              { text: 'Annuler', style: 'cancel' },
+              { text: 'Voir les plans', onPress: () => router.push('/subscription-plans') }
+            ]
+          );
+          setIsLoading(false);
         }
       }
-    } catch (error: any) {
-      Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
-      return;
+    } catch (err: any) {
+      console.error('❌ Error in handleAnalysis:', err);
+      Alert.alert('Erreur', err.message || "Une erreur est survenue lors de la vérification.");
+      setIsLoading(false);
     }
-    // Si on arrive ici, soit accès illimité soit limite non atteinte, on peut lancer l'analyse
-    await performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
   };
 
-  const performAnalysis = async (supabase: any, hasUnlimitedAccess: boolean, usageAllowed: boolean) => {
-    const startTime = performance.now(); // Démarrer le chronomètre
-    setIsLoading(true);
-    setError(null);
-    setAnalysisResult(null);
+  const performAnalysisWithAvicoins = async () => {
+    // Le paiement est géré côté serveur par la fonction Edge gemini-health-analysis
+    // qui appelle check_ai_analysis_access. Si le statut est 'requires_payment',
+    // la fonction Edge déduira les Avicoins automatiquement.
+    // On passe simplement à l'analyse.
+    await performAnalysis(true);
+  };
+
+  const performAnalysis = async (paidWithAvicoins = false) => {
+    const startTime = performance.now();
+    setLoadingMessage('Analyse par l\'IA en cours...');
 
     try {
-      setLoadingMessage('Compression des images...');
       const compressedImagesBase64 = await Promise.all(
         images.map(async (uri) => {
           const compressedUri = await compressImage(uri);
-          // React Native's fetch doesn't support response.blob(), so we use XMLHttpRequest
           const blob: Blob = await new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.onload = () => resolve(xhr.response);
@@ -187,7 +143,7 @@ export default function AIHealthAnalysis() {
             xhr.open("GET", compressedUri, true);
             xhr.send(null);
           });
-          return new Promise((resolve, reject) => {
+          return new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
             reader.onerror = reject;
@@ -196,76 +152,31 @@ export default function AIHealthAnalysis() {
         })
       );
 
-      setLoadingMessage('Analyse par l\'IA en cours...');
       const { data, error: functionError } = await supabase.functions.invoke('gemini-health-analysis', {
-        body: {
-          images: compressedImagesBase64,
-          description,
-          symptoms,
-        },
+        body: { images: compressedImagesBase64, description, symptoms },
       });
 
       if (functionError) throw functionError;
       if (data.error) throw new Error(data.error);
 
       const duration = performance.now() - startTime;
-
-      // TRACKER L'ANALYSE RÉUSSIE
-      trackAIAnalysis(
-        'health_diagnosis',
-        duration,
-        true, // succès
-        {
-          images_count: images.length,
-          symptoms_count: symptoms.length,
-          description_length: description.length,
-          diagnosis: data.diagnosis,
-          confidence: data.confidence,
-        }
-      );
-
-      // Si l'analyse a réussi et que nous utilisons des Avicoins, déduire le coût
-      if (!hasUnlimitedAccess && !usageAllowed) {
-        const aiAnalysisCost = 5;
-        const { error: transactionError } = await supabase
-          .from('avicoins_transactions')
-          .insert({
-            user_id: (await supabase.auth.getUser()).data.user?.id,
-            amount: -aiAnalysisCost,
-            transaction_type: 'ai_analysis',
-            description: 'Analyse IA de santé animale'
-          });
-
-        if (transactionError) {
-          console.error('❌ Error deducting avicoins:', transactionError);
-          // L'analyse a réussi mais la déduction a échoué - on continue quand même
-        } else {
-          console.log('✅ Avicoins deducted for AI analysis');
-          // Rafraîchir le solde Avicoins sur le dashboard
-          refreshAvicoins();
-        }
-      }
+      trackAIAnalysis('health_diagnosis', duration, true, {
+        images_count: images.length,
+        symptoms_count: symptoms.length,
+        description_length: description.length,
+        diagnosis: data.diagnosis,
+        paid_with_avicoins: paidWithAvicoins,
+      });
 
       setAnalysisResult(data);
     } catch (err: any) {
       const duration = performance.now() - startTime;
-
-      // TRACKER L'ANALYSE ÉCHOUÉE
-      trackAIAnalysis(
-        'health_diagnosis',
-        duration,
-        false, // échec
-        {
-          images_count: images.length,
-          symptoms_count: symptoms.length,
-          description_length: description.length,
-          error_message: err.message,
-        }
-      );
-
+      trackAIAnalysis('health_diagnosis', duration, false, {
+        error_message: err.message,
+      });
       console.error('❌ AI Analysis Error:', err);
-      setError(err.message || 'Une erreur est survenue lors de l\'analyse.');
-      Alert.alert('Erreur d\'analyse', err.message || 'Impossible de terminer l\'analyse. Veuillez vérifier votre configuration et réessayer.');
+      setError(err.message || "Une erreur est survenue lors de l'analyse.");
+      Alert.alert('Erreur d\'analyse', err.message || 'Impossible de terminer l\'analyse.');
     } finally {
       setIsLoading(false);
       setLoadingMessage('');

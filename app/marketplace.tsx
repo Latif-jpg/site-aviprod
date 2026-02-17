@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, TextInput, RefreshControl, Alert, Dimensions, ActivityIndicator } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../styles/commonStyles';
 import Icon from '../components/Icon';
@@ -8,11 +8,13 @@ import SimpleBottomSheet from '../components/BottomSheet';
 import MarketplaceChat from '../components/MarketplaceChat'; // Assurez-vous que le chemin est correct
 import ShoppingCart from '../components/ShoppingCart';
 import { getMarketplaceImageUrl, supabase } from '../config'; // Corrigé pour utiliser la bonne fonction
+import { useProfile } from '../contexts/ProfileContext';
 import { marketingAgent, UserProfile, Product } from '../lib/marketingAgent';
 import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
 import ProductCard from '../components/ProductCard'; // Importer le composant réutilisable
 import { useDataCollector } from '../src/hooks/useDataCollector';
 import { COUNTRIES, getRegionsForCountry } from '../data/locations';
+import GoogleAdBanner from '../components/GoogleAdBanner';
 
 const getDefaultImageForCategory = (category: string | undefined) => {
   return 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&h=300&fit=crop';
@@ -39,27 +41,85 @@ export default function MarketplaceScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [regionFilter, setRegionFilter] = useState('all');
   const [selectedCountry, setSelectedCountry] = useState('all'); // Country filter
+  const [cityFilter, setCityFilter] = useState<'all' | string>('all'); // City filter
+  const [hideSold, setHideSold] = useState(true); // État pour masquer les produits vendus
   const [availableRegions, setAvailableRegions] = useState<{ id: string, name: string }[]>([]);
   const [sellerStats, setSellerStats] = useState<any>(null);
   const [productImages, setProductImages] = useState<string[]>([]);
   const [isLoadingImages, setIsLoadingImages] = useState(false);
   const [logoLoadError, setLogoLoadError] = useState(false);
+  const pendingRegionFilter = useRef<string | null>(null);
+  const { productId } = useLocalSearchParams();
+  const { profile } = useProfile();
+
+  // Utility to normalize comparison strings (lowercase, trim, remove accents)
+  const normalize = useCallback((s?: string | null) => {
+    if (!s) return '';
+    try {
+      return s
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+    } catch (e) {
+      return String(s).toLowerCase().trim();
+    }
+  }, []);
 
   useEffect(() => {
     // Initialize regions based on selectedCountry
     if (selectedCountry === 'all') {
-      // If All countries, strictly speaking regions don't make sense unless we show ALL regions or hide the filter. 
-      // Let's hide region filter or show empty.
       setAvailableRegions([]);
+      setRegionFilter('all');
     } else {
-      const countryData = COUNTRIES.find(c => c.name === selectedCountry);
+      // Try to find by name or by normalized name
+      const countryData = COUNTRIES.find(
+        c => c.name === selectedCountry || normalize(c.name) === normalize(selectedCountry)
+      );
       if (countryData) {
-        setAvailableRegions([{ id: 'all', name: 'Toutes' }, ...countryData.regions]);
+        const newRegions = [{ id: 'all', name: 'Toutes' }, ...countryData.regions];
+        setAvailableRegions(newRegions);
+
+        // Apply pending region filter if available
+        if (pendingRegionFilter.current) {
+          const want = normalize(pendingRegionFilter.current);
+          const match = newRegions.find(r => normalize(r.name) === want || normalize(r.id) === want);
+          if (match) {
+            setRegionFilter(match.id);
+          } else {
+            // keep free-text regionFilter so matching can still work via normalize
+            setRegionFilter(pendingRegionFilter.current);
+          }
+          pendingRegionFilter.current = null;
+        } else {
+          setRegionFilter('all');
+        }
+      } else {
+        // Unknown country (not listed), keep free-text filters; clear regions UI
+        setAvailableRegions([]);
+        setRegionFilter('all');
       }
     }
-    setRegionFilter('all'); // Reset region when country changes
-  }, [selectedCountry]);
+  }, [selectedCountry, normalize]);
 
+  // Synchroniser les filtres avec le profil utilisateur
+  useEffect(() => {
+    if (profile) {
+      setCurrentUserId(profile.id);
+
+      // Initialiser le profil pour l'agent marketing
+      setUserProfile({
+        id: profile.id,
+        zone: profile.location || '',
+        farmType: profile.farm_name || '',
+      });
+
+      // Appliquer les filtres de localisation par défaut depuis le profil
+      // Désactivé pour éviter de masquer les produits par défaut.
+      // L'utilisateur peut utiliser les filtres manuels s'il souhaite restreindre la liste.
+    }
+  }, [profile]);
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null); // New state for user profile
   const [showKYCApprovedBanner, setShowKYCApprovedBanner] = useState(false);
@@ -104,6 +164,19 @@ export default function MarketplaceScreen() {
     }, [])
   );
 
+  // NOUVEAU : Gérer le deep linking vers un produit spécifique
+  useEffect(() => {
+    if (productId && products.length > 0) {
+      const product = products.find(prod => prod.id === productId);
+      if (product) {
+        console.log('🔗 Marketplace: Deep linking to product:', productId);
+        handleProductPress(product);
+        // On nettoie le paramètre pour éviter de ré-ouvrir au prochain focus si besoin
+        // (Optionnel selon le comportement souhaité)
+      }
+    }
+  }, [productId, products]);
+
 
   const loadInitialData = async () => {
     try {
@@ -111,34 +184,32 @@ export default function MarketplaceScreen() {
       setIsLoadingProducts(true);
       setLoadError(null);
 
-      const [currentUserProfileData, allProductsData, cartCountResult, sellerStatsResult] = await Promise.all([
-        loadCurrentUser(),
+      // Paralléliser les chargements de base
+      const results = await Promise.allSettled([
         loadProducts(),
         loadCartCount(),
         loadSellerStats(),
       ]);
 
-      if (currentUserProfileData) {
-        setUserProfile(currentUserProfileData);
-      }
-      if (allProductsData) {
-        setProducts(allProductsData);
-      }
+      const [productsResult] = results;
 
-      // After products and userProfile are loaded, generate sponsored suggestions
-      if (currentUserProfileData && allProductsData && allProductsData.length > 0) {
-        // --- CORRECTION : Construire l'objet context correctement ---
-        const agentContext = {
-          profile: currentUserProfileData,
-          // Les autres parties du contexte ne sont pas disponibles ici, on met des valeurs par défaut.
-          health: { score: 100, alerts: '' },
-          finance: { profitMargin: 0 }
-        };
+      if (productsResult.status === 'fulfilled' && productsResult.value) {
+        const allProductsData = productsResult.value;
+        // setProducts est déjà appelé dans loadProducts, mais on s'assure de la cohérence ici
 
-        // --- CORRECTION : Filtrer uniquement les produits sponsorisés ---
-        const sponsoredProducts = allProductsData.filter((p: any) => p.is_sponsored === true);
-        const recs = marketingAgent(agentContext, sponsoredProducts, 4);
-        setSponsored(recs);
+        // After products and userProfile are loaded, generate sponsored suggestions
+        if (profile && allProductsData && allProductsData.length > 0) {
+          const agentContext = {
+            profile: { id: profile.id, zone: profile.location || '', farmType: profile.farm_name || '' },
+            health: { score: 100, alerts: '' },
+            finance: { profitMargin: 0 }
+          };
+          const sponsoredProducts = allProductsData.filter((p: any) => p.is_sponsored === true);
+          const recs = marketingAgent(agentContext, sponsoredProducts, 4);
+          setSponsored(recs);
+        }
+      } else if (productsResult.status === 'rejected') {
+        throw productsResult.reason;
       }
 
       console.log('✅ Marketplace: Initial data load complete');
@@ -150,134 +221,55 @@ export default function MarketplaceScreen() {
     }
   };
 
-  const loadCurrentUser = async () => {
-    try {
-
-      const { data: { user }, error } = await supabase.auth.getUser();
-
-      if (error) {
-        console.log('⚠️ Marketplace: Error getting user:', error?.message || error);
-        return;
-      }
-
-      if (!user) {
-        console.log('⚠️ Marketplace: No user found');
-        return;
-      }
-
-      console.log('✅ Marketplace: Current user loaded:', user.id);
-      setCurrentUserId(user.id);
-
-      // Fetch user role
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('farm_name, location, role') // Changed zone to location
-        .eq('user_id', user.id)
-        .single();
-
-
-      if (profileError) {
-      } else if (profile) {
-        console.log('✅ Marketplace: User role loaded:', profile.role);
-        setUserProfile({
-          id: user.id,
-          zone: profile.location || '',
-          farmType: profile.farm_name || '',
-          farmType: profile.farm_name || '',
-          // purchaseHistory: [] // TODO: Fetch purchase history
-        });
-
-        // AUTO-SELECT USER COUNTRY
-        if (profile.location) {
-          // Try to map location/country if you had it. 
-          // Ideally we should have selected `country` from profile if we added it there.
-          // But since we just added the column, let's try to infer or check if the new column is available.
-          // For now let's default to Burkina Faso if not found or 'all'
-        }
-
-        // Query country from profile directly since we added the column
-        const { data: profileCountry } = await supabase
-          .from('profiles')
-          .select('country')
-          .eq('user_id', user.id)
-          .single();
-
-        if (profileCountry && profileCountry.country) {
-          // Check if it matches one of our supported countries
-          const supported = COUNTRIES.find(c => c.name === profileCountry.country);
-          if (supported) {
-            setSelectedCountry(supported.name);
-          } else {
-            setSelectedCountry('Burkina Faso'); // Default/Fallback
-          }
-        } else {
-          setSelectedCountry('Burkina Faso'); // Default for new users
-        }
-
-        return {
-          id: user.id,
-          zone: profile.location || '',
-          farmType: profile.farm_name || '',
-        }; // Return the UserProfile object
-      }
-      return null; // Return null if no profile
-
-    } catch (error: any) {
-      console.error('❌ Marketplace: Exception in loadCurrentUser:', error);
-      return null; // Return null on error
-    }
-  };
-
   const loadProducts = async (): Promise<Product[]> => {
     try {
-      console.log('📊 Marketplace: Loading products from database...');
-      console.log('📊 Marketplace: Fetching products...');
-      const { data, error } = await supabase
-        .from('marketplace_products') // Table principale
-        // --- CORRECTION : La requête select est maintenant valide et inclut toutes les colonnes. ---
-        .select('*, seller_id')
+      console.log('📊 Marketplace: Loading products...');
+
+      // 1. Charger les produits (sans jointure car la FK pointe vers auth.users)
+      const { data: productsData, error: productsError } = await supabase
+        .from('marketplace_products')
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('❌ Marketplace: Error loading products:', error);
-        throw error;
+      if (productsError) {
+        console.error('❌ Marketplace: Error loading products:', productsError);
+        throw productsError;
       }
 
-      if (!data) {
-        console.log('⚠️ Marketplace: No data returned from products query');
+      if (!productsData || productsData.length === 0) {
         setProducts([]);
         return [];
       }
 
-      console.log('✅ Marketplace: Loaded', data.length, 'products');
-      console.log('📦 Marketplace: Products:', JSON.stringify(data.map(p => ({ id: p.id, name: p.name, seller_id: p.seller_id })), null, 2));
+      // 2. Charger les profils des vendeurs manuellement
+      const sellerIds = [...new Set(productsData.map((product: any) => product.seller_id).filter(Boolean))];
+      let profilesMap: Record<string, any> = {};
 
-      // Transformer les données pour ajouter le nom de ferme
-      const transformedData = await Promise.all(data.map(async (p) => {
-        try {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('farm_name, avatar_url')
-            .eq('user_id', p.seller_id)
-            .single();
+      if (sellerIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('user_id, farm_name, avatar_url')
+          .in('user_id', sellerIds);
 
-          return {
-            ...p,
-            farm_name: profile?.farm_name || 'Vendeur Anonyme',
-            logo: profile?.avatar_url || null // Récupérer le logo depuis le profil
-          };
-        } catch (err) {
-          return {
-            ...p,
-            farm_name: 'Vendeur Anonyme',
-            logo: null
-          };
+        if (!profilesError && profilesData) {
+          profilesData.forEach((profile: any) => {
+            profilesMap[profile.user_id] = profile;
+          });
         }
+      }
+
+      // 3. Fusionner les données
+      const transformedData = productsData.map((product: any) => ({
+        ...product,
+        // Debug: s'assurer que les champs de localisation existent
+        farm_name: profilesMap[product.seller_id]?.farm_name || 'Vendeur',
+        logo: profilesMap[product.seller_id]?.avatar_url || null
       }));
 
+      console.log('✅ Marketplace: Loaded', transformedData.length, 'products');
       setProducts(transformedData);
       setLoadError(null);
-      return transformedData; // Return the transformed products data
+      return transformedData;
     } catch (error: any) {
       console.error('❌ Marketplace: Exception in loadProducts:', error);
       setLoadError(error?.message || 'Erreur de chargement des produits');
@@ -323,23 +315,28 @@ export default function MarketplaceScreen() {
       setIsRefreshing(true);
       setLoadError(null);
 
-      const [productsData] = await Promise.all([
+      // Rafraîchir tout en parallèle avec settled pour éviter qu'une erreur bloque tout
+      const results = await Promise.allSettled([
         loadProducts(),
         loadCartCount(),
         loadSellerStats(),
       ]);
 
-      // After products and userProfile are loaded, generate sponsored suggestions
-      if (userProfile && productsData && productsData.length > 0) {
-        const agentContext = {
-          profile: userProfile,
-          health: { score: 100, alerts: '' },
-          finance: { profitMargin: 0 }
-        };
-        // --- CORRECTION : Filtrer uniquement les produits sponsorisés ---
-        const sponsoredProducts = productsData.filter((p: any) => p.is_sponsored === true);
-        const recs = marketingAgent(agentContext, sponsoredProducts, 4);
-        setSponsored(recs);
+      const [productsResult] = results;
+
+      if (productsResult.status === 'fulfilled' && productsResult.value) {
+        const productsData = productsResult.value;
+        // After products and userProfile are loaded, generate sponsored suggestions
+        if (profile && productsData && productsData.length > 0) {
+          const agentContext = {
+            profile: { id: profile.id, zone: profile.location || '', farmType: profile.farm_name || '' },
+            health: { score: 100, alerts: '' },
+            finance: { profitMargin: 0 }
+          };
+          const sponsoredProducts = allProductsData.filter((product: any) => product.is_sponsored === true);
+          const recs = marketingAgent(agentContext, sponsoredProducts, 4);
+          setSponsored(recs);
+        }
       }
 
       console.log('✅ Marketplace: Refresh complete');
@@ -425,6 +422,36 @@ export default function MarketplaceScreen() {
                   .eq('id', productId);
 
                 if (error) {
+                  // Gestion de la contrainte de clé étrangère (produit déjà commandé/dans un panier)
+                  // On vérifie le code 23503 OU si le message contient "constraint" pour être plus large
+                  if (error.code === '23503' || error.message?.includes('constraint')) {
+                    Alert.alert(
+                      'Action impossible',
+                      'Ce produit est lié à des commandes existantes et ne peut pas être supprimé. Voulez-vous le marquer comme "Vendu" à la place ?',
+                      [
+                        { text: 'Annuler', style: 'cancel' },
+                        {
+                          text: 'Marquer comme vendu',
+                          onPress: async () => {
+                            const { error: updateError } = await supabase
+                              .from('marketplace_products')
+                              .update({ in_stock: false })
+                              .eq('id', productId);
+
+                            if (updateError) {
+                              Alert.alert('Erreur', 'Impossible de mettre à jour le produit');
+                            } else {
+                              Alert.alert('Succès', 'Produit marqué comme vendu');
+                              setIsProductDetailVisible(false);
+                              await loadProducts();
+                            }
+                          }
+                        }
+                      ]
+                    );
+                    return;
+                  }
+
                   console.error('❌ Error deleting product:', error);
                   throw error;
                 }
@@ -521,18 +548,38 @@ export default function MarketplaceScreen() {
         const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
         const productName = product.name || '';
         const productDescription = product.description || '';
-        const productLocation = product.location || '';
-        const productCity = product.city || '';
-        const productRegion = product.region || '';
-        const query = (searchQuery || '').toLowerCase();
+        const query = normalize(searchQuery || '');
 
-        const matchesSearch = productName.toLowerCase().includes(query) ||
-          productDescription.toLowerCase().includes(query);
+        const matchesSearch =
+          normalize(productName).includes(query) ||
+          normalize(productDescription).includes(query);
 
-        const matchesRegion = regionFilter === 'all' || product.region === regionFilter;
-        const matchesCountry = selectedCountry === 'all' || (product.country === selectedCountry) || (!product.country && selectedCountry === 'Burkina Faso'); // Backward compatibility for null country
+        // Country match (normalized). If selectedCountry set, require equality; otherwise ignore
+        const matchesCountry =
+          selectedCountry === 'all' || normalize(product.country) === normalize(selectedCountry);
 
-        return matchesCategory && matchesSearch && matchesRegion && matchesCountry;
+        // Region match: allow id, name, or free-text normalized comparison
+        let matchesRegion = regionFilter === 'all';
+        if (!matchesRegion) {
+          const target = normalize(regionFilter);
+          const prodRegion = normalize(product.region);
+          if (prodRegion && target && prodRegion === target) {
+            matchesRegion = true;
+          } else {
+            const regionObj = availableRegions.find(r => normalize(r.id) === target || normalize(r.name) === target);
+            if (regionObj) {
+              matchesRegion = prodRegion === normalize(regionObj.name) || prodRegion === normalize(regionObj.id);
+            }
+          }
+        }
+
+        // City match (normalized) if a city filter is set
+        const matchesCity = cityFilter === 'all' || normalize(product.city) === normalize(cityFilter);
+
+        // Filtre stock : si hideSold est activé, on ne garde que les produits en stock
+        const matchesStock = !hideSold || product.in_stock;
+
+        return matchesCategory && matchesSearch && matchesCountry && matchesRegion && matchesCity && matchesStock;
       } catch (err: any) {
         console.error('❌ Marketplace: Error filtering product:', err);
         return false;
@@ -962,7 +1009,7 @@ export default function MarketplaceScreen() {
             <View style={styles.productDetailHeaderLeft}>
               {/* Affichage du Logo et du Nom */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                {selectedProduct.logo && !logoLoadError ? (
+                {selectedProduct.logo && getMarketplaceImageUrl(selectedProduct.logo) ? (
                   <Image
                     source={{ uri: getMarketplaceImageUrl(selectedProduct.logo) }}
                     style={styles.productLogo}
@@ -1140,7 +1187,7 @@ export default function MarketplaceScreen() {
     );
   };
 
-  const renderStars = (rating, size = 16) => {
+  const renderStars = (rating: number, size = 16) => {
     const stars = [];
     const fullStars = Math.floor(rating);
     const hasHalfStar = rating - fullStars >= 0.5;
@@ -2019,6 +2066,18 @@ export default function MarketplaceScreen() {
       marginTop: 12,
       textAlign: 'center',
     },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+      paddingHorizontal: 20,
+    },
+    seeAllText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.primary,
+    },
     reviewCard: {
       backgroundColor: colors.backgroundAlt,
       borderRadius: 12,
@@ -2218,11 +2277,12 @@ export default function MarketplaceScreen() {
         ) : (
           <View style={styles.productsSection}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0, paddingHorizontal: 0 }]}>
                 Tous les Produits ({filteredProducts.length})
               </Text>
-              <TouchableOpacity>
-                <Text style={styles.seeAllText}>Filtrer</Text>
+              <TouchableOpacity onPress={() => setHideSold(!hideSold)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 10 }}>
+                <Icon name={hideSold ? "eye-off" : "eye"} size={18} color={colors.primary} />
+                <Text style={styles.seeAllText}>{hideSold ? "Afficher vendus" : "Masquer vendus"}</Text>
               </TouchableOpacity>
             </View>
 
@@ -2301,6 +2361,9 @@ export default function MarketplaceScreen() {
       >
         {renderSellerReviews()}
       </SimpleBottomSheet>
+
+      {/* Google AdMob Banner */}
+      <GoogleAdBanner />
     </SafeAreaView>
   );
 }

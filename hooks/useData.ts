@@ -1,21 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Lot, Task, StockItem, Notification } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ensureSupabaseInitialized, supabase } from '../config'; // Corrigé: importer supabase de config
 import { useAuth } from './useAuth';
-import { useDataCollector } from '../src/hooks/useDataCollector';
-import { usePushNotifications } from './usePushNotifications'; // --- AJOUT ---
 
 export const useData = () => {
   const { user } = useAuth();
   const userId = user?.id;
-  const { trackDataLoading } = useDataCollector();
   const [lots, setLots] = useState<Lot[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { sendLocalNotification } = usePushNotifications(); // --- AJOUT ---
 
   const loadLots = useCallback(async () => {
     if (!userId) {
@@ -114,44 +109,6 @@ export const useData = () => {
     } catch (error) {
       console.error('❌ Error loading stock:', error);
       setStock([]);
-    }
-  }, [userId]);
-
-  const loadNotifications = useCallback(async () => {
-    if (!userId) {
-      setNotifications([]);
-      return;
-    }
-    try {
-      console.log('📊 Loading notifications...');
-      const supabase = await ensureSupabaseInitialized();
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('read', false)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (error) {
-        console.error('❌ Error loading notifications:', error.message);
-        setNotifications([]);
-        return;
-      }
-
-      const mappedNotifications: Notification[] = (data || []).map(notif => ({
-        id: notif.id,
-        title: notif.title || notif.type || 'Notification',
-        message: notif.message || '',
-        type: (notif.type || 'info') as 'info' | 'warning' | 'error' | 'success',
-        date: notif.created_at || new Date().toISOString(),
-        read: notif.read || false,
-      }));
-
-      setNotifications(mappedNotifications);
-    } catch (error) {
-      console.error('❌ Error loading notifications:', error);
-      setNotifications([]);
     }
   }, [userId]);
 
@@ -289,7 +246,6 @@ export const useData = () => {
           loadLots(),
           loadStock(),
           loadTasks(),
-          loadNotifications(),
         ]);
       } catch (error) {
         console.error('❌ Error during initial data load:', error);
@@ -298,7 +254,7 @@ export const useData = () => {
       }
     };
     loadAllData();
-  }, [userId, loadLots, loadStock, loadTasks, loadNotifications]);
+  }, [userId, loadLots, loadStock, loadTasks]);
 
   useEffect(() => {
     if (!userId) return;
@@ -307,51 +263,16 @@ export const useData = () => {
       try {
         const supabase = await ensureSupabaseInitialized();
 
-        const stockChannel = supabase
-          .channel('data-stock')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'stock', filter: `user_id=eq.${userId}` },
-            () => loadStock()
-          )
-          .subscribe();
-
-        const notificationsChannel = supabase
-          .channel(`data-notifications-local-${userId}`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
-            async (payload) => {
-              if (payload.eventType === 'INSERT') {
-                const newNotif = payload.new as any;
-                const mappedNotif: Notification = {
-                  id: newNotif.id,
-                  title: newNotif.title || newNotif.type || 'Notification',
-                  message: newNotif.message || '',
-                  type: (newNotif.type || 'info') as 'info' | 'warning' | 'error' | 'success',
-                  date: newNotif.created_at || new Date().toISOString(),
-                  read: newNotif.read || false,
-                };
-                setNotifications(prev => [mappedNotif, ...prev]);
-
-                console.log('🔔 [Realtime] Notification reçue, tentative d\'affichage local:', mappedNotif.title);
-                try {
-                  await sendLocalNotification(
-                    mappedNotif.title,
-                    mappedNotif.message,
-                    { type: mappedNotif.type, id: mappedNotif.id }
-                  );
-                } catch (err) {
-                  console.error('Erreur affichage notif locale:', err);
-                }
-
-              } else {
-                loadNotifications();
-              }
-            }
-          )
+        const stockChannel = supabase.channel('data-stock').on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'stock', filter: `user_id=eq.${userId}` },
+          () => loadStock()
+        )
           .subscribe();
 
         return () => {
           console.log('🔌 Unsubscribing from all data channels.');
           supabase.removeChannel(stockChannel);
-          supabase.removeChannel(notificationsChannel);
         };
       } catch (error) {
         console.error('❌ Error setting up realtime subscriptions in useData:', error);
@@ -363,21 +284,30 @@ export const useData = () => {
     return () => {
       cleanupPromise?.then(cleanupFn => cleanupFn?.());
     };
-  }, [userId, loadStock, loadNotifications]);
+  }, [userId, loadStock]);
 
-  return {
+  return useMemo(() => ({
     lots,
     tasks,
     stock,
-    notifications,
     unreadMessages: 0,
     isLoading,
     loadLots,
     loadTasks,
     loadStock,
-    loadNotifications,
     refreshUnreadMessages,
     markMessagesAsRead,
     runDailyStockConsumption,
-  };
+  }), [
+    lots,
+    tasks,
+    stock,
+    isLoading,
+    loadLots,
+    loadTasks,
+    loadStock,
+    refreshUnreadMessages,
+    markMessagesAsRead,
+    runDailyStockConsumption,
+  ]);
 };

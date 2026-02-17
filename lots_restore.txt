@@ -1,0 +1,1236 @@
+﻿
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Dimensions, Animated } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors } from '../styles/commonStyles';
+import { router } from 'expo-router';
+import Icon from '../components/Icon';
+import LotCard from '../components/LotCard';
+import SimpleBottomSheet from '../components/BottomSheet';
+import AddLotForm from '../components/AddLotForm'; // Importation correcte
+import EditLotForm from '../components/EditLotForm'; // --- NOUVEAU : Importer le formulaire d'├®dition ---
+import FloatingActionButton from '../components/FloatingActionButton';
+import { supabase } from '../config'; // Import supabase directly
+import BottomNavigation from '../components/BottomNavigation';
+import LotIntelligenceDashboard from '../src/intelligence/ui/LotIntelligenceDashboard';
+
+// --- MISE ├Ç JOUR MAJEURE : Int├®gration de la logique de l'agent d'intelligence ---
+// Le code de LotIntelligenceAgent.ts est maintenant int├®gr├® ici pour garantir son ex├®cution
+// et utiliser les donn├®es de lot les plus ├á jour (avec l'├óge dynamique).
+
+const BREED_STANDARDS: Record<string, any> = {
+  'default': { target_weight_6weeks: 2.0, fcr_target: 1.8, growth_rate_per_day: 60, normal_mortality_rate: 5 },
+  'broiler': { target_weight_6weeks: 2.2, fcr_target: 1.7, growth_rate_per_day: 65, normal_mortality_rate: 4 },
+  'cobb500': { target_weight_6weeks: 2.3, fcr_target: 1.65, growth_rate_per_day: 68, normal_mortality_rate: 3.5 },
+  'ross 308': { target_weight_6weeks: 2.2, fcr_target: 1.7, growth_rate_per_day: 66, normal_mortality_rate: 4 },
+  'isa brown': { target_weight_6weeks: 1.5, fcr_target: 2.0, growth_rate_per_day: 25, normal_mortality_rate: 3 },
+};
+
+const getBreedStandards = (breed: string) => {
+  const normalized = breed?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'default';
+  return BREED_STANDARDS[normalized] || BREED_STANDARDS['default'];
+};
+
+// --- NOUVEAU : Logique de calcul pour la fen├¬tre de vente optimale ---
+const calculateOptimalSaleWindow = (lot: any, standards: any) => {
+  const sellingPricePerKg = lot.selling_price || 2500; // Prix de vente/kg (CFA), d├®faut ├á 2500 si non d├®fini
+  const feedCostPerKg = 400; // Co├╗t de l'aliment/kg (CFA)
+
+  let currentWeight = lot.poids_moyen || (standards.growth_rate_per_day * lot.age) / 1000;
+  let optimalStartDate: Date | null = null;
+  let optimalEndDate: Date | null = null;
+
+  // Simuler les 30 prochains jours
+  for (let i = 0; i < 30; i++) {
+    const dailyFeedConsumption = (currentWeight * 0.10); // Approximation: 10% du poids corporel en aliment/jour
+    const dailyFeedCost = dailyFeedConsumption * feedCostPerKg;
+    const dailyWeightGainKg = standards.growth_rate_per_day / 1000;
+    const dailyRevenueGain = dailyWeightGainKg * sellingPricePerKg;
+
+    if (dailyRevenueGain > dailyFeedCost && !optimalStartDate) {
+      optimalStartDate = new Date();
+      optimalStartDate.setDate(optimalStartDate.getDate() + i);
+    }
+
+    if (dailyRevenueGain < dailyFeedCost && optimalStartDate && !optimalEndDate) {
+      optimalEndDate = new Date();
+      optimalEndDate.setDate(optimalEndDate.getDate() + i);
+      break; // La fen├¬tre est trouv├®e
+    }
+    currentWeight += dailyWeightGainKg;
+  }
+
+  // Si aucune fin n'est trouv├®e, d├®finir une fen├¬tre de 7 jours par d├®faut
+  if (optimalStartDate && !optimalEndDate) {
+    optimalEndDate = new Date(optimalStartDate);
+    optimalEndDate.setDate(optimalStartDate.getDate() + 7);
+  }
+
+  // Fallback si aucune fen├¬tre n'est trouv├®e
+  if (!optimalStartDate) {
+    optimalStartDate = new Date();
+    optimalStartDate.setDate(optimalStartDate.getDate() + (42 - lot.age));
+    optimalEndDate = new Date(optimalStartDate);
+    optimalEndDate.setDate(optimalStartDate.getDate() + 5);
+  }
+
+  return {
+    start_date: optimalStartDate.toISOString(),
+    end_date: optimalEndDate.toISOString(),
+    estimated_margin: (sellingPricePerKg - (feedCostPerKg * 1.7)) * currentWeight, // Marge brute estim├®e
+  };
+};
+
+const useLotIntelligenceWithLogging = (lotData: any | null) => {
+  const [insights, setInsights] = useState<any[]>([]);
+  const [kpis, setKpis] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!lotData) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchAndAnalyze = async () => {
+      console.log(`­ƒºá [IA - 1/3] Lancement de l'agent d'intelligence pour le lot ID: ${lotData.id}`);
+      setLoading(true);
+      try {
+        console.log('­ƒºá [IA - 2/3] Donn├®es brutes du lot re├ºues par l\'agent :', JSON.stringify(lotData, null, 2));
+
+        // --- D├ëBUT DE LA LOGIQUE D'ANALYSE R├ëELLE ---
+        const standards = getBreedStandards(lotData.breed);
+        const currentWeight = lotData.poids_moyen || (standards.growth_rate_per_day * lotData.age) / 1000;
+
+        // 1. Pr├®diction de Croissance
+        const daysRemaining = Math.max(0, 42 - lotData.age);
+        const predictedGrowth = daysRemaining * standards.growth_rate_per_day / 1000;
+        const predictedFinalWeight = currentWeight + predictedGrowth;
+        const predictedSaleDate = new Date();
+        predictedSaleDate.setDate(predictedSaleDate.getDate() + daysRemaining);
+
+        // 2. Calcul de la fen├¬tre de vente optimale
+        const optimalWindow = calculateOptimalSaleWindow(lotData, standards);
+
+        // 2. Analyse Sant├®
+        const mortalityRate = lotData.taux_mortalite || 0;
+        let riskLevel = 'low';
+        if (mortalityRate > standards.normal_mortality_rate * 2) riskLevel = 'high';
+        else if (mortalityRate > standards.normal_mortality_rate) riskLevel = 'medium';
+
+        // 3. Analyse Alimentaire (FCR simul├® car donn├®es manquantes)
+        // --- MISE ├Ç JOUR : Logique pour utiliser la consommation r├®elle ---
+        // ├Ç l'avenir, cette valeur viendra de la gestion de stock.
+        // Exemple: supabase.rpc('get_feed_consumed_by_lot', { p_lot_id: lotData.id })
+        const realTotalFeedConsumed = lotData.feed_consumption || 0; // On utilise la colonne 'feed_consumption' du lot
+
+        const initialWeight = (lotData.initial_quantity || lotData.quantity) * 0.040; // Poids initial estim├® ├á 40g/sujet
+        const currentTotalWeight = currentWeight * lotData.quantity;
+        const totalWeightGain = currentTotalWeight - initialWeight;
+
+        // Calcul de l'IC (Indice de Consommation) r├®el si les donn├®es sont disponibles
+        const ic = totalWeightGain > 0 && realTotalFeedConsumed > 0 ? realTotalFeedConsumed / totalWeightGain : 0;
+        const efficiencyScore = ic > 0 ? Math.min(100, (standards.fcr_target / ic) * 100) : 0;
+
+        // 4. Construction des KPIs
+        const calculatedKpis = {
+          predicted_weight: predictedFinalWeight,
+          predicted_sale_date: predictedSaleDate.toISOString(),
+          growth_trend: currentWeight > (standards.growth_rate_per_day * lotData.age) / 1000 ? 'good' : 'average',
+          confidence_score: lotData.poids_moyen ? 85 : 60,
+          optimal_sale_window: optimalWindow,
+          current_consumption: realTotalFeedConsumed / lotData.age || 0, // Consommation moyenne par jour
+          recommended_feed: (currentWeight * 0.05 * lotData.quantity),
+          ic: ic, // Utiliser 'ic' au lieu de 'fcr'
+          efficiency_score: efficiencyScore,
+          mortality_rate: mortalityRate,
+          mortality_trend: 'stable', // Donn├®e ├á int├®grer
+          risk_level: riskLevel,
+          benchmark: {
+            current_performance: efficiencyScore,
+            average_performance: 75, // Simul├®
+            best_performance: 95, // Simul├®
+            ranking_percentile: 60, // Simul├®
+            comparison_insights: ["Votre FCR est meilleur que la moyenne de la ferme."], // Simul├®
+          }
+        };
+
+        // 5. G├®n├®ration des Insights
+        const generatedInsights = [];
+        if (riskLevel === 'high') {
+          generatedInsights.push({
+            category: 'health_prediction',
+            title: 'Risque Sanitaire ├ëlev├®',
+            description: `Le taux de mortalit├® (${mortalityRate.toFixed(1)}%) est sup├®rieur ├á la norme (${standards.normal_mortality_rate}%).`,
+            probability: 70,
+            days_to_occurrence: 3,
+          });
+        }
+        // --- NOUVEAU : Alerte de stock manquant pour le prochain aliment ---
+        const daysUntilGrower = 21 - lotData.age;
+        if (daysUntilGrower > 0 && daysUntilGrower <= 4) {
+          generatedInsights.push({
+            category: 'feed_stock',
+            title: 'Stock pr├®ventif requis',
+            description: `Le lot passera ├á l'Aliment Croissance dans ${daysUntilGrower} jours. Pensez ├á v├®rifier votre stock.`
+          });
+        }
+        if (efficiencyScore < 70 && ic > 0) {
+          generatedInsights.push({
+            category: 'feed',
+            description: `L'Indice de Consommation (IC) de ${ic.toFixed(2)} est ├®lev├®. V├®rifiez la qualit├® et le gaspillage de l'aliment.`
+          });
+        } else {
+          generatedInsights.push({
+            category: 'feed',
+            description: `L'efficacit├® alimentaire est bonne. Continuez les bonnes pratiques.`
+          });
+        }
+
+        setInsights(generatedInsights);
+        setKpis(calculatedKpis);
+        console.log('­ƒºá [IA - 3/3] Analyses finales g├®n├®r├®es :', JSON.stringify({ insights: generatedInsights, kpis: calculatedKpis }, null, 2));
+
+      } catch (error) {
+        console.error("Erreur dans l'agent d'intelligence:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAndAnalyze();
+  }, [lotData]);
+
+  return { lot: lotData, insights, kpis, loading };
+};
+
+const { width } = Dimensions.get('window');
+
+// --- NOUVEAU : Composant pour les placeholders (Skeleton Loader) ---
+const SkeletonPlaceholder = ({ width, height, style }: { width: number | string, height: number, style?: any }) => {
+  const opacityAnim = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 0.5,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [opacityAnim]);
+
+  return <Animated.View style={[{ width, height, backgroundColor: '#e0e0e0', borderRadius: 8, opacity: opacityAnim }, style]} />;
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  header: {
+    paddingBottom: 20,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  backButton: {
+    marginRight: 16,
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#fff',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 100,
+  },
+  analyticsContainer: {
+    marginBottom: 20,
+  },
+  analyticsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  analyticsCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    minHeight: 110,
+    justifyContent: 'center',
+  },
+  analyticsIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#ffffff30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  analyticsValue: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  analyticsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ffffffdd',
+  },
+  insightsContainer: {
+    backgroundColor: '#1e293b',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+  },
+  insightsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  insightsIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  insightsTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#fff',
+    flex: 1,
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10b981',
+  },
+  liveText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#10b981',
+  },
+  insightCard: {
+    backgroundColor: '#ffffff15',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+  },
+  insightCritical: {
+    borderLeftColor: '#ef4444',
+  },
+  insightSuccess: {
+    borderLeftColor: '#10b981',
+  },
+  insightInfo: {
+    borderLeftColor: '#3b82f6',
+  },
+  insightWarning: {
+    borderLeftColor: '#f59e0b',
+  },
+  insightHeader: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  insightContent: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  insightTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  insightDescription: {
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+  insightFooter: {
+    marginTop: 8,
+  },
+  insightAction: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#10b981',
+    marginBottom: 8,
+  },
+  confidenceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  confidenceBar: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#ffffff20',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  confidenceFill: {
+    height: '100%',
+    backgroundColor: '#10b981',
+    borderRadius: 3,
+  },
+  confidenceText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    flexWrap: 'wrap',
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+  },
+  filterButtonActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  filterButtonTextActive: {
+    color: '#fff',
+  },
+  section: {
+    marginBottom: 24,
+  },
+  lotsContainer: {
+    gap: 12,
+  },
+  lotCardWrapper: {
+    position: 'relative',
+  },
+  archiveButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: '#ef4444',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  // --- NOUVEAU : Styles pour les ic├┤nes d'action sur la carte ---
+  actionIconsContainer: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderRadius: 20,
+    padding: 6,
+  },
+  actionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // La couleur de fond est d├®finie directement dans le JSX
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    marginTop: 20,
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#1e293b',
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 15,
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  emptyStateButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  emptyStateButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.backgroundAlt,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+});
+
+export default function LotsScreen() {
+  const [showAddLot, setShowAddLot] = useState(false);
+  const [showIntelligence, setShowIntelligence] = useState(false);
+  const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
+  const [lotToEdit, setLotToEdit] = useState<any | null>(null); // --- NOUVEAU : Pour la modale d'├®dition ---
+  const [filter, setFilter] = useState<'all' | 'my-lots' | 'active' | 'archived'>('all');
+  const [lots, setLots] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [selectedLotForDetail, setSelectedLotForDetail] = useState<any | null>(null);
+
+  useEffect(() => {
+    loadLots();
+  }, []);
+
+  const loadLots = async () => {
+    try {
+      setIsLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        console.log('No user logged in');
+        setLots([]);
+        return;
+      }
+
+      setCurrentUserId(user.id);
+
+      // Load all lots with seller information - but filter by user for privacy
+      const { data, error } = await supabase
+        .from('lots')
+        .select('*, taux_mortalite')
+        .eq('user_id', user.id)  // Only show user's own lots
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      console.log('Loaded lots:', data);
+
+      const lotsWithDynamicAge = data?.map(lot => {
+        // --- CORRECTION : Cr├®er une nouvelle instance de date pour le calcul afin de ne pas modifier l'originale ---
+        const entryDate = new Date(lot.entry_date || lot.created_at);
+        const today = new Date();
+        // --- CORRECTION FINALE : Utiliser initial_age_days et un calcul de date robuste ---
+        entryDate.setUTCHours(0, 0, 0, 0);
+        today.setUTCHours(0, 0, 0, 0);
+        const daysOnFarm = Math.max(0, Math.round((today.getTime() - entryDate.getTime()) / 86400000)); // 86400000 = 1000 * 60 * 60 * 24
+        let dynamicAge = (lot.initial_age_days || 0) + daysOnFarm;
+
+        // --- CORRECTION : Un lot entr├® aujourd'hui a au moins 1 jour d'├óge ---
+        if (daysOnFarm === 0 && dynamicAge < 1) dynamicAge = 1;
+
+        let trackingInfo = null;
+        if (lot.target_sale_date) {
+          const targetDate = new Date(lot.target_sale_date);
+          targetDate.setUTCHours(0, 0, 0, 0); // Assurer la comparaison au jour pr├¿s
+          const daysUntilTarget = Math.floor((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          trackingInfo = {
+            daysInFarm: daysOnFarm,
+            daysUntilTarget,
+            targetWeight: lot.target_weight,
+            isTargetTracking: true,
+          };
+        } else {
+          trackingInfo = {
+            daysInFarm: daysOnFarm,
+            isTargetTracking: false,
+          };
+        }
+
+        return {
+          ...lot,
+          age: dynamicAge, // Override age with dynamic age
+          taux_mortalite: lot.taux_mortalite || 0, // Include the calculated mortality rate
+          trackingInfo,
+          // --- CORRECTION FINALE : S'assurer que la date est correctement format├®e ou nulle ---
+          targetSaleDate: lot.target_sale_date ? new Date(lot.target_sale_date).toISOString().split('T')[0] : null,
+          entryDate: lot.entry_date ? new Date(lot.entry_date).toISOString().split('T')[0] : null,
+        };
+      }) || [];
+
+      // --- LOG DE V├ëRIFICATION ---
+      // Affiche les donn├®es transform├®es pour le premier lot afin de v├®rifier les calculs.
+      console.log('­ƒôè [1/2] [lots.tsx] Donn├®es du premier lot apr├¿s calculs (├óge, dates) :', JSON.stringify(lotsWithDynamicAge[0], null, 2));
+
+      setLots(lotsWithDynamicAge);
+    } catch (error) {
+      console.log('ÔÜá´©Å Error loading lots:', error);
+      Alert.alert('Erreur', 'Impossible de charger les lots');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    loadLots();
+  };
+
+  const handleAddLot = async (lotData: any) => {
+    try {
+      console.log('Adding lot to database:', lotData);
+
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert('Erreur', 'Vous devez ├¬tre connect├® pour ajouter un lot');
+        return;
+      }
+
+      // --- CORRECTION : Assurer le bon format de date pour Supabase ---
+      // Convertit la date de sortie pr├®vue en format ISO 8601 (UTC) si elle existe.
+      // Cela ├®vite les probl├¿mes de fuseau horaire qui peuvent causer des dates incorrectes.
+      const targetSaleDateUTC = lotData.target_sale_date
+        ? new Date(lotData.target_sale_date).toISOString()
+        : null;
+
+      const { data, error } = await supabase
+        .from('lots')
+        .insert([{
+          user_id: user.id,
+          name: lotData.name,
+          breed: lotData.breed,
+          bird_type: lotData.bird_type,
+          quantity: lotData.quantity,
+          initial_quantity: lotData.initial_quantity,
+          age: lotData.age,
+          entry_date: lotData.entry_date,
+          target_sale_date: targetSaleDateUTC,
+          target_weight: lotData.target_weight || null,
+          status: 'active'
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Le Trigger Supabase s'occupe de la cr├®ation des vaccinations.
+      // On ne fait plus d'appel RPC manuel ici pour ├®viter les doublons.
+      console.log(`Ô£à Lot ajout├® avec succ├¿s. ID: ${data.id}.`);
+
+      console.log('Lot added successfully:', data);
+      setShowAddLot(false);
+      Alert.alert('Succ├¿s! ­ƒÄë', 'Le lot a ├®t├® ajout├® avec succ├¿s');
+      loadLots();
+    } catch (error: any) {
+      console.log('ÔÜá´©Å Error adding lot:', error);
+
+      // D├®tection sp├®cifique de l'erreur du Trigger Supabase
+      if (error.code === '23505' && error.message?.includes('vaccinations')) {
+        Alert.alert('Erreur Configuration DB', 'Le syst├¿me automatique (Trigger) de la base de donn├®es tente de cr├®er des doublons de vaccins. Veuillez v├®rifier votre fonction SQL dans Supabase.');
+      } else {
+        Alert.alert('Erreur', error.message || 'Impossible d\'ajouter le lot');
+      }
+    }
+  };
+
+  const handleArchiveLot = async (lotId: string) => {
+    Alert.alert(
+      'Archiver le Lot',
+      '├ètes-vous s├╗r de vouloir archiver ce lot? Il ne sera plus visible dans la liste active.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Archiver',
+          style: 'destructive',
+          onPress: async () => {
+            try { // Supabase est d├®j├á import├® depuis config
+              const { error } = await supabase
+                .from('lots')
+                .update({ status: 'archived' })
+                .eq('id', lotId);
+
+              if (error) throw error;
+
+              Alert.alert('Succ├¿s', 'Le lot a ├®t├® archiv├®');
+              loadLots();
+            } catch (error: any) {
+              console.log('ÔÜá´©Å Error archiving lot:', error);
+              Alert.alert('Erreur', 'Impossible d\'archiver le lot');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // --- NOUVEAU : G├®rer la suppression directement depuis la liste ---
+  const handleDeleteLot = (lot: any) => {
+    Alert.alert(
+      "Confirmer la suppression",
+      `├ètes-vous s├╗r de vouloir supprimer d├®finitivement le lot "${lot.name}" ? Cette action est irr├®versible.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase.from('lots').delete().eq('id', lot.id);
+              if (error) throw error;
+              Alert.alert("Succ├¿s", `Le lot "${lot.name}" a ├®t├® supprim├®.`);
+              loadLots(); // Rafra├«chir la liste
+            } catch (error: any) {
+              Alert.alert("Erreur", "Impossible de supprimer le lot.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // --- NOUVEAU : G├®rer la modification directement depuis la liste ---
+  const handleEditLot = (lot: any) => {
+    setLotToEdit(lot);
+  };
+
+  // --- NOUVEAU : G├®rer la r├®ussite de la mise ├á jour ---
+  const handleUpdateSuccess = () => {
+    setLotToEdit(null);
+    loadLots();
+  };
+
+  // --- NOUVEAU : Fonction pour traduire le type de volaille pour la base de donn├®es ---
+  const getBirdTypeForDB = (birdType: string): 'broilers' | 'layers' | 'local' => {
+    switch (birdType) {
+      case 'Poulets de chair':
+        return 'broilers';
+      case 'Pondeuses':
+        return 'layers';
+      case 'Race locale':
+        return 'local';
+      default:
+        return 'broilers'; // Fallback par d├®faut
+    }
+  };
+
+  const getStageFromAge = (birdType: string, age: number): 'starter' | 'grower' | 'finisher' | 'layer' | 'pre-layer' => {
+    // Protocole pour les races commerciales ├á croissance rapide (Broilers)
+    if (birdType === 'broilers') {
+      if (age <= 21) return 'starter';   // J1 ├á J21
+      if (age <= 32) return 'grower';     // J22 ├á J32
+      return 'finisher';
+    }
+    // Protocole pour les races locales et pondeuses (cycle long)
+    else if (birdType === 'layers') {
+      if (age <= 42) return 'starter';   // J1 ├á J42 (6 semaines)
+      if (age <= 119) return 'grower';    // J43 ├á J119 (7 ├á 17 semaines) - Similaire ├á votre J105
+      if (age <= 140) return 'pre-layer'; // J120 ├á J140 (18 ├á 20 semaines) - Phase pr├®-ponte
+      return 'layer';
+    }
+    // Fallback pour les types inconnus (cycle court par d├®faut)
+    return 'starter';
+  };
+
+  const getHealthStatusFromMortality = (mortality: number): 'excellent' | 'good' | 'fair' | 'poor' => {
+    if (mortality < 2) return 'excellent';
+    if (mortality < 5) return 'good';
+    if (mortality < 10) return 'fair';
+    return 'poor';
+  };
+
+  // Calculate analytics
+  const analytics = {
+    totalBirds: lots.filter(l => l.status === 'active').reduce((sum, l) => sum + l.quantity, 0),
+    activeLots: lots.filter(l => l.status === 'active').length,
+    averageAge: lots.filter(l => l.status === 'active').length > 0
+      ? Math.round(lots.filter(l => l.status === 'active').reduce((sum, l) => sum + l.age, 0) / lots.filter(l => l.status === 'active').length)
+      : 0,
+    healthScore: (() => {
+      const activeLots = lots.filter(l => l.status === 'active');
+      if (activeLots.length === 0) return 100;
+      // --- CORRECTION : Utiliser le calcul pond├®r├® correct pour le taux de mortalit├® global ---
+      const lotsForCalc = activeLots.filter(lot => typeof lot.initial_quantity === 'number' && lot.initial_quantity > 0);
+      const totalMortality = lotsForCalc.reduce((sum, lot) => sum + (lot.mortality || 0), 0);
+      const totalInitialQuantity = lotsForCalc.reduce((sum, lot) => sum + lot.initial_quantity, 0);
+      const mortalityRate = totalInitialQuantity > 0 ? (totalMortality / totalInitialQuantity) * 100 : 0;
+      return Math.round(100 - mortalityRate);
+    })(),
+  };
+
+  // AI Insights
+  const getAIInsights = () => {
+    const insights = [];
+    const activeLots = lots.filter(l => l.status === 'active');
+
+    // High mortality alert
+    const highMortalityLots = activeLots.filter(l => (l.mortality || 0) > 5);
+    if (highMortalityLots.length > 0) {
+      insights.push({
+        type: 'critical',
+        title: 'Alerte Mortalit├® ├ëlev├®e',
+        description: `${highMortalityLots.length} lot(s) avec mortalit├® > 5%`,
+        action: 'V├®rifier conditions sanitaires',
+        icon: 'alert-circle',
+        confidence: 96
+      });
+    }
+
+    // Optimal sale window
+    const lotsNearTarget = activeLots.filter(l => {
+      if (!l.target_sale_date) return false;
+      const daysUntil = Math.floor((new Date(l.target_sale_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+      return daysUntil <= 7 && daysUntil >= 0;
+    });
+    if (lotsNearTarget.length > 0) {
+      insights.push({
+        type: 'success',
+        title: 'Fen├¬tre de Vente Optimale',
+        description: `${lotsNearTarget.length} lot(s) pr├¬t(s) pour la vente`,
+        action: 'Pr├®parer la commercialisation',
+        icon: 'cash',
+        confidence: 93
+      });
+    }
+
+    // Growth optimization
+    if (analytics.averageAge > 0 && analytics.totalBirds > 0) {
+      insights.push({
+        type: 'info',
+        title: 'Analyse de Croissance',
+        description: `├ége moyen: ${analytics.averageAge} jours`,
+        action: 'Ajuster l\'alimentation selon phase',
+        icon: 'trending-up',
+        confidence: 89
+      });
+    }
+
+    return insights;
+  };
+
+  const filteredLots = lots.filter(lot => {
+    if (filter === 'all') return true;
+    if (filter === 'active') return lot.status === 'active';
+    if (filter === 'archived') return lot.status === 'archived';
+    return lot.user_id === currentUserId; // 'my-lots' is the default fallback
+  });
+
+  const renderAnalyticsCards = () => (
+    <View style={styles.analyticsContainer}>
+      <View style={styles.analyticsRow}>
+        <LinearGradient
+          colors={['#3b82f6', '#2563eb']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.analyticsCard}
+        >
+          {isLoading ? (
+            <>
+              <SkeletonPlaceholder width={48} height={48} style={{ marginBottom: 8, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="60%" height={28} style={{ marginBottom: 4, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="80%" height={12} style={{ backgroundColor: '#ffffff40' }} />
+            </>
+          ) : (
+            <>
+              <View style={styles.analyticsIcon}>
+                <Icon name="layers" size={24} color="#fff" />
+              </View>
+              <Text style={styles.analyticsValue}>{analytics.totalBirds}</Text>
+              <Text style={styles.analyticsLabel}>Total Volailles</Text>
+            </>
+          )}
+        </LinearGradient>
+
+        <LinearGradient
+          colors={['#10b981', '#059669']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.analyticsCard}
+        >
+          {isLoading ? (
+            <>
+              <SkeletonPlaceholder width={48} height={48} style={{ marginBottom: 8, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="50%" height={28} style={{ marginBottom: 4, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="70%" height={12} style={{ backgroundColor: '#ffffff40' }} />
+            </>
+          ) : (
+            <>
+              <View style={styles.analyticsIcon}>
+                <Icon name="checkmark-circle" size={24} color="#fff" />
+              </View>
+              <Text style={styles.analyticsValue}>{analytics.activeLots}</Text>
+              <Text style={styles.analyticsLabel}>Lots Actifs</Text>
+            </>
+          )}
+        </LinearGradient>
+      </View>
+
+      <View style={styles.analyticsRow}>
+        <LinearGradient
+          colors={['#f59e0b', '#d97706']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.analyticsCard}
+        >
+          {isLoading ? (
+            <>
+              <SkeletonPlaceholder width={48} height={48} style={{ marginBottom: 8, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="40%" height={28} style={{ marginBottom: 4, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="60%" height={12} style={{ backgroundColor: '#ffffff40' }} />
+            </>
+          ) : (
+            <>
+              <View style={styles.analyticsIcon}>
+                <Icon name="time" size={24} color="#fff" />
+              </View>
+              <Text style={styles.analyticsValue}>{analytics.averageAge}j</Text>
+              <Text style={styles.analyticsLabel}>├ége Moyen</Text>
+            </>
+          )}
+        </LinearGradient>
+
+        <LinearGradient
+          colors={['#8b5cf6', '#7c3aed']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.analyticsCard}
+        >
+          {isLoading ? (
+            <>
+              <SkeletonPlaceholder width={48} height={48} style={{ marginBottom: 8, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="50%" height={28} style={{ marginBottom: 4, backgroundColor: '#ffffff40' }} />
+              <SkeletonPlaceholder width="70%" height={12} style={{ backgroundColor: '#ffffff40' }} />
+            </>
+          ) : (
+            <>
+              <View style={styles.analyticsIcon}>
+                <Icon name="heart" size={24} color="#fff" />
+              </View>
+              <Text style={styles.analyticsValue}>{analytics.healthScore}%</Text>
+              <Text style={styles.analyticsLabel}>Score Sant├®</Text>
+            </>
+          )}
+        </LinearGradient>
+      </View>
+    </View>
+  );
+
+  const renderAIInsights = () => {
+    const insights = getAIInsights();
+    if (insights.length === 0) return null;
+
+    return (
+      <View style={styles.insightsContainer}>
+        <View style={styles.insightsHeader}>
+          <View style={styles.insightsIconContainer}>
+            <Icon name="bulb" size={20} color="#fff" />
+          </View>
+          <Text style={styles.insightsTitle}>Recommandations IA</Text>
+          <View style={styles.liveIndicator}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveText}>Live</Text>
+          </View>
+        </View>
+
+        {insights.map((insight, index) => (
+          <View key={index} style={[
+            styles.insightCard,
+            insight.type === 'critical' && styles.insightCritical,
+            insight.type === 'success' && styles.insightSuccess,
+            insight.type === 'info' && styles.insightInfo,
+            insight.category === 'feed_stock' && styles.insightWarning, // --- NOUVEAU ---
+          ]}>
+            <View style={styles.insightHeader}>
+              <Icon name={insight.icon as any} size={22} color={
+                insight.type === 'critical' ? '#ef4444' :
+                  insight.type === 'success' ? '#10b981' : '#3b82f6'
+              } />
+              <View style={styles.insightContent}>
+                <Text style={styles.insightTitle}>{insight.title}</Text>
+                <Text style={styles.insightDescription}>{insight.description}</Text>
+              </View>
+            </View>
+            <View style={styles.insightFooter}>
+              <Text style={styles.insightAction}>­ƒÆí {insight.action}</Text>
+              <View style={styles.confidenceContainer}>
+                <View style={styles.confidenceBar}>
+                  <View style={[styles.confidenceFill, { width: `${insight.confidence}%` }]} />
+                </View>
+                <Text style={styles.confidenceText}>{insight.confidence}%</Text>
+              </View>
+            </View>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <LinearGradient
+        colors={['#1e293b', '#0f172a']}
+        style={styles.header}
+      >
+        <View style={styles.headerContent}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.replace('/dashboard')}
+          >
+            <Icon name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.headerTitle}>Gestion des Lots</Text>
+            <Text style={styles.headerSubtitle}>Suivi intelligent IA</Text>
+          </View>
+        </View>
+      </LinearGradient>
+
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor="#3b82f6"
+          />
+        }
+      >
+        <View style={styles.content}>
+
+          <View style={styles.filterContainer}>
+            {[
+              { key: 'all', label: 'Tous', count: lots.filter(l => l.user_id === currentUserId).length },
+              { key: 'active', label: 'Actifs', count: lots.filter(l => l.status === 'active' && l.user_id === currentUserId).length },
+              { key: 'archived', label: 'Archiv├®s', count: lots.filter(l => l.status === 'archived' && l.user_id === currentUserId).length },
+            ].map((filterItem) => (
+              <TouchableOpacity
+                key={filterItem.key}
+                style={[
+                  styles.filterButton,
+                  filter === filterItem.key && styles.filterButtonActive,
+                ]}
+                onPress={() => setFilter(filterItem.key as any)}
+              >
+                <Text
+                  style={[
+                    styles.filterButtonText,
+                    filter === filterItem.key && styles.filterButtonTextActive,
+                  ]}
+                >
+                  {filterItem.label} ({filterItem.count})
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.lotsContainer}>
+              {isLoading ? (
+                // --- NOUVEAU : Affichage des squelettes pendant le chargement ---
+                Array.from({ length: 3 }).map((_, index) => (
+                  <View key={index} style={[styles.lotCardWrapper, { backgroundColor: '#fff', padding: 16, borderRadius: 16, marginBottom: 12 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                      <SkeletonPlaceholder width="60%" height={24} />
+                      <SkeletonPlaceholder width={36} height={36} style={{ borderRadius: 18 }} />
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+                      <SkeletonPlaceholder width="30%" height={60} />
+                      <SkeletonPlaceholder width="30%" height={60} />
+                      <SkeletonPlaceholder width="30%" height={60} />
+                    </View>
+                    <SkeletonPlaceholder width="100%" height={48} />
+                  </View>
+                ))
+              ) : filteredLots.length > 0 ? (
+                filteredLots.map(lot => (
+                  <View key={lot.id} style={styles.lotCardWrapper}>
+                    {/* --- CORRECTION : Ic├┤nes d'action positionn├®es correctement --- */}
+                    {lot.user_id === currentUserId && lot.status === 'active' && (
+                      <View style={styles.actionIconsContainer}>
+                        <TouchableOpacity style={[styles.actionIcon, { backgroundColor: colors.accent }]} onPress={() => handleEditLot(lot)}>
+                          {/* --- CORRECTION : Nom de l'ic├┤ne corrig├® --- */}
+                          <Icon name="create" size={18} color={colors.white} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.actionIcon, { backgroundColor: colors.warning }]} onPress={() => handleArchiveLot(lot.id)}>
+                          <Icon name="archive" size={18} color={colors.white} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.actionIcon, { backgroundColor: colors.error }]} onPress={() => handleDeleteLot(lot)}>
+                          {/* --- CORRECTION : Nom de l'ic├┤ne corrig├® --- */}
+                          <Icon name="trash" size={18} color={colors.white} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    <LotCard
+                      lot={{
+                        // --- CORRECTION : Utiliser directement l'objet 'lot' qui a d├®j├á ├®t├® trait├® ---
+                        // Cela garantit que chaque carte re├ºoit les donn├®es uniques et correctes
+                        // qui ont ├®t├® calcul├®es et v├®rifi├®es par le log.
+                        id: lot.id,
+                        name: lot.name,
+                        breed: lot.breed,
+                        birdType: lot.bird_type,
+                        quantity: lot.quantity,
+                        age: lot.age,
+                        entryDate: lot.entryDate,
+                        dateCreated: lot.created_at,
+                        status: lot.status,
+                        healthStatus: getHealthStatusFromMortality(lot.taux_mortalite),
+                        feedConsumption: lot.feed_consumption || 0,
+                        mortality: lot.mortality || 0,
+                        averageWeight: lot.poids_moyen || 0,
+                        sellingPrice: lot.selling_price || 0,
+                        stage: getStageFromAge(lot.bird_type, lot.age),
+                        targetSaleDate: lot.targetSaleDate,
+                        targetWeight: lot.target_weight,
+                        treatmentsDone: [], // Donn├®es simplifi├®es pour la carte
+                        treatmentsPending: [], // Donn├®es simplifi├®es pour la carte
+                        user_id: lot.user_id
+                      }}
+                      onPress={() => {
+                        setSelectedLotForDetail(lot); // Utiliser un ├®tat s├®par├® pour les d├®tails
+                        setShowIntelligence(true);
+                      }}
+                    />
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <LinearGradient
+                    colors={['#3b82f620', '#2563eb20']}
+                    style={styles.emptyIconContainer}
+                  >
+                    <Icon name="layers" size={48} color="#3b82f6" />
+                  </LinearGradient>
+                  <Text style={styles.emptyStateTitle}>Aucun lot trouv├®</Text>
+                  <Text style={styles.emptyStateText}>
+                    {filter === 'all'
+                      ? 'Commencez par ajouter votre premier lot!'
+                      : filter === 'active'
+                        ? 'Aucun lot actif pour le moment'
+                        : 'Aucun lot archiv├®'
+                    }
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowAddLot(true)}>
+                    <LinearGradient
+                      colors={['#10b981', '#059669']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.emptyStateButton}
+                    >
+                      <Icon name="add" size={20} color="#fff" />
+                      <Text style={styles.emptyStateButtonText}>Ajouter un lot</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+      <BottomNavigation />
+
+      <FloatingActionButton
+        // Le nouveau FAB en mode simple utilise la prop "onPress" et "icon"
+        icon="add"
+        onPress={() => setShowAddLot(true)}
+      />
+
+      <SimpleBottomSheet
+        isVisible={showAddLot}
+        onClose={() => setShowAddLot(false)}
+      >
+        <AddLotForm
+          onSubmit={handleAddLot}
+          onCancel={() => setShowAddLot(false)}
+        />
+      </SimpleBottomSheet>
+
+      {/* Intelligence Dashboard */}
+      <SimpleBottomSheet
+        isVisible={showIntelligence}
+        onClose={() => {
+          setShowIntelligence(false);
+          setSelectedLotForDetail(null);
+        }}
+      >
+        {selectedLotForDetail && (
+          <LotIntelligenceDashboard
+            useLotIntelligenceHook={() => useLotIntelligenceWithLogging(selectedLotForDetail)} // --- CORRECTION : Passer l'objet lot complet ---
+            lotId={selectedLotForDetail.id}
+            onClose={() => {
+              setShowIntelligence(false);
+              setSelectedLotForDetail(null);
+            }}
+          />
+        )}
+      </SimpleBottomSheet>
+
+      {/* --- NOUVEAU : Modale pour l'├®dition rapide --- */}
+      <SimpleBottomSheet isVisible={!!lotToEdit} onClose={() => setLotToEdit(null)}>
+        {lotToEdit && (
+          <EditLotForm
+            lot={lotToEdit}
+            onClose={() => setLotToEdit(null)}
+            onUpdateSuccess={handleUpdateSuccess}
+          />
+        )}
+      </SimpleBottomSheet>
+    </SafeAreaView>
+  );
+}

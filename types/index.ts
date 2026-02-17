@@ -31,7 +31,7 @@ export interface Lot {
   poids_moyen?: number;
   averageWeight: number;
   sellingPrice: number;
-  stage: 'starter' | 'grower' | 'finisher' | 'layer' | 'breeder';
+  stage: 'starter' | 'grower' | 'finisher' | 'layer' | 'breeder' | 'démarrage' | 'croissance' | 'finition' | 'ponte' | 'pré-ponte';
   treatmentsDone: Treatment[];
   treatmentsPending: Treatment[];
   breedImage?: string;
@@ -206,4 +206,67 @@ export interface Notification {
   type: 'info' | 'warning' | 'error' | 'success';
   date: string;
   read: boolean;
+}
+
+// Types pour le Forum
+export interface ForumCategory {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  order_index: number;
+  created_at: string;
+}
+
+export interface ForumCategoryWithStats extends ForumCategory {
+  topics_count: number;
+  posts_count: number;
+  last_topic_at: string | null;
+}
+
+export interface ForumTopic {
+  id: string;
+  category_id: string;
+  user_id: string;
+  title: string;
+  is_pinned: boolean;
+  is_locked: boolean;
+  views_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ForumTopicWithStats extends ForumTopic {
+  author_name: string | null;
+  author_avatar: string | null;
+  posts_count: number;
+  last_post_at: string | null;
+}
+
+export interface ForumPost {
+  id: string;
+  topic_id: string;
+  user_id: string;
+  content: string;
+  is_solution: boolean;
+  likes_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ForumPostWithAuthor extends ForumPost {
+  author_name: string | null;
+  author_avatar: string | null;
+}
+
+export interface ForumPostLike {
+  post_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface ForumTopicSubscription {
+  topic_id: string;
+  user_id: string;
+  created_at: string;
 }

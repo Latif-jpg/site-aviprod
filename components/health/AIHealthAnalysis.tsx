@@ -2,23 +2,24 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { colors } from '../../styles/commonStyles'; // Correction du chemin
-import Icon from '../Icon'; // Correction du chemin
-import Button from '../Button'; // Correction du chemin
-import { supabase } from '../../config'; // Utiliser le client Supabase consolidé
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
+import { colors } from '../../styles/commonStyles';
+import Icon from '../Icon';
+import Button from '../Button';
+import { supabase } from '../../config';
 import { useSubscription } from '../../contexts/SubscriptionContext';
 import { router } from 'expo-router';
 import { useDataCollector } from '../../src/hooks/useDataCollector';
+import { usePremiumFeature } from '../../hooks/usePremiumFeature';
+import SmartTunnelModal from '../SmartTunnelModal';
 
-// Hook personnalisé pour gérer les Avicoins
+// Hook personnalisé pour gérer les Avicoins (simple refresh)
 const useAvicoins = () => {
   const refreshAvicoins = () => {
-    // Émettre un événement personnalisé pour rafraîchir les Avicoins
-    // Utiliser DeviceEventEmitter pour React Native
     const { DeviceEventEmitter } = require('react-native');
     DeviceEventEmitter.emit('refreshAvicoins');
   };
-
   return { refreshAvicoins };
 };
 
@@ -37,26 +38,42 @@ export default function AIHealthAnalysis() {
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Utiliser le hook d'abonnement pour vérifier les limites
-  const { subscription, hasAccess } = useSubscription();
   const { refreshAvicoins } = useAvicoins();
   const { trackAIAnalysis } = useDataCollector();
+
+  // Intégration du Tunnel Malin via le hook premium
+  const { requestAccess, showTunnel, tunnelProps, isLoading: accessLoading } = usePremiumFeature({
+    featureKey: 'ai_analyses_per_month',
+    featureName: 'Analyse de Santé IA',
+    cost: 10,
+  });
 
   const handleImagePick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission refusée', 'L\'accès à la galerie est nécessaire pour ajouter des photos.');
+      Alert.alert('Permission refusée', 'L\'accès à la galerie est nécessaire.');
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-
       allowsMultipleSelection: true,
-      quality: 1,
+      quality: 0.7,
+      exif: false,
     });
 
-    if (!result.canceled) {
-      setImages(prev => [...prev, ...result.assets.map(a => a.uri)]);
+    if (!result.canceled && result.assets) {
+      // 3. Compresser les images sélectionnées (max 800px pour l'IA, c'est suffisant et stable)
+      const compressedUris = await Promise.all(
+        result.assets.map(async (asset) => {
+          const manipulated = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 800 } }],
+            { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+          );
+          return manipulated.uri;
+        })
+      );
+      setImages(prev => [...prev, ...compressedUris]);
     }
   };
 
@@ -66,12 +83,7 @@ export default function AIHealthAnalysis() {
     );
   };
 
-  const compressImage = async (uri: string): Promise<string> => {
-    // For now, return the original URI
-    // Image compression will be implemented when expo-image-manipulator is properly installed
-    console.log('Image compression placeholder - URI:', uri);
-    return uri;
-  };
+  // Suppression du placeholder compressImage car intégré dans handleImagePick
 
   const handleAnalysis = async () => {
     if (images.length === 0 && !description && symptoms.length === 0) {
@@ -79,193 +91,50 @@ export default function AIHealthAnalysis() {
       return;
     }
 
-    // Variables pour suivre l'état des vérifications
-    let hasUnlimitedAccess = false;
-    let usageAllowed = true;
+    // --- Appel au Tunnel Malin ---
+    const access = await requestAccess();
+    if (!access.granted) return;
 
-    // Vérifier les limites d'utilisation avant de procéder
-
-    try {
-      // Vérifier d'abord si l'utilisateur a un abonnement payant avec analyses illimitées
-      hasUnlimitedAccess = subscription?.plan?.features?.ai_analyses_per_month === -1;
-
-      if (!hasUnlimitedAccess) {
-        // Vérifier les limites d'utilisation pour les plans freemium/premium
-        const { data: usageCheckResult, error: usageError } = await supabase.rpc('check_usage_limit', {
-          feature_key: 'ai_analyses_per_month'
-        });
-
-        if (usageError) {
-          console.error('❌ Error checking usage limit:', usageError);
-          Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
-          return;
-        }
-
-        usageAllowed = usageCheckResult;
-
-        if (!usageAllowed) {
-          // Vérifier si l'utilisateur a des Avicoins pour payer
-          const { data: avicoinsData, error: avicoinsError } = await supabase
-            .from('user_avicoins')
-            .select('balance')
-            .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
-            .maybeSingle();
-
-          if (avicoinsError) {
-            console.error('❌ Error checking avicoins:', avicoinsError);
-          }
-
-          const avicoinsBalance = avicoinsData?.balance || 0;
-          const aiAnalysisCost = 5; // Coût fixe de 5 Avicoins par analyse IA
-
-          if (avicoinsBalance >= aiAnalysisCost) {
-            // Demander confirmation pour utiliser les Avicoins
-            Alert.alert(
-              'Limite atteinte - Utiliser Avicoins',
-              `Vous avez atteint votre limite mensuelle d'analyses IA.\n\nCoût: ${aiAnalysisCost} Avicoins\nSolde actuel: ${avicoinsBalance} Avicoins\n\nConfirmer l'utilisation d'Avicoins pour cette analyse ?`,
-              [
-                { text: 'Annuler', style: 'cancel' },
-                {
-                  text: 'Utiliser Avicoins',
-                  onPress: () => {
-                    // Continuer avec l'analyse en utilisant les Avicoins
-                    performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
-                  }
-                }
-              ]
-            );
-            return;
-          } else {
-            // Pas assez d'Avicoins, proposer mise à niveau ou achat
-            const currentPlan = subscription?.plan?.name || 'freemium';
-            const limit = subscription?.plan?.features?.ai_analyses_per_month || 2;
-
-            Alert.alert(
-              'Limite atteinte',
-              `Vous avez atteint la limite de ${limit} analyses IA par mois pour le plan ${currentPlan}.\n\nSolde Avicoins insuffisant (${avicoinsBalance} disponibles, ${aiAnalysisCost} requis).\n\nPassez à un plan supérieur ou achetez des Avicoins.`,
-              [
-                { text: 'Annuler', style: 'cancel' },
-                {
-                  text: 'Voir les plans',
-                  onPress: () => router.push('/subscription-plans')
-                },
-                {
-                  text: 'Acheter Avicoins',
-                  onPress: () => router.push('/subscription-plans')
-                }
-              ]
-            );
-            return;
-          }
-        }
-      }
-    } catch (error: any) {
-      Alert.alert('Erreur', 'Impossible de vérifier les limites d\'utilisation. Veuillez réessayer.');
-      return;
-    }
-    // Si on arrive ici, soit accès illimité soit limite non atteinte, on peut lancer l'analyse
-    await performAnalysis(supabase, hasUnlimitedAccess, usageAllowed);
+    await performAnalysis();
   };
 
-  const performAnalysis = async (supabase: any, hasUnlimitedAccess: boolean, usageAllowed: boolean) => {
-    const startTime = performance.now(); // Démarrer le chronomètre
+  const performAnalysis = async () => {
+    const startTime = Date.now();
     setIsLoading(true);
     setError(null);
     setAnalysisResult(null);
 
     try {
-      setLoadingMessage('Compression des images...');
+      setLoadingMessage('Préparation des images...');
       const compressedImagesBase64 = await Promise.all(
         images.map(async (uri) => {
-          const compressedUri = await compressImage(uri);
-          // React Native's fetch doesn't support response.blob(), so we use XMLHttpRequest
-          const blob: Blob = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.onload = () => resolve(xhr.response);
-            xhr.onerror = (e) => reject(new TypeError("Network request failed"));
-            xhr.responseType = "blob";
-            xhr.open("GET", compressedUri, true);
-            xhr.send(null);
-          });
-          return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
+          return await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
           });
         })
       );
 
       setLoadingMessage('Analyse par l\'IA en cours...');
       const { data, error: functionError } = await supabase.functions.invoke('gemini-health-analysis', {
-        body: {
-          images: compressedImagesBase64,
-          description,
-          symptoms,
-        },
+        body: { images: compressedImagesBase64, description, symptoms },
       });
 
       if (functionError) throw functionError;
       if (data.error) throw new Error(data.error);
 
-      const duration = performance.now() - startTime;
-
-      // TRACKER L'ANALYSE RÉUSSIE
-      trackAIAnalysis(
-        'health_diagnosis',
-        duration,
-        true, // succès
-        {
-          images_count: images.length,
-          symptoms_count: symptoms.length,
-          description_length: description.length,
-          diagnosis: data.diagnosis,
-          confidence: data.confidence,
-        }
-      );
-
-      // Si l'analyse a réussi et que nous utilisons des Avicoins, déduire le coût
-      if (!hasUnlimitedAccess && !usageAllowed) {
-        const aiAnalysisCost = 5;
-        const { error: transactionError } = await supabase
-          .from('avicoins_transactions')
-          .insert({
-            user_id: (await supabase.auth.getUser()).data.user?.id,
-            amount: -aiAnalysisCost,
-            transaction_type: 'ai_analysis',
-            description: 'Analyse IA de santé animale'
-          });
-
-        if (transactionError) {
-          console.error('❌ Error deducting avicoins:', transactionError);
-          // L'analyse a réussi mais la déduction a échoué - on continue quand même
-        } else {
-          console.log('✅ Avicoins deducted for AI analysis');
-          // Rafraîchir le solde Avicoins sur le dashboard
-          refreshAvicoins();
-        }
-      }
+      const duration = Date.now() - startTime;
+      trackAIAnalysis('health_diagnosis', duration, true, {
+        images_count: images.length,
+        symptoms_count: symptoms.length,
+        diagnosis: data.diagnosis,
+      });
 
       setAnalysisResult(data);
+      refreshAvicoins();
     } catch (err: any) {
-      const duration = performance.now() - startTime;
-
-      // TRACKER L'ANALYSE ÉCHOUÉE
-      trackAIAnalysis(
-        'health_diagnosis',
-        duration,
-        false, // échec
-        {
-          images_count: images.length,
-          symptoms_count: symptoms.length,
-          description_length: description.length,
-          error_message: err.message,
-        }
-      );
-
       console.error('❌ AI Analysis Error:', err);
-      setError(err.message || 'Une erreur est survenue lors de l\'analyse.');
-      Alert.alert('Erreur d\'analyse', err.message || 'Impossible de terminer l\'analyse. Veuillez vérifier votre configuration et réessayer.');
+      setError(err.message || 'Une erreur est survenue.');
+      Alert.alert('Erreur', err.message || 'Impossible de terminer l\'analyse.');
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -280,11 +149,11 @@ export default function AIHealthAnalysis() {
     setError(null);
   };
 
-  if (isLoading) {
+  if (isLoading || accessLoading) {
     return (
       <SafeAreaView style={styles.centered}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>{loadingMessage}</Text>
+        <Text style={styles.loadingText}>{loadingMessage || 'Traitement en cours...'}</Text>
       </SafeAreaView>
     );
   }
@@ -295,20 +164,9 @@ export default function AIHealthAnalysis() {
     if (confidence < 75) confidenceColor = colors.orange;
     if (confidence < 50) confidenceColor = colors.error;
 
-    const getPublicModelName = (model: string) => {
-      if (!model) return 'Aviprod IA';
-      if (model.toLowerCase().includes('gemini')) {
-        return 'Aviprod IA 1';
-      }
-      if (model.toLowerCase().includes('gpt')) {
-        return 'Aviprod IA 2';
-      }
-      return 'Aviprod IA'; // Fallback for unknown models
-    };
-
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView>
+        <ScrollView contentContainerStyle={{ padding: 20 }}>
           <Text style={styles.sectionTitle}>Résultats de l'Analyse</Text>
           <View style={styles.resultCard}>
             <Text style={styles.resultLabel}>Diagnostic Probable</Text>
@@ -318,8 +176,6 @@ export default function AIHealthAnalysis() {
               <View style={[styles.confidenceBar, { width: `${confidence}%`, backgroundColor: confidenceColor }]} />
             </View>
             <Text style={[styles.confidenceText, { color: confidenceColor }]}>{confidence}%</Text>
-            <Text style={styles.resultLabel}>Modèle d'IA Utilisé</Text>
-            <Text style={styles.modelText}>{getPublicModelName(analysisResult.model)}</Text>
           </View>
           <View style={styles.resultCard}>
             <Text style={styles.resultLabel}>Plan de Traitement Suggéré</Text>
@@ -332,6 +188,7 @@ export default function AIHealthAnalysis() {
             </Text>
           </View>
           <Button text="Nouvelle Analyse" onPress={resetForm} style={{ marginTop: 20 }} />
+          <View style={{ height: 40 }} />
         </ScrollView>
       </SafeAreaView>
     );
@@ -339,7 +196,7 @@ export default function AIHealthAnalysis() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView>
+      <ScrollView contentContainerStyle={{ padding: 20 }}>
         <Text style={styles.sectionTitle}>Ajouter des Photos</Text>
         <View style={styles.imageContainer}>
           {images.map((uri, index) => (
@@ -353,7 +210,7 @@ export default function AIHealthAnalysis() {
         <Text style={styles.sectionTitle}>Décrire les Symptômes</Text>
         <TextInput
           style={styles.textInput}
-          placeholder="Ex: Mes poules ont la diarrhée depuis 2 jours, elles mangent moins..."
+          placeholder="Détails sur l'état des animaux..."
           value={description}
           onChangeText={setDescription}
           multiline
@@ -372,8 +229,12 @@ export default function AIHealthAnalysis() {
           ))}
         </View>
 
-        <Button text="Analyser avec l'IA" onPress={handleAnalysis} style={{ marginTop: 30 }} />
+        <Button text="Analyser avec l'IA (5 🪙)" onPress={handleAnalysis} style={{ marginTop: 30 }} />
+
         <View style={{ height: 40 }} />
+
+        {/* Modal du Tunnel Malin */}
+        <SmartTunnelModal {...tunnelProps} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -382,15 +243,16 @@ export default function AIHealthAnalysis() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 16,
+    backgroundColor: colors.background,
   },
   loadingText: {
+    marginTop: 16,
     fontSize: 16,
     color: colors.textSecondary,
   },
@@ -495,13 +357,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     alignSelf: 'flex-end',
-  },
-  modelText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: 'right',
-    fontStyle: 'italic',
-    marginTop: 8,
   },
   warningCard: {
     flexDirection: 'row',

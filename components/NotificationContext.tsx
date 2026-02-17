@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { supabase } from '../config';
 import { useAuth } from '../hooks/useAuth';
 import { router } from 'expo-router';
@@ -152,16 +152,21 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
       fetchNotifications();
 
       // --- NOUVEAU : Abonnement temps réel pour les messages ---
-      messagesChannel = supabase
-        .channel(`unread-messages-${user.id}`)
-        .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'marketplace_messages', filter: `receiver_id=eq.${user.id}` },
-          () => {
-            console.log('📩 [NotificationContext] Changement détecté dans les messages, rafraîchissement...');
-            fetchUnreadMessagesCount();
-          }
-        )
-        .subscribe();
+      const channelName = `unread-messages-${user.id}`;
+      if (user.id) {
+        messagesChannel = supabase
+          .channel(channelName)
+          .on('postgres_changes',
+            { event: '*', schema: 'public', table: 'marketplace_messages', filter: `receiver_id=eq.${user.id}` },
+            () => {
+              console.log('📩 [NotificationContext] Changement détecté dans les messages, rafraîchissement...');
+              fetchUnreadMessagesCount();
+            }
+          )
+          .subscribe();
+      } else {
+        console.warn('⚠️ [NotificationContext] user.id est vide, impossible de créer le canal de messages.');
+      }
     } else {
       console.log('👤 [NotificationContext] No user, resetting counts.');
       setUnreadCount(0);
@@ -177,12 +182,14 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [user, fetchNotifications]);
 
+  const contextValue = useMemo(() => ({
+    unreadCount, unreadMessagesCount, fetchUnreadCount, fetchUnreadMessagesCount,
+    notifications, fetchNotifications,
+    markAsRead, markAllAsRead, setNotifications, user, loading
+  }), [unreadCount, unreadMessagesCount, fetchUnreadCount, fetchUnreadMessagesCount, notifications, fetchNotifications, user, loading]);
+
   return (
-    <NotificationContext.Provider value={{
-      unreadCount, unreadMessagesCount, fetchUnreadCount, fetchUnreadMessagesCount,
-      notifications, fetchNotifications,
-      markAsRead, markAllAsRead, setNotifications, user, loading
-    }}>
+    <NotificationContext.Provider value={contextValue}>
       {children}
     </NotificationContext.Provider>
   );

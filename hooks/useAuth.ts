@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../config';
 import { User } from '@supabase/supabase-js';
 
@@ -71,5 +71,5 @@ export const useAuth = () => {
     };
   }, []);
 
-  return { user, loading };
+  return useMemo(() => ({ user, loading }), [user, loading]);
 };

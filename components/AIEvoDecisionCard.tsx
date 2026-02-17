@@ -1,4 +1,4 @@
-// components/AIEvoDecisionCard.tsx
+ // components/AIEvoDecisionCard.tsx
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { futuristicColors } from '../styles/ai-dashboard-styles';

@@ -14,6 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '../../../styles/commonStyles';
 import Icon from '../../../components/Icon';
 import { useLotIntelligence as defaultUseLotIntelligence } from '../agents/LotIntelligenceAgent';
+import { usePremiumFeature } from '../../../hooks/usePremiumFeature';
+import SmartTunnelModal from '../../../components/SmartTunnelModal';
 
 const { width } = Dimensions.get('window');
 
@@ -73,6 +75,13 @@ export default function LotIntelligenceDashboard({
   const { lot, insights, kpis, loading: intelligenceLoading } = useIntelligence(lotId);
 
   const [error, setError] = useState<string | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState(false); // --- SÉCURITÉ ---
+
+  const { requestAccess, showTunnel, tunnelProps, isLoading: accessLoading } = usePremiumFeature({
+    featureKey: 'ai_analyses_per_month', // --- HARMONISATION QUOTAS ---
+    featureName: 'Intelligence Lot IA',
+    cost: 10,
+  });
 
   useEffect(() => {
     loadAnalysis();
@@ -81,7 +90,7 @@ export default function LotIntelligenceDashboard({
   const loadAnalysis = async () => {
     // La logique est maintenant entièrement gérée par le hook injecté.
   };
-  
+
   const getGrowthTrendColor = (trend: string) => {
     switch (trend) {
       case 'excellent': return '#10996E';
@@ -111,7 +120,22 @@ export default function LotIntelligenceDashboard({
     });
   };
 
-  if (intelligenceLoading) {
+  const checkAccess = async () => {
+    const access = await requestAccess();
+    if (access.granted) {
+      setIsAuthorized(true);
+    } else if (onClose) {
+      // Si l'accès est refusé ou annulé, on ferme le dashboard
+      // pour éviter de rester sur un écran vide ou de bypasser
+      onClose();
+    }
+  };
+
+  useEffect(() => {
+    checkAccess();
+  }, []);
+
+  if (intelligenceLoading || accessLoading) {
     return (
       <SafeAreaView style={commonStyles.container}>
         <View style={styles.loadingContainer}>
@@ -141,7 +165,7 @@ export default function LotIntelligenceDashboard({
     );
   }
 
-  if (!lot || !kpis) return null; // Attendre que le lot et les KPIs soient chargés par le hook
+  if (!lot || !kpis || !isAuthorized) return null; // Bloquer si non autorisé
 
   return (
     <SafeAreaView style={commonStyles.container}>
@@ -170,7 +194,7 @@ export default function LotIntelligenceDashboard({
           <View style={styles.sectionHeader}>
             <Icon name="trending-up" size={24} color={colors.primary} />
             <Text style={styles.sectionTitle}>Prédiction de Croissance</Text>
-            <View style={[styles.confidenceBadge, { 
+            <View style={[styles.confidenceBadge, {
               backgroundColor: (kpis.confidence_score || 80) > 80 ? '#10996E' : '#FF9800'
             }]}>
               <Text style={styles.confidenceText}>
@@ -212,15 +236,26 @@ export default function LotIntelligenceDashboard({
           </View>
 
           {/* Fenêtre optimale de vente */}
-          {kpis.optimal_sale_window && <View style={styles.optimalWindow}>
-            <Text style={styles.optimalTitle}>🔔 Fenêtre de vente optimale</Text>
-            <Text style={styles.optimalDates}>
-              {formatDate(kpis.optimal_sale_window.start_date)} - {formatDate(kpis.optimal_sale_window.end_date)}
-            </Text>
-            <Text style={styles.optimalMargin}>
-              Marge estimée: {kpis.optimal_sale_window.estimated_margin} CFA
-            </Text>
-          </View>}
+          {kpis.optimal_sale_window && (
+            <View style={styles.optimalWindow}>
+              <Text style={styles.optimalTitle}>🔔 Fenêtre de vente optimale</Text>
+              <Text style={styles.optimalDates}>
+                {formatDate(kpis.optimal_sale_window.start_date)} - {formatDate(kpis.optimal_sale_window.end_date)}
+              </Text>
+              <Text style={styles.optimalMargin}>
+                Marge estimée: {kpis.optimal_sale_window.estimated_margin.toLocaleString()} CFA
+              </Text>
+
+              {kpis.optimal_sale_window.use_default_price && (
+                <View style={styles.priceWarning}>
+                  <Icon name="alert-circle" size={20} color={colors.warning} />
+                  <Text style={styles.priceWarningText}>
+                    Attention : Prix de l'aliment par défaut utilisé (400 CFA). Ajoutez le prix réel dans votre Stock pour une marge précise.
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         {/* ALIMENTATION */}
@@ -298,7 +333,7 @@ export default function LotIntelligenceDashboard({
               <Text style={styles.metricLabel}>Tendance</Text>
               <Text style={[styles.metricValue, {
                 color: (kpis.mortality_trend || 'stable') === 'improving' ? '#10996E' :
-                       (kpis.mortality_trend || 'stable') === 'worsening' ? '#E53935' : '#FF9800'
+                  (kpis.mortality_trend || 'stable') === 'worsening' ? '#E53935' : '#FF9800'
               }]}>
                 {(kpis.mortality_trend || 'stable').toUpperCase()}
               </Text>
@@ -368,8 +403,8 @@ export default function LotIntelligenceDashboard({
               <Text style={styles.metricLabel}>Classement</Text>
               <Text style={[styles.metricValue, {
                 color: (kpis.benchmark?.ranking_percentile || 0) > 75 ? '#10996E' :
-                       (kpis.benchmark?.ranking_percentile || 0) > 50 ? '#4CAF50' :
-                       (kpis.benchmark?.ranking_percentile || 0) > 25 ? '#FF9800' : '#E53935'
+                  (kpis.benchmark?.ranking_percentile || 0) > 50 ? '#4CAF50' :
+                    (kpis.benchmark?.ranking_percentile || 0) > 25 ? '#FF9800' : '#E53935'
               }]}>
                 Top {(kpis.benchmark?.ranking_percentile || 0).toFixed(0)}%
               </Text>
@@ -391,6 +426,7 @@ export default function LotIntelligenceDashboard({
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+      <SmartTunnelModal {...tunnelProps} />
     </SafeAreaView>
   );
 }
@@ -401,6 +437,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
+  },
+  priceWarning: {
+    backgroundColor: '#fffbeb',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#fef3c7',
+  },
+  priceWarningText: {
+    fontSize: 12,
+    color: '#D97706',
+    fontWeight: '600',
+    flex: 1,
   },
   loadingText: {
     fontSize: 18,

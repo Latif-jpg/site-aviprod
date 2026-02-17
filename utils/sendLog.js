@@ -1,7 +1,10 @@
 const sendLog = async (level, message, data = {}) => {
     try {
-        // --- MODIFICATION : Remplacer par VOTRE adresse IP ---
-        // L'adresse IP de votre ordinateur, trouvée avec ipconfig.
+        // --- MODIFICATION : Désactiver sur le Web ou en Production pour éviter Mixed Content ---
+        if (Platform.OS === 'web') {
+            return;
+        }
+
         const serverIP = '192.168.100.32';
 
         // --- AJOUT : Contrôleur pour le timeout ---

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ensureSupabaseInitialized } from '../config';
 import { useAuth } from './useAuth';
-import { useDataCollector } from '../src/hooks/useDataCollector';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { usePushNotifications } from './usePushNotifications';
 
 export interface Notification {
   id: string;
@@ -20,7 +20,7 @@ export const useNotifications = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const { trackAction } = useDataCollector();
+  const { sendLocalNotification } = usePushNotifications();
 
   // Helper pour mapper les données brutes
   const mapNotification = (data: any): Notification => ({
@@ -163,8 +163,14 @@ export const useNotifications = () => {
           const supabase = await ensureSupabaseInitialized();
 
           // Utilisation d'un nom de canal unique pour éviter les conflits
+          const channelName = `notifications-global-${user.id}`;
+          if (!user.id) {
+            console.warn('⚠️ [useNotifications] user.id est vide, impossible de créer le canal.');
+            return;
+          }
+
           channel = supabase
-            .channel(`notifications-global-${user.id}`)
+            .channel(channelName)
             .on(
               'postgres_changes',
               {
@@ -182,6 +188,13 @@ export const useNotifications = () => {
                 if (payload.eventType === 'INSERT') {
                   const newNotif = mapNotification(payload.new);
                   setNotifications(prev => [newNotif, ...prev]);
+                  // --- NOUVEAU : Déclencher une notification locale ---
+                  sendLocalNotification(
+                    newNotif.title,
+                    newNotif.message,
+                    { type: newNotif.type, id: newNotif.id }
+                  ).catch(err => console.error("Erreur d'envoi de la notif locale:", err));
+
                 } else if (payload.eventType === 'UPDATE') {
                   const updatedNotif = mapNotification(payload.new);
                   setNotifications(prev =>
@@ -211,7 +224,7 @@ export const useNotifications = () => {
         ensureSupabaseInitialized().then(supabase => supabase.removeChannel(channel!));
       }
     };
-  }, [user, fetchUnreadCount, fetchNotifications]);
+  }, [user, fetchUnreadCount, fetchNotifications, sendLocalNotification]);
 
   return {
     unreadCount,

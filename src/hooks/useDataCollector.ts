@@ -1,5 +1,4 @@
-// src/hooks/useDataCollector.ts
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { dataCollector, EventType, EventPriority } from '../intelligence/core/DataCollector';
 
 /**
@@ -325,7 +324,7 @@ export const useDataCollector = () => {
     return dataCollector.forceFlush();
   }, []);
 
-  return {
+  return useMemo(() => ({
     // Méthodes de base
     collect,
     getQueueSize,
@@ -355,7 +354,14 @@ export const useDataCollector = () => {
     trackAuthEvent,
     trackFormSubmit,
     trackSearch,
-  };
+  }), [
+    collect, getQueueSize, forceFlush, trackPageView, trackAction, trackDataLoading,
+    trackNavigation, trackPerformance, trackError, trackSlowOperation,
+    trackLotEvent, trackHealthEvent, trackAlert, trackRecommendation,
+    trackProductView, trackAddToCart, trackOrderPlaced, trackTransaction,
+    trackDeliveryEvent, trackMessageSent, trackAIAnalysis, trackAuthEvent,
+    trackFormSubmit, trackSearch
+  ]);
 };
 
 // Hook spécialisé pour le tracking de performance
@@ -399,11 +405,11 @@ export const usePerformanceTracker = () => {
     }
   }, [trackSlowOperation]);
 
-  return {
+  return useMemo(() => ({
     startTracking,
     endTracking,
     trackAsyncOperation,
-  };
+  }), [startTracking, endTracking, trackAsyncOperation]);
 };
 
 // Hook spécialisé pour le tracking utilisateur
@@ -426,10 +432,10 @@ export const useUserTracker = () => {
     return trackAction(actionName, context);
   }, [trackAction]);
 
-  return {
+  return useMemo(() => ({
     trackLogin,
     trackLogout,
     trackScreenView,
     trackUserAction,
-  };
+  }), [trackLogin, trackLogout, trackScreenView, trackUserAction]);
 };

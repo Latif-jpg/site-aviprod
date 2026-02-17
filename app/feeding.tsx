@@ -49,9 +49,9 @@ const LotCardSkeleton = () => {
     <View style={styles.lotCard}>
       <View style={{ backgroundColor: '#e0e0e0', height: 24, width: '40%', borderRadius: 4, marginBottom: 16 }} />
       <View style={styles.lotStatsGrid}>
-        <View style={[styles.statItem, {backgroundColor: '#f0f0f0'}]} />
-        <View style={[styles.statItem, {backgroundColor: '#f0f0f0'}]} />
-        <View style={[styles.statItem, {backgroundColor: '#f0f0f0'}]} />
+        <View style={[styles.statItem, { backgroundColor: '#f0f0f0' }]} />
+        <View style={[styles.statItem, { backgroundColor: '#f0f0f0' }]} />
+        <View style={[styles.statItem, { backgroundColor: '#f0f0f0' }]} />
       </View>
       <View style={{ backgroundColor: '#f0f0f0', height: 100, borderRadius: 16, marginBottom: 16 }} />
       <View style={styles.actionButtons}>
@@ -83,8 +83,8 @@ export default function FeedingScreen() {
   const [showRationAdvisor, setShowRationAdvisor] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [userSubscription, setUserSubscription] = useState<UserSubscription | null>(null);
-  const [lotRations, setLotRations] = useState<{[lotId: string]: CustomFeedRation | null}>({});
-  const [lotAssignments, setLotAssignments] = useState<{[lotId: string]: LotAssignment | null}>({});
+  const [lotRations, setLotRations] = useState<{ [lotId: string]: CustomFeedRation | null }>({});
+  const [lotAssignments, setLotAssignments] = useState<{ [lotId: string]: LotAssignment | null }>({});
 
   useEffect(() => {
     loadData();
@@ -167,7 +167,7 @@ export default function FeedingScreen() {
         today.setHours(0, 0, 0, 0);
         entryDate.setHours(0, 0, 0, 0);
 
-        const daysOnFarm = Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
+        const daysOnFarm = Math.max(0, Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24)));
         const dynamicAge = (lot.age || 0) + daysOnFarm;
 
         return { ...lot, age: dynamicAge };
@@ -195,7 +195,7 @@ export default function FeedingScreen() {
 
       if (error) throw error;
 
-      const rationsByLot: {[lotId: string]: CustomFeedRation | null} = {};
+      const rationsByLot: { [lotId: string]: CustomFeedRation | null } = {};
       lots.forEach(lot => {
         rationsByLot[lot.id] = null;
       });
@@ -225,7 +225,7 @@ export default function FeedingScreen() {
 
       if (error) throw error;
 
-      const assignmentsByLot: {[lotId: string]: LotAssignment | null} = {};
+      const assignmentsByLot: { [lotId: string]: LotAssignment | null } = {};
       lots.forEach(lot => {
         assignmentsByLot[lot.id] = null;
       });
@@ -401,8 +401,8 @@ export default function FeedingScreen() {
             <View style={styles.insightHeader}>
               <Icon name={insight.icon as any} size={22} color={
                 insight.type === 'critical' ? '#ef4444' :
-                insight.type === 'warning' ? '#f59e0b' :
-                insight.type === 'success' ? '#10b981' : '#3b82f6'
+                  insight.type === 'warning' ? '#f59e0b' :
+                    insight.type === 'success' ? '#10b981' : '#3b82f6'
               } />
               <View style={styles.insightContent}>
                 <Text style={styles.insightTitle}>{insight.title}</Text>
@@ -484,7 +484,7 @@ export default function FeedingScreen() {
             <Text style={styles.currentRationName}>{currentRation?.name || 'Alimentation assignée via le stock'}</Text>
             <View style={styles.rationDetails}>
               <View style={styles.rationDetailItem}>
-                <Text style={styles.rationDetailLabel}>Protéines</Text> 
+                <Text style={styles.rationDetailLabel}>Protéines</Text>
                 <Text style={styles.rationDetailValue}>{currentRation?.protein_percentage || 'N/A'}%</Text>
               </View>
               <View style={styles.rationDetailItem}>
@@ -501,8 +501,8 @@ export default function FeedingScreen() {
             <View style={styles.totalDailyContainer}>
               <Text style={styles.totalDailyLabel}>Total journalier</Text>
               <Text style={styles.totalDailyValue}>
-                {currentAssignment 
-                  ? (currentAssignment.daily_quantity_per_bird * lotQuantity).toFixed(2) 
+                {currentAssignment
+                  ? (currentAssignment.daily_quantity_per_bird * lotQuantity).toFixed(2)
                   : ((currentRation?.daily_consumption_per_bird_grams || 0) * lotQuantity / 1000).toFixed(2)} kg
               </Text>
             </View>
@@ -526,7 +526,7 @@ export default function FeedingScreen() {
               <Text style={styles.buttonText}>Auto</Text>
             </View>
           </TouchableOpacity>
-  
+
           <TouchableOpacity
             style={styles.manualButton}
             onPress={() => {
@@ -630,7 +630,7 @@ export default function FeedingScreen() {
             </View>
             {/* Skeleton for AI insights */}
             <View style={[styles.insightsContainer, { backgroundColor: '#e0e0e0', height: 150, marginBottom: 20 }]} />
-            
+
             {/* Skeleton for AI advisor button */}
             <View style={[styles.aiAdvisorButton, { backgroundColor: '#e0e0e0', height: 80, borderRadius: 20, overflow: 'hidden' }]} />
 
@@ -717,11 +717,15 @@ export default function FeedingScreen() {
         onClose={() => setShowRationAdvisor(false)}
       >
         {selectedLot && currentUserId && (
-            <RationAdvisorDashboard
-                lot={selectedLot}
-                userId={currentUserId}
-                onClose={() => setShowRationAdvisor(false)}
-            />
+          <RationAdvisorDashboard
+            lot={selectedLot}
+            userId={currentUserId}
+            onClose={() => setShowRationAdvisor(false)}
+            onSaveSuccess={() => {
+              loadLotRations();
+              loadLotAssignments();
+            }}
+          />
         )}
       </SimpleBottomSheet>
     </SafeAreaView>

@@ -16,17 +16,22 @@ interface PaymentProof {
   payment_method: string;
   status: string; // 'pending', 'approved', 'rejected'
   created_at: string; // submitted_at
-  reference_type: string; // 'subscription', 'avicoins', 'order'
-  reference_id: string | null; // ID du plan ou de la commande
+  payment_type?: string; // 'subscription', 'avicoins', 'order'
+  reference_type?: string; // Legacy fallback
+  reference_id: string | null; // ID du plan
+  order_id?: string; // ID de la commande (si type order)
   // Joined data
   buyer_name: string;
   buyer_phone?: string;
+  buyer_phone_full?: string; // Téléphone du profil acheteur
+  seller_name?: string;      // Nom du vendeur (pour les commandes)
+  seller_phone?: string;     // Téléphone du vendeur (pour les commandes)
   amount: number; // order_total
   quantity?: number; // Nombre d'articles (ex: Avicoins)
 }
 
 export default function AdminPaymentValidationScreen() {
-  const { user } = useAuth(); // Utiliser le hook pour obtenir l'utilisateur
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [proofs, setProofs] = useState<PaymentProof[]>([]);
@@ -36,7 +41,7 @@ export default function AdminPaymentValidationScreen() {
   const [tabCounts, setTabCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
 
   const loadProofs = useCallback(async () => {
-    if (!user) return; // Ne rien faire si l'utilisateur n'est pas connecté
+    if (!user) return;
     setIsLoading(true);
     try {
       const supabase = await ensureSupabaseInitialized();
@@ -57,19 +62,130 @@ export default function AdminPaymentValidationScreen() {
         setTabCounts(counts);
       }
 
-      // --- CORRECTION : Utiliser la fonction RPC corrigée ---
-      // Cette fonction retourne déjà les données formatées avec les bons noms de colonnes
-      // et inclut le `reference_id` crucial.
       const { data, error } = await supabase.rpc('get_pending_payment_proofs_by_status', {
         p_status: activeTab
       });
 
       if (error) throw error;
 
-      // Les données de la RPC sont déjà prêtes à être utilisées.
-      setProofs(data || []);
+      const initialProofs = (data || []) as PaymentProof[];
+      if (initialProofs.length === 0) {
+        setProofs([]);
+        return;
+      }
+
+      // --- CORRECTION CRITIQUE (Step 1) : Récupérer les IDs manquants (order_id, payment_type) ---
+      const proofIds = initialProofs.map(pItem => pItem.id);
+      let correctedProofs = initialProofs;
+
+      if (proofIds.length > 0) {
+        const { data: rawProofs, error: rawProofsError } = await supabase
+          .from('payment_proofs')
+          .select('id, order_id, reference_id, payment_type') // reference_type retiré
+          .in('id', proofIds);
+
+        if (!rawProofsError && rawProofs) {
+          console.log('DEBUG: rawProofs fetched:', rawProofs.length);
+          const rawMap = new Map(rawProofs.map(rp => [rp.id, rp]));
+
+          correctedProofs = initialProofs.map(pItem => {
+            const raw = rawMap.get(pItem.id);
+            if (raw) {
+              // Normalisation du type de paiement (Gestion Cas 1, 2, 3 de l'utilisateur)
+              let nType = raw.payment_type;
+              if (nType === 1 || nType === '1') nType = 'avicoins';
+              else if (nType === 2 || nType === '2') nType = 'subscription';
+              else if (nType === 3 || nType === '3') nType = 'order';
+
+              const updated = {
+                ...pItem,
+                order_id: raw.order_id,
+                payment_type: nType || pItem.payment_type || pItem.reference_type,
+                reference_id: raw.reference_id || pItem.reference_id
+              };
+              // Si reference_id est vide pour une commande, on utilise order_id comme fallback pour reference_id aussi pour l'affichage
+              if (updated.payment_type === 'order' && !updated.reference_id && updated.order_id) {
+                updated.reference_id = updated.order_id;
+              }
+              return updated;
+            }
+            return pItem;
+          });
+        } else {
+          console.log('DEBUG: Error fetching raw proofs or empty', rawProofsError);
+        }
+      }
+
+      // --- ENRICHISSEMENT DES DONNÉES (Pour les Commandes) ---
+      const orderIds = correctedProofs
+        .filter(pItem => (pItem.payment_type === 'order' || pItem.reference_type === 'order'))
+        .map(pItem => pItem.order_id || pItem.reference_id)
+        .filter((id): id is string => !!id);
+
+      console.log('DEBUG: orderIds valid for enrichment:', orderIds);
+
+      let finalProofs = correctedProofs;
+
+      if (orderIds.length > 0) {
+        const { data: ordersRaw, error: ordersError } = await supabase
+          .from('orders')
+          .select('id, seller_id, buyer_id')
+          .in('id', orderIds);
+
+        console.log('DEBUG: ordersRaw fetched count:', ordersRaw?.length, 'IDs found:', ordersRaw?.map((o: any) => o.id));
+
+        if (!ordersError && ordersRaw) {
+          const profileIds = new Set<string>();
+          ordersRaw.forEach((o: any) => {
+            if (o.seller_id) profileIds.add(o.seller_id);
+            if (o.buyer_id) profileIds.add(o.buyer_id);
+          });
+
+          console.log('DEBUG: unique profileIds to fetch:', profileIds.size);
+
+          if (profileIds.size > 0) {
+            const { data: profiles, error: profilesError } = await supabase
+              .from('profiles')
+              .select('user_id, full_name, phone_number')
+              .in('user_id', Array.from(profileIds));
+
+            console.log('DEBUG: profiles fetched count:', profiles?.length, 'UserIDs:', profiles?.map((profile: any) => profile.user_id));
+
+            if (!profilesError && profiles) {
+              const profilesMap = new Map(profiles.map((profile: any) => [profile.user_id, profile]));
+              const ordersMap = new Map(ordersRaw.map((o: any) => [o.id, o]));
+
+              finalProofs = correctedProofs.map(pItem => {
+                const targetId = pItem.order_id || pItem.reference_id;
+                const type = pItem.payment_type || pItem.reference_type;
+                if (type === 'order' && targetId && ordersMap.has(targetId)) {
+                  const orderFromMap = ordersMap.get(targetId)!; // Use non-null assertion as we've checked with .has()
+                  const seller = profilesMap.get(orderFromMap.seller_id);
+                  const buyer = profilesMap.get(orderFromMap.buyer_id);
+
+                  console.log('DEBUG: Enrichment for order', targetId, 'Seller found:', !!seller, 'Buyer found:', !!buyer);
+                  if (seller) console.log('DEBUG: Seller name found:', seller.full_name);
+
+                  return {
+                    ...pItem,
+                    seller_name: seller?.full_name,
+                    seller_phone: seller?.phone_number,
+                    buyer_phone_full: buyer?.phone_number
+                  };
+                }
+                if (type === 'order') console.log('DEBUG: Enrichment skipped for order', targetId, 'Exists in map:', ordersMap.has(targetId));
+                return pItem;
+              });
+            }
+          }
+        }
+      }
+
+      console.log('DEBUG: Final proofs count:', finalProofs.length, 'Enriched samples:', finalProofs.filter(pItem => pItem.seller_name).length);
+      setProofs(finalProofs);
     } catch (error: any) {
-      Alert.alert('Erreur de chargement', `Impossible de charger les preuves de paiement. Assurez-vous d'être administrateur et d'avoir les permissions nécessaires. (${error.message})`);
+      console.error('DEBUG: Erreur globale loadProofs:', error);
+      Alert.alert('Erreur', `Erreur chargement: ${error.message}`);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -109,15 +225,15 @@ export default function AdminPaymentValidationScreen() {
               // --- CORRECTION : Appeler la fonction de validation centralisée ---
               console.log(`🚀 Appel de update_payment_proof_status avec proof_id: ${proofId}, status: ${newStatus}`);
               const { error: updateError } = await supabase.rpc('update_payment_proof_status', {
-                  p_proof_id: proofId,
-                  p_new_status: newStatus,
-                  p_admin_id: user.id // Utiliser l'ID de l'utilisateur admin actuel
-                });
+                p_proof_id: proofId,
+                p_new_status: newStatus,
+                p_admin_id: user.id // Utiliser l'ID de l'utilisateur admin actuel
+              });
 
               if (updateError) throw updateError;
-              
+
               Alert.alert('Succès', `Le paiement a été ${actionText} avec succès.`);
-              
+
               // Dans tous les cas, on rafraîchit l'interface
               setSelectedProof(null);
               loadProofs();
@@ -166,9 +282,9 @@ export default function AdminPaymentValidationScreen() {
           <View style={styles.cardHeaderInfo}>
             <Text style={styles.cardName}>{proof.buyer_name}</Text>
             <Text style={styles.cardSubText} numberOfLines={1}>
-              {proof.reference_type === 'order' ? `Commande #${proof.reference_id?.slice(-6)}` :
-               proof.reference_type === 'subscription' ? `Abonnement (Plan ID: ${proof.reference_id?.slice(-6)})` :
-               'Achat avicoins'}
+              {(proof.payment_type === 'order' || proof.reference_type === 'order') ? `Commande #${(proof.reference_id || proof.order_id)?.slice(-6)}` :
+                (proof.payment_type === 'subscription' || proof.reference_type === 'subscription') ? `Abonnement (Plan ID: ${proof.reference_id?.slice(-6)})` :
+                  'Achat avicoins'}
             </Text>
           </View>
           <View style={styles.statusContainer}>
@@ -187,8 +303,8 @@ export default function AdminPaymentValidationScreen() {
         <View style={styles.cardInfo}>
           <Text style={styles.infoLabel}>
             {proof.status === 'approved' ? 'Validé le:' :
-             proof.status === 'rejected' ? 'Rejeté le:' :
-             'Soumis le:'}
+              proof.status === 'rejected' ? 'Rejeté le:' :
+                'Soumis le:'}
           </Text>
           <Text style={styles.infoValue}>{formatDate(proof.created_at)}</Text>
         </View>
@@ -209,14 +325,41 @@ export default function AdminPaymentValidationScreen() {
             <Text style={styles.detailValue}>{selectedProof.buyer_name}</Text>
           </View>
           <View style={styles.detailSection}>
-            <Text style={styles.detailLabel}>Téléphone Client</Text>
+            <Text style={styles.detailLabel}>Téléphone Client (Paiement)</Text>
             <Text style={styles.detailValue}>{selectedProof.buyer_phone || 'Non fourni'}</Text>
           </View>
+          {selectedProof.buyer_phone_full && (
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Téléphone Client (Profil)</Text>
+              <Text style={styles.detailValue}>{selectedProof.buyer_phone_full}</Text>
+            </View>
+          )}
+
+          {/* SECTION VENDEUR (Uniquement pour les commandes) */}
+          {(selectedProof.seller_name || selectedProof.seller_phone) && (
+            <>
+              <View style={[styles.detailSection, { marginTop: 8, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border }]}>
+                <Text style={[styles.detailLabel, { color: colors.primary, fontWeight: '700' }]}>INFORMATION VENDEUR</Text>
+              </View>
+              {selectedProof.seller_name && (
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailLabel}>Nom Vendeur</Text>
+                  <Text style={styles.detailValue}>{selectedProof.seller_name}</Text>
+                </View>
+              )}
+              {selectedProof.seller_phone && (
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailLabel}>Téléphone Vendeur</Text>
+                  <Text style={styles.detailValue}>{selectedProof.seller_phone}</Text>
+                </View>
+              )}
+            </>
+          )}
           <View style={styles.detailSection}>
             <Text style={styles.detailLabel}>Montant</Text>
             <Text style={styles.detailValue}>{selectedProof.amount.toLocaleString()} CFA</Text>
           </View>
-          {selectedProof.reference_type === 'avicoins' && selectedProof.quantity && (
+          {(selectedProof.payment_type === 'avicoins' || selectedProof.reference_type === 'avicoins') && selectedProof.quantity && (
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Quantité</Text>
               <Text style={styles.detailValue}>{selectedProof.quantity} Avicoins</Text>
@@ -225,9 +368,9 @@ export default function AdminPaymentValidationScreen() {
           <View style={styles.detailSection}>
             <Text style={styles.detailLabel}>Objet du paiement</Text>
             <Text style={styles.detailValue}>
-              {selectedProof.reference_type === 'order' ? `Commande #${selectedProof.reference_id?.slice(-6)}` :
-               selectedProof.reference_type === 'subscription' ? `Abonnement (Plan ID: ${selectedProof.reference_id})` :
-               'Achat avicoins'}
+              {(selectedProof.payment_type === 'order' || selectedProof.reference_type === 'order') ? `Commande #${(selectedProof.reference_id || selectedProof.order_id)?.slice(-6)}` :
+                (selectedProof.payment_type === 'subscription' || selectedProof.reference_type === 'subscription') ? `Abonnement (Plan ID: ${selectedProof.reference_id})` :
+                  'Achat avicoins'}
             </Text>
           </View>
           <View style={styles.detailSection}>
@@ -321,13 +464,13 @@ export default function AdminPaymentValidationScreen() {
             <Icon name="card" size={64} color={colors.textSecondary} />
             <Text style={styles.emptyTitle}>
               {activeTab === 'pending' ? 'Aucun paiement en attente' :
-               activeTab === 'approved' ? 'Aucun paiement validé' :
-               'Aucun paiement rejeté'}
+                activeTab === 'approved' ? 'Aucun paiement validé' :
+                  'Aucun paiement rejeté'}
             </Text>
             <Text style={styles.emptyText}>
               {activeTab === 'pending' ? 'Les nouvelles soumissions apparaîtront ici.' :
-               activeTab === 'approved' ? 'Les paiements validés apparaîtront ici.' :
-               'Les paiements rejetés apparaîtront ici.'}
+                activeTab === 'approved' ? 'Les paiements validés apparaîtront ici.' :
+                  'Les paiements rejetés apparaîtront ici.'}
             </Text>
           </View>
         ) : (

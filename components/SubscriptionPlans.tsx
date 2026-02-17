@@ -45,7 +45,16 @@ export default function SubscriptionPlans() {
   // --- CORRECTION : Utiliser directement les données du contexte ---
   // Plus besoin de charger les plans localement, le contexte s'en charge.
   // 'allPlans' contient tous les plans, 'subscription' l'abonnement actif.
-  const { subscription: currentSubscription, allPlans: plans, loading: subscriptionLoading } = useSubscription();
+  const { subscription: currentSubscription, allPlans: fetchedPlans, loading: subscriptionLoading } = useSubscription();
+
+  // --- OVERRIDE TEMPORAIRE (Demande Client) ---
+  // Forcer le prix du plan Pro à 15000 CFA dans le code en attendant la mise à jour DB.
+  const plans = fetchedPlans.map(plan => {
+    if (plan.name === 'pro') {
+      return { ...plan, price_monthly: 15000 };
+    }
+    return plan;
+  });
 
   // MODE PAIEMENT ACTUEL : MANUEL (avec validation admin)
   // Pour basculer vers PayDunya automatique : remplacer handleSubscribe par handleSubscribePayDunya
@@ -168,7 +177,7 @@ export default function SubscriptionPlans() {
 
     // Si la fonctionnalité n'est pas définie ou est fausse (et n'est pas un quota 0), on ne l'affiche pas
     if (value === undefined || value === false) {
-        return null;
+      return null;
     }
 
     switch (feature) {
@@ -182,7 +191,7 @@ export default function SubscriptionPlans() {
         if (value === -1) displayValue = 'Lots illimités';
         else displayValue = `Jusqu'à ${value} lot${value > 1 ? 's' : ''}`;
         break;
-      
+
       // --- GESTION DES FONCTIONNALITÉS PREMIUM/PRO ---
       case 'auto_feeding': displayValue = 'Rations automatiques IA'; break;
       case 'advanced_feeding': displayValue = 'Analyses IA (Stock & Finance)'; break;
@@ -264,8 +273,8 @@ export default function SubscriptionPlans() {
         >
           <Text style={styles.subscribeButtonText}>
             {isCurrentPlan ? 'Plan Actif' :
-             plan.price_monthly === 0 ? 'Activé' :
-             plan.name.startsWith('avicoins_') ? 'Acheter' : 'Souscrire'}
+              plan.price_monthly === 0 ? 'Activé' :
+                plan.name.startsWith('avicoins_') ? 'Acheter' : 'Souscrire'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -320,7 +329,7 @@ export default function SubscriptionPlans() {
           </View>
         </View>
       </ScrollView>
-      
+
       {/*
       {selectedPlan && (
         <PaymentModal

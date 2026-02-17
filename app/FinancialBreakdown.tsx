@@ -52,7 +52,7 @@ export default function FinancialBreakdown({ title, records, type }: BreakdownPr
   }, [records, type]);
 
   if (records.length === 0) {
-    return null; // Ne rien afficher si pas de données
+    return null;
   }
 
   return (

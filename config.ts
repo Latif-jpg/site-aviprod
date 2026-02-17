@@ -19,12 +19,34 @@ if (!supabaseUrl || !supabaseAnonKey) {
 const validUrl = supabaseUrl || "https://placeholder.supabase.co";
 const validKey = supabaseAnonKey || "placeholder";
 
+// Custom storage adapter to handle SSR/Web safely
+const CustomStorageAdapter = {
+  getItem: (key: string) => {
+    if (typeof window !== 'undefined') {
+      return AsyncStorage.getItem(key);
+    }
+    return Promise.resolve(null);
+  },
+  setItem: (key: string, value: string) => {
+    if (typeof window !== 'undefined') {
+      return AsyncStorage.setItem(key, value);
+    }
+    return Promise.resolve();
+  },
+  removeItem: (key: string) => {
+    if (typeof window !== 'undefined') {
+      return AsyncStorage.removeItem(key);
+    }
+    return Promise.resolve();
+  },
+};
+
 // -------------------------------------------------------------
 // ✔️ INITIALISATION DU CLIENT SUPABASE
 // -------------------------------------------------------------
 export const supabase = createClient(validUrl, validKey, {
   auth: {
-    storage: AsyncStorage,
+    storage: CustomStorageAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

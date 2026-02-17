@@ -76,7 +76,7 @@ export default function MarketplaceMessagesScreen() {
 
       if (productsError) throw productsError;
 
-      const productsMap = new Map(products?.map(p => [p.id, p]) || []);
+      const productsMap = new Map(products?.map(product => [product.id, product]) || []);
 
       // Étape 3: Récupérer les informations des utilisateurs
       const otherUserIds = [...new Set(messages?.map(msg =>
@@ -90,7 +90,7 @@ export default function MarketplaceMessagesScreen() {
 
       if (profilesError) throw profilesError;
 
-      const profilesMap = new Map(profiles?.map(p => [p.user_id, p.full_name]) || []);
+      const profilesMap = new Map(profiles?.map(profile => [profile.user_id, profile.full_name]) || []);
 
       // Étape 4: Construire les conversations
       const conversationsMap = new Map<string, Conversation>();

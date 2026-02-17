@@ -36,9 +36,9 @@ const ReferralSection = () => {
           .select('referral_code')
           .eq('id', user.id)
           .limit(1); // Fetch as an array with a max of 1 item
-        
+
         if (error) throw error;
-        
+
         // If data is an array and has at least one item, take the first one.
         // This is more robust than .single() if there are duplicate rows in the DB.
         if (data && data.length > 0) {
@@ -134,7 +134,7 @@ export default function SettingsScreen() {
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Icon name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Paramètres</Text>
+          <Text style={styles.headerTitle}>Code de parrainage</Text>
         </View>
 
         {user && (

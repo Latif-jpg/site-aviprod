@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { colors } from "../styles/commonStyles";
-import { Picker } from '@react-native-picker/picker'; // Importer le sélecteur
+import { Picker } from '@react-native-picker/picker';
 import { generateAutoRation } from "../utils/autoRation";
-import { supabase } from "../config"; // Import supabase directly
+import { supabase } from "../config";
 import Icon from './Icon';
-
-// --- ÉTAPE 1: Importer les outils de verrouillage ---
 import { useSubscription } from "../contexts/SubscriptionContext";
-import PremiumModal from "./PremiumModal";
 import { router } from 'expo-router';
+import { usePremiumFeature } from "../hooks/usePremiumFeature";
+import SmartTunnelModal from "./SmartTunnelModal";
 
 interface Lot {
   id: string;
@@ -17,7 +16,8 @@ interface Lot {
   breed: string;
   quantity: number;
   age: number;
-  target_sale_date?: string; // Ajout de la date de vente cible
+  bird_type?: string;
+  target_sale_date?: string;
 }
 
 interface AutoRationFormProps {
@@ -30,23 +30,22 @@ interface StockFeedItem {
   name: string;
 }
 
-
 export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormProps) {
-   const [race, setRace] = useState(selectedLot?.breed || "");
-   const [phase, setPhase] = useState("");
-   const [nbAnimaux, setNbAnimaux] = useState(selectedLot?.quantity?.toString() || "0");
-   const [result, setResult] = useState<any>(null);
-   const [isLoading, setIsLoading] = useState(false);
-   const [paidAccess, setPaidAccess] = useState(false); // Pour suivre si l'accès a été payé avec Avicoins
-   // --- NOUVEAU : Gérer la liste des aliments et la sélection ---
-   const [feedStock, setFeedStock] = useState<StockFeedItem[]>([]);
-   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
+  const [race, setRace] = useState(selectedLot?.breed || "");
+  const [phase, setPhase] = useState("");
+  const [nbAnimaux, setNbAnimaux] = useState(selectedLot?.quantity?.toString() || "0");
+  const [result, setResult] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [feedStock, setFeedStock] = useState<StockFeedItem[]>([]);
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
 
-   // --- ÉTAPE 2: Utiliser le hook d'abonnement ---
-   const { hasAccess, canAffordFeature, getFeatureCost, loading: subscriptionLoading } = useSubscription();
-   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  // Hook Premium pour le Tunnel Malin
+  const { requestAccess, showTunnel, tunnelProps, isLoading: accessLoading } = usePremiumFeature({
+    featureKey: 'auto_feeding',
+    featureName: 'Ration Automatique',
+    cost: 10,
+  });
 
-  // Auto-detect phase based on lot age and breed type
   useEffect(() => {
     if (selectedLot?.age && selectedLot?.bird_type) {
       const detectedPhase = getStageFromAge(selectedLot.bird_type, selectedLot.age);
@@ -54,13 +53,10 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
     }
   }, [selectedLot]);
 
-  // Reset result when lot changes
   useEffect(() => {
     setResult(null);
-    setPaidAccess(false); // Reset paid access when lot changes
   }, [selectedLot]);
 
-  // --- NOUVEAU : Charger les aliments du stock ---
   useEffect(() => {
     const loadFeedStock = async () => {
       if (!selectedLot) return;
@@ -68,150 +64,95 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
         const { data, error } = await supabase
           .from('stock')
           .select('id, name')
-          .eq('category', 'feed');
+          .in('category', ['feed', 'other', 'supplement', 'ingredient'])
+          .order('name');
 
         if (error) throw error;
         setFeedStock(data || []);
         if (data && data.length > 0) {
-          setSelectedFeedId(data[0].id); // Pré-sélectionner le premier aliment
+          setSelectedFeedId(data[0].id);
         }
       } catch (error) {
-        console.error("Erreur lors du chargement du stock d'aliments:", error);
+        console.error("Erreur stock:", error);
       }
     };
     loadFeedStock();
   }, [selectedLot]);
 
-  const getStageFromAge = (birdType: string, age: number): 'démarrage' | 'croissance' | 'finition' | 'ponte' | 'pré-ponte' | 'inconnu' => {
-    // Protocole pour les races commerciales à croissance rapide (Broilers)
-    if (birdType === 'layers') { // Pondeuses
-      if (age <= 42) return 'démarrage'; // J1 à J42
-      if (age <= 119) return 'croissance'; // J43 à J119
-      if (age <= 140) return 'pré-ponte'; // J120 à J140
+  const getStageFromAge = (birdType: string, age: number): string => {
+    if (birdType === 'layers') {
+      if (age <= 42) return 'démarrage';
+      if (age <= 119) return 'croissance';
+      if (age <= 140) return 'pré-ponte';
       return 'ponte';
     }
-    // Protocole pour les poulets de chair (Broilers) et autres par défaut
-    if (age <= 21) return 'démarrage'; // J1 à J21
-    if (age <= 32) return 'croissance'; // J22 à J32
+    if (age <= 21) return 'démarrage';
+    if (age <= 32) return 'croissance';
     return 'finition';
   };
 
   const handleGenerate = async () => {
     if (!race || !phase || !nbAnimaux || parseInt(nbAnimaux) <= 0) {
-      Alert.alert("Erreur", "Veuillez remplir tous les champs correctement");
+      Alert.alert("Erreur", "Veuillez remplir tous les champs");
       return;
     }
+
+    // --- Appel au Tunnel Malin ---
+    const access = await requestAccess();
+    if (!access.granted) return;
 
     setIsLoading(true);
     try {
       const dailyRation = await generateAutoRation(race, phase, parseInt(nbAnimaux));
 
-      // --- NOUVELLE LOGIQUE DE CALCUL POUR LE CYCLE ---
       const STAGE_END_DAYS = {
         layers: { 'démarrage': 42, 'croissance': 119, 'pré-ponte': 140, 'ponte': 540 },
         broilers: { 'démarrage': 21, 'croissance': 32, 'finition': 45 }
       };
 
       const birdTypeKey = selectedLot?.bird_type === 'layers' ? 'layers' : 'broilers';
-      const stageEndDay = STAGE_END_DAYS[birdTypeKey][phase as keyof typeof STAGE_END_DAYS[typeof birdTypeKey]] || (selectedLot?.age || 0) + 1;
+      const stageEndDay = (STAGE_END_DAYS[birdTypeKey] as any)[phase] || (selectedLot?.age || 0) + 1;
 
       let daysRemainingInStage = 0;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      if (selectedLot?.target_sale_date) {
+      const isLastStage = (birdTypeKey === 'broilers' && phase === 'finition') || (birdTypeKey === 'layers' && phase === 'ponte');
+
+      if (selectedLot?.target_sale_date && isLastStage) {
         const saleDate = new Date(selectedLot.target_sale_date);
-        saleDate.setHours(0, 0, 0, 0);
         daysRemainingInStage = Math.max(0, Math.ceil((saleDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
       } else {
-        daysRemainingInStage = Math.max(0, stageEndDay - (selectedLot?.age || 0));
+        daysRemainingInStage = Math.max(0, (stageEndDay as number) - (selectedLot?.age || 0));
       }
 
-      const totalKgForStage = dailyRation.totalKg * daysRemainingInStage;
-      const totalBagsForStage = Math.ceil(totalKgForStage / 50);
-
-      const enhancedResult = {
+      const totalKg = Number(dailyRation.totalKg) || 0;
+      setResult({
         ...dailyRation,
         cycle: {
           daysRemaining: daysRemainingInStage,
-          totalKg: totalKgForStage,
-          totalBags: totalBagsForStage,
+          totalKg: totalKg * daysRemainingInStage,
+          totalBags: Math.ceil((totalKg * daysRemainingInStage) / 50),
         }
-      };
-
-      setResult(enhancedResult);
+      });
     } catch (error: any) {
-      Alert.alert("Erreur", error.message || "Impossible de générer la ration");
+      Alert.alert("Erreur", error.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handlePayWithAvicoins = async () => {
-    const cost = getFeatureCost('auto_feeding');
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        Alert.alert("Erreur", "Utilisateur non connecté");
-        return;
-      }
-
-      // Déduire les Avicoins
-      const { error } = await supabase
-        .from('avicoins_transactions')
-        .insert({
-          user_id: user.id,
-          amount: -cost,
-          transaction_type: 'spent',
-          description: `Calcul automatique de ration (${race} - ${phase})`,
-          reference_type: 'auto_feeding'
-        });
-
-      if (error) {
-        console.error('Erreur lors de la déduction Avicoins:', error);
-        Alert.alert("Erreur", "Impossible de débiter les Avicoins");
-        return;
-      }
-
-      // Marquer l'accès comme payé
-      setPaidAccess(true);
-
-      // Rafraîchir le solde Avicoins sur le dashboard
-      const { DeviceEventEmitter } = require('react-native');
-      DeviceEventEmitter.emit('refreshAvicoins');
-
-      Alert.alert("Succès", `${cost} Avicoins ont été débités. Vous pouvez maintenant utiliser le calcul automatique de ration.`);
-
-    } catch (error: any) {
-      console.error('Erreur lors du paiement Avicoins:', error);
-      Alert.alert("Erreur", "Impossible de traiter le paiement");
-    }
-  };
-
-  // --- CORRECTION : S'assurer que la génération auto ne se fait qu'une seule fois ---
-  useEffect(() => {
-    // Ce hook ne doit s'exécuter qu'au premier chargement du lot.
-    // La condition `!result` empêche une nouvelle génération si un résultat existe déjà.
-    if (selectedLot && !result) {
-      handleGenerate();
-    }
-  }, [selectedLot]); // Retrait des autres dépendances pour éviter les re-déclenchements.
-
   const handleSave = async () => {
     if (!result || !selectedLot || !selectedFeedId) {
-      Alert.alert("Erreur", "Veuillez générer une ration et sélectionner un aliment avant d'enregistrer.");
+      Alert.alert("Erreur", "Générez une ration et sélectionnez un aliment.");
       return;
     }
 
-    setIsLoading(true); // Démarrer le chargement
+    setIsLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Utilisateur non connecté.");
+      if (!user) throw new Error("Non connecté");
 
-      // --- ÉTAPE 1 : Enregistrer les détails de la ration dans custom_feed_rations ---
-      console.log('💾 Étape 1: Enregistrement des détails de la ration...');
       const rationName = `Ration auto (${result.ration.stage}) - ${race}`;
       const { data: savedRation, error: rationError } = await supabase
         .from("custom_feed_rations")
@@ -222,124 +163,47 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
           daily_consumption_per_bird_grams: result.dailyPerBird,
           protein_percentage: result.protein,
           energy_kcal: result.energy,
-          notes: `Quantité totale : ${result.totalKg} kg (${result.bags} sacs de 50kg)`,
         })
-        .select()
-        .single();
+        .select().single();
 
-      if (rationError) {
-        console.error('❌ Erreur lors de l\'enregistrement de la ration:', rationError);
-        throw new Error(`Impossible d'enregistrer les détails de la ration: ${rationError.message}`);
-      }
-      console.log('✅ Ration enregistrée avec succès:', savedRation);
+      if (rationError) throw rationError;
 
-      // --- ÉTAPE 2 : Créer ou mettre à jour l'assignation dans lot_stock_assignments ---
-      console.log('🔗 Étape 2: Création de l\'assignation de stock...');
-      const dailyQuantityPerBirdKg = result.dailyPerBird / 1000; // Convertir les grammes en kg
-
-      // --- LOGIQUE AMÉLIORÉE : Utiliser une fonction RPC pour une opération atomique ---
       const { error: rpcError } = await supabase.rpc('upsert_lot_assignment', {
         p_user_id: user.id,
         p_lot_id: selectedLot.id,
         p_stock_item_id: selectedFeedId,
-        p_daily_quantity: dailyQuantityPerBirdKg,
+        p_daily_quantity: result.dailyPerBird / 1000,
         p_feed_type: result.ration.stage
       });
 
-      if (rpcError) {
-        console.error('❌ Erreur RPC lors de la création de l\'assignation:', rpcError);
-        throw new Error(`Impossible de créer l'assignation: ${rpcError.message}`);
-      }
-      
-      console.log('✅ Assignation créée avec succès.');
+      if (rpcError) throw rpcError;
 
-      Alert.alert("Succès", "L'assignation de l'aliment a été enregistrée avec succès !");
-      if (onSave) { // Appeler la fonction de rafraîchissement si elle est fournie
-          onSave();
-      }
+      Alert.alert("Succès", "Ration enregistrée et assignée !");
+      if (onSave) onSave();
     } catch (error: any) {
-      // --- GESTION D'ERREUR AMÉLIORÉE ---
-      Alert.alert("Erreur d'enregistrement", error.message || "Une erreur inattendue est survenue.");
+      Alert.alert("Erreur", error.message);
     } finally {
-      setIsLoading(false); // Arrêter le chargement
+      setIsLoading(false);
     }
   };
 
-
-  // --- ÉTAPE 3: Verrouiller l'accès ---
-  if (subscriptionLoading) {
+  if (isLoading || isPremiumLoading) {
     return <ActivityIndicator style={{ margin: 20 }} size="large" color={colors.primary} />;
-  }
-
-  if (!hasAccess('auto_feeding') && !paidAccess) {
-    const cost = getFeatureCost('auto_feeding');
-    const canAfford = canAffordFeature('auto_feeding');
-
-    if (canAfford) {
-      // L'utilisateur peut payer avec des Avicoins
-      return (
-        <View style={styles.premiumContainer}>
-          <Text style={styles.premiumTitle}>Fonctionnalité Premium</Text>
-          <Text style={styles.premiumText}>
-            Le calcul automatique des rations coûte {cost} Avicoins.{'\n'}
-            Cette fonctionnalité sera débloquée pour cette session.
-          </Text>
-          <TouchableOpacity style={styles.btn} onPress={handlePayWithAvicoins}>
-            <Text style={styles.btnText}>🪙 Utiliser {cost} Avicoins</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginTop: 10 }]} onPress={() => {
-            try {
-              router.push('/subscription-plans');
-            } catch (error) {
-              console.error('Navigation error:', error);
-            }
-          }}>
-            <Text style={styles.btnText}>💎 S'abonner (accès permanent)</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    } else {
-      // L'utilisateur n'a pas assez d'Avicoins, proposer abonnement ou achat d'Avicoins
-      return (
-        <View style={styles.premiumContainer}>
-          <Text style={styles.premiumTitle}>Fonctionnalité Premium</Text>
-          <Text style={styles.premiumText}>
-            Le calcul automatique des rations est réservé aux abonnés.{'\n'}
-            Coût: {cost} Avicoins ou abonnement premium.
-          </Text>
-          <TouchableOpacity style={styles.btn} onPress={() => {
-            try {
-              router.push('/subscription-plans');
-            } catch (error) {
-              console.error('Navigation error:', error);
-            }
-          }}>
-            <Text style={styles.btnText}>💎 S'abonner maintenant</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
   }
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Formulation automatique de ration (Premium)</Text>
+      <Text style={styles.title}>Formulation automatique</Text>
 
       <Text style={styles.label}>Race</Text>
       <TextInput
-        placeholder="Ex: Pondeuse, Chair, Locale..."
+        placeholder="Ex: Pondeuse, Chair..."
         value={race}
         onChangeText={setRace}
         style={styles.input}
       />
 
-      <Text style={styles.label}>Phase de croissance</Text>
-      <View style={styles.autoDetectedField}>
-        <Icon name="leaf" size={20} color={colors.primary} />
-        <Text style={styles.autoDetectedText}>
-          {phase ? `Phase détectée : ${phase.charAt(0).toUpperCase() + phase.slice(1)}` : 'En attente de l\'âge du lot...'}
-        </Text>
-      </View>
+      <Text style={styles.label}>Phase détectée : {phase}</Text>
 
       <Text style={styles.label}>Nombre d'animaux</Text>
       <TextInput
@@ -349,130 +213,67 @@ export default function AutoRationForm({ selectedLot, onSave }: AutoRationFormPr
         style={styles.input}
       />
 
-      {/* --- NOUVEAU : Sélecteur d'aliment --- */}
-      <Text style={styles.label}>Sélectionner l'aliment du stock *</Text>
+      <Text style={styles.label}>Aliment du stock</Text>
       <View style={styles.pickerContainer}>
         <Picker
           selectedValue={selectedFeedId}
-          onValueChange={(itemValue) => setSelectedFeedId(itemValue)}
-          style={styles.picker}
+          onValueChange={(val) => setSelectedFeedId(val)}
         >
-          {feedStock.length === 0 ? (
-            <Picker.Item label="Aucun aliment dans le stock..." value={null} enabled={false} />
-          ) : (
-            feedStock.map(feed => <Picker.Item key={feed.id} label={feed.name} value={feed.id} />)
-          )}
+          {feedStock.map(feed => <Picker.Item key={feed.id} label={feed.name} value={feed.id} />)}
         </Picker>
       </View>
-      {/* --- NOUVEAU : Bouton pour créer un nouvel aliment si non trouvé --- */}
-      <TouchableOpacity 
-        style={styles.createFeedButton} 
-        onPress={() => {
-          // Redirige vers le formulaire d'ajout de stock, potentiellement avec des infos pré-remplies
-          Alert.alert("Action requise", "Vous allez être redirigé vers l'écran de stock pour créer un nouvel article. Une fois créé, revenez ici pour l'assigner.");
-          router.push('/stock'); // Simple redirection pour l'instant
-        }}>
-        <Text style={styles.createFeedButtonText}>Nouvel aliment non listé ? Créez-le ici</Text>
-      </TouchableOpacity>
 
-
-      <TouchableOpacity style={[styles.btn, isLoading && { opacity: 0.6 }]} onPress={handleGenerate} disabled={isLoading}>
-        <Text style={styles.btnText}>{isLoading ? "⏳ Génération..." : "⚡ Générer la ration"}</Text>
+      <TouchableOpacity style={styles.btn} onPress={handleGenerate}>
+        <Text style={styles.btnText}>⚡ Générer la ration (10 🪙)</Text>
       </TouchableOpacity>
 
       {result && (
         <View style={styles.result}>
-          <Text style={styles.resultTitle}>Ration composée automatiquement</Text>
-
-          <Text style={styles.resultLine}>
-            📊 Race: {race} - Phase: {phase}
-          </Text>
-          <Text style={styles.resultLine}>
-            🐔 Nombre d'animaux: {nbAnimaux}
-          </Text>
-          <Text style={styles.resultLine}>
-            ⚖️ Consommation par oiseau: {result.dailyPerBird}g/jour
-          </Text>
-
-          <Text style={styles.sectionTitle}>🥘 Composition des ingrédients (par sac de 50kg)</Text>
-          {result.ingredients?.map((ing: any, index: number) => {
-            const quantityPerBag = ((ing.quantityKg / parseFloat(result.totalKg)) * 50).toFixed(2);
-            return (
-              <Text key={index} style={styles.ingredientLine}>
-                • {ing.name}: {ing.percentage}% ({quantityPerBag} kg)
-              </Text>
-            );
-          })}
-
-          <Text style={styles.sectionTitle}>📊 Valeurs nutritionnelles</Text>
-          <Text style={styles.summary}>⚖️ Total journalier : {result.totalKg} kg</Text>
-          <Text style={styles.summary}>🧪 Protéines : {result.protein}%</Text>
-          <Text style={styles.summary}>🔥 Énergie : {result.energy} kcal/kg</Text>
-          <Text style={styles.summary}>🪣 Sacs (50kg) : {result.bags}</Text>
-
-          {/* --- NOUVELLE SECTION POUR LE CYCLE COMPLET --- */}
-          <Text style={styles.sectionTitle}>📦 Prévision pour le stade actuel ({result.cycle.daysRemaining} jours restants)</Text>
-          <Text style={styles.summary}>
-            ⚖️ Total pour le stade : {result.cycle.totalKg.toFixed(2)} kg
-          </Text>
-          <Text style={styles.summary}>
-            🪣 Total sacs (50kg) : {result.cycle.totalBags}
-          </Text>
+          <Text style={styles.resultTitle}>Ration composée</Text>
+          <Text>📊 {result.dailyPerBird}g / oiseau / jour</Text>
+          <Text>🧪 Protéines : {result.protein}%</Text>
+          <Text>🔥 Énergie : {result.energy} kcal/kg</Text>
+          <Text>📦 Total Phase ({result.cycle.daysRemaining}j) : {result.cycle.totalKg.toFixed(1)} kg</Text>
 
           <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-            <Text style={styles.saveText}>💾 Enregistrer cette ration</Text>
+            <Text style={styles.saveText}>💾 Enregistrer et Assigner</Text>
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Modal du Tunnel Malin */}
+      <SmartTunnelModal {...tunnelProps} />
+
+      <View style={{ height: 100 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: "#f8f8f8", paddingBottom: 100 },
+  container: { padding: 16, backgroundColor: "#f8f8f8" },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
-  label: { fontWeight: "600", marginTop: 10 },
+  label: { fontWeight: "600", marginTop: 10, marginBottom: 4 },
   input: {
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 8,
-    padding: 8,
-    marginTop: 4,
-    backgroundColor: "#fff",
-  },
-  autoDetectedField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
     padding: 12,
-    marginTop: 4,
-    backgroundColor: colors.backgroundAlt,
-    gap: 8,
+    backgroundColor: "#fff",
   },
   pickerContainer: {
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 8,
-    marginTop: 4,
     backgroundColor: "#fff",
   },
-  picker: {
-    height: 50,
-  },
-  autoDetectedText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-  },
   btn: {
-    backgroundColor: colors.primary || "#4caf50",
-    padding: 12,
+    backgroundColor: colors.primary,
+    padding: 16,
     borderRadius: 10,
     alignItems: "center",
     marginTop: 20,
   },
-  btnText: { color: "#fff", fontWeight: "700" },
+  btnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   result: {
     marginTop: 20,
     backgroundColor: "#eef6f1",
@@ -480,64 +281,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   resultTitle: { fontWeight: "700", fontSize: 16, marginBottom: 10 },
-  resultLine: { fontSize: 14, marginBottom: 4 },
-  summary: { marginTop: 6, fontWeight: "600" },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.primary,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  ingredientLine: {
-    fontSize: 14,
-    marginBottom: 2,
-    paddingLeft: 8,
-  },
   saveBtn: {
-    backgroundColor: colors.success || "#28a745",
-    paddingVertical: 20, // Augmentation du padding vertical pour plus de hauteur
-    paddingHorizontal: 16,
+    backgroundColor: colors.success,
+    padding: 16,
     borderRadius: 8,
     alignItems: "center",
-    justifyContent: 'center', // Centrer le contenu verticalement
     marginTop: 16,
   },
-  saveText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  premiumContainer: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.backgroundAlt,
-    borderRadius: 12,
-    margin: 16,
-  },
-  premiumTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  premiumText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  createFeedButton: {
-    marginTop: 10,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  createFeedButtonText: {
-    color: colors.primary,
-    fontSize: 14,
-    textDecorationLine: 'underline',
-    fontWeight: '600',
-  },
+  saveText: { color: "#fff", fontWeight: "700" },
 });

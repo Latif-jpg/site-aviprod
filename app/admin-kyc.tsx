@@ -479,15 +479,15 @@ export default function AdminKYCScreen() {
           <View style={styles.cardHeaderLeft}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-              {name.charAt(0)?.toUpperCase()}
+                {name.charAt(0)?.toUpperCase()}
               </Text>
             </View>
             <View style={styles.cardHeaderInfo}>
               <Text style={styles.cardName}>
-              {name}
+                {name}
               </Text>
               <Text style={styles.cardEmail}>
-              {email}
+                {email}
                 {isDriverVerification && ' 🚗 (Livreur)'}
               </Text>
             </View>
@@ -519,17 +519,35 @@ export default function AdminKYCScreen() {
           <View style={styles.photoPreviewContainer}>
             {isDriverVerification ? (
               <View style={styles.photoPreviewItem}>
-                <Image source={{ uri: verification.profile_photo_url }} style={styles.photoPreview} />
+                {verification.profile_photo_url ? (
+                  <Image source={{ uri: verification.profile_photo_url }} style={styles.photoPreview} />
+                ) : (
+                  <View style={[styles.photoPreview, { backgroundColor: colors.backgroundAlt, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Icon name="person" size={24} color={colors.textSecondary} />
+                  </View>
+                )}
                 <Text style={styles.photoPreviewLabel}>Profil</Text>
               </View>
             ) : (
               <View style={styles.photoPreviewItem}>
-                <Image source={{ uri: verification.real_photo_url }} style={styles.photoPreview} />
+                {verification.real_photo_url ? (
+                  <Image source={{ uri: verification.real_photo_url }} style={styles.photoPreview} />
+                ) : (
+                  <View style={[styles.photoPreview, { backgroundColor: colors.backgroundAlt, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Icon name="camera" size={24} color={colors.textSecondary} />
+                  </View>
+                )}
                 <Text style={styles.photoPreviewLabel}>Photo réelle</Text>
               </View>
             )}
             <View style={styles.photoPreviewItem}>
-              <Image source={{ uri: isDriverVerification ? verification.id_document_url : verification.id_photo_url }} style={styles.photoPreview} />
+              {(isDriverVerification ? verification.id_document_url : verification.id_photo_url) ? (
+                <Image source={{ uri: isDriverVerification ? verification.id_document_url : verification.id_photo_url }} style={styles.photoPreview} />
+              ) : (
+                <View style={[styles.photoPreview, { backgroundColor: colors.backgroundAlt, alignItems: 'center', justifyContent: 'center' }]}>
+                  <Icon name="card" size={24} color={colors.textSecondary} />
+                </View>
+              )}
               <Text style={styles.photoPreviewLabel}>Pièce d'identité</Text>
             </View>
           </View>
@@ -628,7 +646,7 @@ export default function AdminKYCScreen() {
                   { label: 'Preuve Paiement', url: selectedVerification.payment_proof_url },
                 ].map((doc, index) => (
                   <View key={index} style={styles.documentItem}>
-                    <TouchableOpacity onPress={() => {}} disabled={!doc.url}>
+                    <TouchableOpacity onPress={() => { }} disabled={!doc.url}>
                       {doc.url ? (
                         <Image source={{ uri: doc.url }} style={styles.documentImage} />
                       ) : (
@@ -645,7 +663,7 @@ export default function AdminKYCScreen() {
               <>
                 <View style={styles.photoDetailContainer}>
                   <Text style={styles.photoDetailLabel}>Photo réelle (Selfie)</Text>
-                  <TouchableOpacity onPress={() => {}} disabled={!selectedVerification.real_photo_url}>
+                  <TouchableOpacity onPress={() => { }} disabled={!selectedVerification.real_photo_url}>
                     {selectedVerification.real_photo_url ? (
                       <Image source={{ uri: selectedVerification.real_photo_url }} style={styles.photoDetail} />
                     ) : (
@@ -656,7 +674,7 @@ export default function AdminKYCScreen() {
 
                 <View style={styles.photoDetailContainer}>
                   <Text style={styles.photoDetailLabel}>Pièce d&apos;identité (CNI)</Text>
-                  <TouchableOpacity onPress={() => {}} disabled={!selectedVerification.id_photo_url}>
+                  <TouchableOpacity onPress={() => { }} disabled={!selectedVerification.id_photo_url}>
                     {selectedVerification.id_photo_url ? (
                       <Image source={{ uri: selectedVerification.id_photo_url }} style={styles.photoDetail} />
                     ) : (
@@ -745,7 +763,7 @@ export default function AdminKYCScreen() {
         <Text style={styles.accessDeniedText}>
           Vous n&apos;avez pas les permissions nécessaires pour accéder à cette page.
         </Text>
-        
+
         {userEmail && (
           <View style={styles.infoCard}>
             <Text style={styles.infoCardLabel}>Compte connecté :</Text>
@@ -837,8 +855,8 @@ export default function AdminKYCScreen() {
       </View>
 
       <View style={styles.filterContainer}>
-        <ScrollView 
-          horizontal 
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterContent}
         >
@@ -851,10 +869,10 @@ export default function AdminKYCScreen() {
               ]}
               onPress={() => setFilterStatus(filter.key)}
             >
-              <Icon 
-                name={filter.key === 'all' ? 'list' : filter.key === 'pending' ? 'time' : filter.key === 'approved' ? 'checkmark-circle' : 'close-circle'} 
-                size={16} 
-                color={filterStatus === filter.key ? colors.white : colors.textSecondary} 
+              <Icon
+                name={filter.key === 'all' ? 'list' : filter.key === 'pending' ? 'time' : filter.key === 'approved' ? 'checkmark-circle' : 'close-circle'}
+                size={16}
+                color={filterStatus === filter.key ? colors.white : colors.textSecondary}
               />
               <Text style={[
                 styles.filterButtonText,

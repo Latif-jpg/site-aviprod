@@ -43,15 +43,15 @@ Deno.serve(async (req) => {
     const bodyText = await req.text();
     const params = new URLSearchParams(bodyText);
     const flatBody = Object.fromEntries(params.entries());
-    
+
     // The unflattened object will have a single 'data' key.
     const webhookData = unflatten(flatBody).data;
 
     if (!webhookData) {
       console.error('❌ Failed to parse webhook data or "data" key is missing.');
-      return new Response(JSON.stringify({ error: 'Invalid payload structure' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ error: 'Invalid payload structure' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    
+
     console.log('✅ Payload parsé:', JSON.stringify(webhookData, null, 2));
 
     const PAYDUNYA_MASTER_KEY = Deno.env.get('PAYDUNYA_MASTER_KEY');
@@ -60,14 +60,14 @@ Deno.serve(async (req) => {
 
     if (!PAYDUNYA_MASTER_KEY || !supabaseUrl || !supabaseServiceKey) {
       console.error('❌ Configuration manquante');
-      return new Response(JSON.stringify({ error: 'Configuration error' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ error: 'Configuration error' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     if (webhookData.hash) {
       const expectedHash = createHash('sha512').update(PAYDUNYA_MASTER_KEY).digest('hex');
       if (webhookData.hash !== expectedHash) {
         console.error('❌ Hash invalide');
-        return new Response(JSON.stringify({ error: 'Invalid signature' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+        return new Response(JSON.stringify({ error: 'Invalid signature' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       console.log('✅ Hash vérifié');
     }
@@ -77,9 +77,9 @@ Deno.serve(async (req) => {
 
     if (!status || !invoice_token || !custom_data?.payment_id) {
       console.error('❌ Données invalides: status, invoice.token, or custom_data.payment_id manquant.');
-      return new Response(JSON.stringify({ error: 'Invalid payload: Missing required fields' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ error: 'Invalid payload: Missing required fields' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    
+
     const { payment_id } = custom_data;
     console.log('🔍 Recherche du paiement avec ID:', payment_id);
 
@@ -96,8 +96,8 @@ Deno.serve(async (req) => {
     if (!paymentsRes.ok) {
       console.error('❌ Erreur DB:', await paymentsRes.text());
       return new Response(
-        JSON.stringify({ error: 'Database error' }), 
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }}
+        JSON.stringify({ error: 'Database error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -105,8 +105,8 @@ Deno.serve(async (req) => {
     if (payments.length === 0) {
       console.error('❌ Paiement introuvable:', payment_id);
       return new Response(
-        JSON.stringify({ error: 'Payment not found' }), 
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' }}
+        JSON.stringify({ error: 'Payment not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
 
     if (payment.status === newStatus) {
       console.log(`⚠️ Statut déjà sur '${newStatus}'. Pas de mise à jour nécessaire.`);
-      return new Response(JSON.stringify({ success: true, message: 'Status already up to date.' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ success: true, message: 'Status already up to date.' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     console.log(`💾 Mise à jour du statut de '${payment.status}' vers '${newStatus}'`);
@@ -140,7 +140,7 @@ Deno.serve(async (req) => {
 
     if (!updateRes.ok) {
       console.error('❌ Échec mise à jour paiement:', await updateRes.text());
-      return new Response(JSON.stringify({ error: 'Payment update failed' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ error: 'Payment update failed' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     console.log('✅ Paiement mis à jour');
@@ -190,58 +190,60 @@ Deno.serve(async (req) => {
             // Créer ou mettre à jour l'abonnement
             // 1. Vérifier si un abonnement existe déjà pour cet utilisateur
             const existingSubRes = await fetch(`${supabaseUrl}/rest/v1/user_subscriptions?user_id=eq.${payment.user_id}&select=id`, {
-                headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey },
+              headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey },
             });
 
             if (!existingSubRes.ok) {
-                console.error('❌ Erreur lors de la vérification de l\'abonnement existant:', await existingSubRes.text());
-                // Ne pas bloquer le processus, mais logger l'erreur. On tentera une création.
+              console.error('❌ Erreur lors de la vérification de l\'abonnement existant:', await existingSubRes.text());
+              // Ne pas bloquer le processus, mais logger l'erreur. On tentera une création.
             }
-            
+
             const existingSubs = await existingSubRes.json();
             const existingSubId = existingSubs.length > 0 ? existingSubs[0].id : null;
 
             let subRes;
             // 2. Préparer le corps de la requête pour l'abonnement
             const subscriptionBody = {
-                user_id: payment.user_id,
-                plan_id: plan.id, // Correction: Utiliser l'ID du plan récupéré
-                status: 'active',
-                payment_id: payment.id,
-                subscription_type: 'paid', // Type d'abonnement payant
-                current_period_start: now.toISOString(),
-                current_period_end: endDate.toISOString(),
-                last_payment_date: now.toISOString(),
-                next_payment_date: endDate.toISOString(),
-                features: plan.features
+              user_id: payment.user_id,
+              plan_id: plan.id, // Correction: Utiliser l'ID du plan récupéré
+              status: 'active',
+              payment_id: payment.id,
+              subscription_type: 'paid', // Type d'abonnement payant
+              current_period_start: now.toISOString(),
+              current_period_end: endDate.toISOString(),
+              expires_at: endDate.toISOString(),
+              last_payment_date: now.toISOString(),
+              next_payment_date: endDate.toISOString(),
+              auto_renew: false, // Désactivé par défaut pour les paiements manuels
+              features: plan.features
             };
 
             if (existingSubId) {
-                // 3a. Si un abonnement existe, le mettre à jour (PATCH)
-                console.log(`🔄 Mise à jour de l'abonnement existant pour l'utilisateur ${payment.user_id}`);
-                subRes = await fetch(`${supabaseUrl}/rest/v1/user_subscriptions?id=eq.${existingSubId}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey, 'Prefer': 'return=minimal' },
-                    body: JSON.stringify(subscriptionBody),
-                });
+              // 3a. Si un abonnement existe, le mettre à jour (PATCH)
+              console.log(`🔄 Mise à jour de l'abonnement existant pour l'utilisateur ${payment.user_id}`);
+              subRes = await fetch(`${supabaseUrl}/rest/v1/user_subscriptions?id=eq.${existingSubId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey, 'Prefer': 'return=minimal' },
+                body: JSON.stringify(subscriptionBody),
+              });
             } else {
-                // 3b. Sinon, créer un nouvel abonnement (POST)
-                console.log(`➕ Création d'un nouvel abonnement pour l'utilisateur ${payment.user_id}`);
-                subRes = await fetch(`${supabaseUrl}/rest/v1/user_subscriptions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey, 'Prefer': 'return=minimal' },
-                    body: JSON.stringify(subscriptionBody),
-                });
+              // 3b. Sinon, créer un nouvel abonnement (POST)
+              console.log(`➕ Création d'un nouvel abonnement pour l'utilisateur ${payment.user_id}`);
+              subRes = await fetch(`${supabaseUrl}/rest/v1/user_subscriptions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey, 'Prefer': 'return=minimal' },
+                body: JSON.stringify(subscriptionBody),
+              });
             }
 
             // 4. Gérer le résultat de l'opération
             if (!subRes.ok) {
-                const errorText = await subRes.text();
-                console.error("❌ CRITICAL: Échec de l'activation de l'abonnement:", errorText);
-                // Throw an error to stop further processing if subscription activation fails
-                throw new Error(`Failed to activate subscription: ${errorText}`);
+              const errorText = await subRes.text();
+              console.error("❌ CRITICAL: Échec de l'activation de l'abonnement:", errorText);
+              // Throw an error to stop further processing if subscription activation fails
+              throw new Error(`Failed to activate subscription: ${errorText}`);
             } else {
-                console.log('✅ Abonnement activé/mis à jour');
+              console.log('✅ Abonnement activé/mis à jour');
             }
           }
         } else {
