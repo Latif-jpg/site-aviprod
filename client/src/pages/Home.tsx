@@ -25,7 +25,7 @@ import ContactForm from "@/components/ContactForm";
 export default function Home() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
-  const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   useEffect(() => {
     // SEO - Optimisation pour les moteurs de recherche
@@ -111,16 +111,12 @@ export default function Home() {
   }, []);
 
   const handleDownloadClick = (e: MouseEvent<HTMLButtonElement>) => {
-    // Empêcher la propagation de l'événement pour éviter que les scripts publicitaires ne se déclenchent
     e.stopPropagation();
     e.nativeEvent.stopImmediatePropagation();
-    setShowDownloadConfirm(true);
+    window.open('https://play.google.com/store/apps/details?id=com.aviprodapp.app', '_blank');
   };
 
-  const startApkDownload = () => {
-    // Redirect to APK download
-    window.location.href = 'https://github.com/Latif-jpg/aviprod-android/releases/latest/download/aviprod12227.apk';
-  };
+
 
   return (
     <div className="min-h-screen bg-white">
@@ -163,10 +159,10 @@ export default function Home() {
               onClick={handleDownloadClick}
               className="bg-primary hover:bg-primary/90 text-white gap-2"
             >
-              <>
-                <Download size={18} />
-                Télécharger l'APK
-              </>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.61 3,21.09 3,20.5M16.81,15.12L18.65,16.19C19.45,16.65 20,17.48 20,18.41C20,19.34 19.45,20.17 18.65,20.63L15.11,22.67L14.4,12.71L16.81,15.12M20.16,3.37C20.66,3.61 21,4.13 21,4.72V19.28C21,19.87 20.66,20.39 20.16,20.63L16.51,12L20.16,3.37M15.11,1.33L18.65,3.37C19.45,3.83 20,4.66 20,5.59C20,6.52 19.45,7.35 18.65,7.81L16.81,8.88L14.4,11.29L15.11,1.33Z" />
+              </svg>
+              Google Play
             </Button>
           </div>
         </div>
@@ -211,8 +207,10 @@ export default function Home() {
                     size="lg"
                     className="bg-primary hover:bg-primary/90 text-white gap-2"
                   >
-                    <Download size={20} />
-                    Télécharger Maintenant
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                      <path d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.61 3,21.09 3,20.5M16.81,15.12L18.65,16.19C19.45,16.65 20,17.48 20,18.41C20,19.34 19.45,20.17 18.65,20.63L15.11,22.67L14.4,12.71L16.81,15.12M20.16,3.37C20.66,3.61 21,4.13 21,4.72V19.28C21,19.87 20.66,20.39 20.16,20.63L16.51,12L20.16,3.37M15.11,1.33L18.65,3.37C19.45,3.83 20,4.66 20,5.59C20,6.52 19.45,7.35 18.65,7.81L16.81,8.88L14.4,11.29L15.11,1.33Z" />
+                    </svg>
+                    Télécharger sur Play Store
                   </Button>
                   <Button
                     size="lg"
@@ -614,8 +612,10 @@ export default function Home() {
                 size="lg"
                 className="bg-white text-primary hover:bg-white/90 gap-2 font-semibold"
               >
-                <Download size={20} />
-                Télécharger l'APK
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.61 3,21.09 3,20.5M16.81,15.12L18.65,16.19C19.45,16.65 20,17.48 20,18.41C20,19.34 19.45,20.17 18.65,20.63L15.11,22.67L14.4,12.71L16.81,15.12M20.16,3.37C20.66,3.61 21,4.13 21,4.72V19.28C21,19.87 20.66,20.39 20.16,20.63L16.51,12L20.16,3.37M15.11,1.33L18.65,3.37C19.45,3.83 20,4.66 20,5.59C20,6.52 19.45,7.35 18.65,7.81L16.81,8.88L14.4,11.29L15.11,1.33Z" />
+                </svg>
+                Google Play
               </Button>
               <Button
                 size="lg"
@@ -863,27 +863,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Custom Download Confirmation Dialog */}
-      <AlertDialog open={showDownloadConfirm} onOpenChange={setShowDownloadConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Téléchargement de l'application</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3 pt-2">
-              <p>
-                Votre navigateur pourrait afficher un avertissement de sécurité. C'est une procédure normale pour les applications qui ne sont pas sur le Play Store.
-              </p>
-              <p className="font-semibold text-foreground">
-                Nous garantissons que notre fichier est 100% sûr.
-              </p>
-              <p>Voulez-vous continuer le téléchargement ?</p>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={startApkDownload}>Oui, télécharger</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+
     </div>
   );
 }
