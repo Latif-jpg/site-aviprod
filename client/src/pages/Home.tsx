@@ -25,7 +25,6 @@ import ContactForm from "@/components/ContactForm";
 export default function Home() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
-  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   useEffect(() => {
     // SEO - Optimisation pour les moteurs de recherche
