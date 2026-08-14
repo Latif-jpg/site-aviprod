@@ -63,7 +63,8 @@
     "vaul": "^1.1.2",
     "wouter": "3.7.1",
     "zod": "^4.1.12",
-    "@vercel/blob": "^0.23.0"
+    "@vercel/blob": "^0.23.0",
+    "@vercel/analytics": "^1.5.0"
   },
   "devDependencies": {
     "@builder.io/vite-plugin-jsx-loc": "^0.1.1",
@@ -89,7 +90,7 @@
     "vitest": "^2.1.4"
   },
   "engines": {
-    "node": "20"
+    "node": ">=20"
   },
   "packageManager": "pnpm@9.15.0",
   "overrides": {
