@@ -149,7 +149,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
-              onClick={() => window.open('https://aviprod-web.vercel.app/dashboard', '_blank')}
+              onClick={() => window.open('https://aviprod-online.netlify.app/dashboard', '_blank')}
               className="text-primary hover:text-primary/80"
             >
               Se connecter
@@ -221,7 +221,7 @@ export default function Home() {
                     size="lg"
                     variant="outline"
                     className="border-primary text-primary hover:bg-primary/5"
-                    onClick={() => window.open('https://aviprod-web.vercel.app/dashboard', '_blank')}
+                    onClick={() => window.open('https://aviprod-online.netlify.app/dashboard', '_blank')}
                   >
                     Utiliser la Version Web
                   </Button>
@@ -629,7 +629,7 @@ export default function Home() {
                 size="lg"
                 variant="outline"
                 className="border-white text-white hover:bg-white/10"
-                onClick={() => window.open('https://aviprod-web.vercel.app/dashboard', '_blank')}
+                onClick={() => window.open('https://aviprod-online.netlify.app/dashboard', '_blank')}
               >
                 Accéder au Dashboard
               </Button>
